@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="android_wear_capabilities">
+        <!-- This exact token acts as the radio handshake key for the watch -->
+        <item>dio_phone_app</item>
+    </string-array>
+</resources>

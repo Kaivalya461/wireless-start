@@ -11,12 +11,17 @@ App Features:
 
 ---
 Commands:
-1. Install apk wirelessly on android device
+1. Compile Entire Project (Android + Wear App)
+   ```
+   .\gradlew.bat clean assembleDebug
+   ```
+
+2. Install apk wirelessly on android device
     ```
    adb -s 192.168.1.135:32933 install app/build/outputs/apk/debug/app-debug.apk
     ```
    
-2. ADB Wireless Pair And Connect
+3. ADB Wireless Pair And Connect
     ```
    // Pair your phone/watch (using the phone/watch pairing code popup info)
    adb pair 192.168.1.135:33827

@@ -1,81 +1,179 @@
 package in.kvapps.wirelessstart;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothProfile;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.TextView;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.UUID;
 
-public class MainActivity extends Activity {
-    // UI Elements
+import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.data.PreferenceManager;
+
+public class MainActivity extends Activity implements BleManager.BleListener {
+
+    private static final int PERMISSION_REQUEST_CODE = 101;
+    private final String[] durationOptions = {"1700ms", "2000ms", "3000ms", "Custom"};
+
+    // UI Controls
     private View statusIndicator;
     private TextView txtStatus, txtLog;
-    private Button btnStart, btnStop;
+    private Button btnStart, btnStop, btnReconnect;
+    private Spinner spinnerStart, spinnerStop;
+    private EditText inputCustomStart, inputCustomStop;
 
-    // Bluetooth Objects
-    private BluetoothAdapter bluetoothAdapter;
-    private BluetoothGatt bluetoothGatt;
-    private BluetoothGattCharacteristic commandCharacteristic;
-    private android.content.BroadcastReceiver watchCommandReceiver;
-
-
-    // Hardware Configurations (Match these to your ESP32 target later)
-    private static final String ESP32_MAC = "KV:ES:PX:CC:DD:EE:FF";
-
-    private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
-    private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
-    private static final int PERMISSION_REQUEST_CODE = 101;
+    // Helpers
+    private BleManager bleManager;
+    private PreferenceManager preferenceManager;
+    private BroadcastReceiver watchCommandReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 1. Link Java variables to XML elements
+        preferenceManager = new PreferenceManager(this);
+        bleManager = new BleManager(this, this);
+
+        initUiViews();
+        setupSpinnersAndPersistence();
+        setupClickListeners();
+        registerWatchReceiver();
+
+        checkPermissionsAndConnect();
+    }
+
+    private void initUiViews() {
         statusIndicator = findViewById(R.id.status_indicator);
         txtStatus = findViewById(R.id.txt_status);
         txtLog = findViewById(R.id.txt_log);
         btnStart = findViewById(R.id.btn_start);
         btnStop = findViewById(R.id.btn_stop);
+        btnReconnect = findViewById(R.id.btn_reconnect);
 
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        spinnerStart = findViewById(R.id.spinner_start);
+        spinnerStop = findViewById(R.id.spinner_stop);
+        inputCustomStart = findViewById(R.id.input_custom_start);
+        inputCustomStop = findViewById(R.id.input_custom_stop);
+    }
 
-        // 2. Setup Click Listeners
-        btnStart.setOnClickListener(v -> sendBleCommand("START"));
-        btnStop.setOnClickListener(v -> sendBleCommand("STOP"));
+    private void setupSpinnersAndPersistence() {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, durationOptions);
+        spinnerStart.setAdapter(adapter);
+        spinnerStop.setAdapter(adapter);
 
-        // 3. Verify System Permissions before attempting connection
-        checkPermissionsAndConnect();
+        // Restore values
+        spinnerStart.setSelection(preferenceManager.getStartSpinnerPosition());
+        spinnerStop.setSelection(preferenceManager.getStopSpinnerPosition());
+        inputCustomStart.setText(preferenceManager.getStartCustomMs());
+        inputCustomStop.setText(preferenceManager.getStopCustomMs());
 
-        // Listen for internal background service events matching the watch channel
-        watchCommandReceiver = new android.content.BroadcastReceiver() {
-            @Override
-            public void onReceive(android.content.Context context, android.content.Intent intent) {
-                String actionCommand = intent.getStringExtra("COMMAND");
-                if (actionCommand != null) {
-                    logToConsole("[WATCH RX] Remote execution received: " + actionCommand);
-                    sendBleCommand(actionCommand); // Automatically pipes the command directly to the ESP32
+        // Listeners
+        spinnerStart.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
+            inputCustomStart.setVisibility(position == 3 ? View.VISIBLE : View.GONE);
+            preferenceManager.saveStartSpinnerPosition(position);
+        }));
+
+        spinnerStop.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
+            inputCustomStop.setVisibility(position == 3 ? View.VISIBLE : View.GONE);
+            preferenceManager.saveStopSpinnerPosition(position);
+        }));
+
+        inputCustomStart.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStartCustomMs(text));
+        inputCustomStop.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStopCustomMs(text));
+    }
+
+    private final android.os.Handler cooldownHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private void setupClickListeners() {
+        btnStart.setOnClickListener(v -> {
+            String command = formatCommand("START", spinnerStart, inputCustomStart);
+
+            // 1. Transmit command
+            bleManager.sendBleCommand(command);
+
+            // 2. Calculate dynamic cooldown duration
+            long pulseMs = parsePulseDuration(spinnerStart, inputCustomStart, 1700); // 1700ms default start
+            long totalCooldownMs = pulseMs + 3000; // Pulse time + 3s starter motor resting cooldown
+
+            // 3. Disable UI button and give visual user feedback
+            btnStart.setEnabled(false);
+            btnStart.setAlpha(0.5f);
+            onLog("[SAFETY] Starter cooling down for " + (totalCooldownMs / 1000) + "s...");
+
+            // 4. Re-enable button after cooldown finishes
+            cooldownHandler.postDelayed(() -> {
+                btnStart.setEnabled(true);
+                btnStart.setAlpha(1.0f);
+                onLog("[SAFETY] Ignition ready.");
+            }, totalCooldownMs);
+        });
+
+        btnStop.setOnClickListener(v -> {
+            String command = formatCommand("STOP", spinnerStop, inputCustomStop);
+            bleManager.sendBleCommand(command);
+
+            // Brief 1-second debounce for stop button
+            btnStop.setEnabled(false);
+            btnStop.setAlpha(0.5f);
+            cooldownHandler.postDelayed(() -> {
+                btnStop.setEnabled(true);
+                btnStop.setAlpha(1.0f);
+            }, 1000);
+        });
+
+        btnReconnect.setOnClickListener(v -> {
+            onLog("Manual reconnect requested...");
+            btnReconnect.setEnabled(false);
+            checkPermissionsAndConnect();
+        });
+    }
+
+    // Helper to extract the pulse duration for precise timer matching
+    private long parsePulseDuration(Spinner spinner, EditText customInput, long defaultMs) {
+        int position = spinner.getSelectedItemPosition();
+        switch (position) {
+            case 1: return 2000;
+            case 2: return 3000;
+            case 3:
+                try {
+                    return Long.parseLong(customInput.getText().toString().trim());
+                } catch (NumberFormatException e) {
+                    return defaultMs;
                 }
-            }
-        };
+            default: return defaultMs;
+        }
+    }
 
-        // Register the intent pipe receiver
-        registerReceiver(watchCommandReceiver, new android.content.IntentFilter("DIO_HARDWARE_TRIGGER"), android.content.Context.RECEIVER_NOT_EXPORTED);
-
+    private String formatCommand(String action, Spinner spinner, EditText customInput) {
+        int selectedIndex = spinner.getSelectedItemPosition();
+        switch (selectedIndex) {
+            case 1: return action + ":2000";
+            case 2: return action + ":3000";
+            case 3:
+                String customVal = customInput.getText().toString().trim();
+                if (!customVal.isEmpty()) return action + ":" + customVal;
+                onLog("Warning: Custom ms empty! Transmitting default signal.");
+                return action;
+            default: return action;
+        }
     }
 
     private void checkPermissionsAndConnect() {
@@ -83,134 +181,97 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
                     checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
 
-                logToConsole("Requesting hardware system permissions...");
+                onLog("Requesting hardware system permissions...");
                 requestPermissions(new String[]{
                         Manifest.permission.BLUETOOTH_CONNECT,
                         Manifest.permission.BLUETOOTH_SCAN
                 }, PERMISSION_REQUEST_CODE);
+                btnReconnect.setEnabled(true);
                 return;
             }
         }
-        // If permissions are already granted or running older Android OS
-        initializeHardwareConnection();
+        bleManager.connect();
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                logToConsole("Permissions approved by user.");
-                initializeHardwareConnection();
+                onLog("Permissions approved by user.");
+                bleManager.connect();
             } else {
-                logToConsole("CRITICAL ERROR: Bluetooth permissions denied.");
-                updateUiState(false, "Permissions Denied");
+                onLog("CRITICAL ERROR: Bluetooth permissions denied.");
+                onConnectionStateChanged(false, "Permissions Denied");
             }
+        }
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerWatchReceiver() {
+        watchCommandReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String formattedCommand = intent.getStringExtra("COMMAND");
+                if (formattedCommand != null) {
+                    onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
+                    bleManager.sendBleCommand(formattedCommand);
+
+                    // Mark this broadcast as handled so the Service knows NOT to send duplicate BLE commands
+                    setResultCode(-1);
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter("DIO_HARDWARE_TRIGGER");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(watchCommandReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(watchCommandReceiver, filter);
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (watchCommandReceiver != null) {
-            unregisterReceiver(watchCommandReceiver);
-        }
+        if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
+        bleManager.disconnect();
     }
 
-    private void initializeHardwareConnection() {
-        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-            logToConsole("System Alert: Please turn on phone Bluetooth.");
-            updateUiState(false, "Phone Bluetooth Off");
-            return;
-        }
-
-        logToConsole("Searching for Dio hardware [" + ESP32_MAC + "]...");
-        try {
-            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(ESP32_MAC);
-
-            // Explicitly check for BLUETOOTH_CONNECT permission before making the call
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    logToConsole("Error: Missing runtime Bluetooth connection permission.");
-                    updateUiState(false, "Permission Missing");
-                    return;
-                }
-            }
-
-            // Wrapped inside a try-catch for SecurityException as required by the IDE compiler
-            bluetoothGatt = device.connectGatt(this, true, gattCallback);
-
-        } catch (IllegalArgumentException e) {
-            logToConsole("Configuration Error: Invalid MAC address provided.");
-        } catch (SecurityException e) {
-            logToConsole("Security Error: Operating system blocked connection profile.");
-            updateUiState(false, "Security Exception");
-        }
+    // --- BLE Manager Callbacks ---
+    @Override
+    public void onLog(String message) {
+        runOnUiThread(() -> {
+            String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+            txtLog.append("[" + timeStamp + "] " + message + "\n");
+        });
     }
 
-    // 4. BLE Lifecycle Event Callbacks
-    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
-        @Override
-        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                runOnUiThread(() -> updateUiState(true, "Dio Hardware Ready"));
-                try {
-                    gatt.discoverServices();
-                } catch (SecurityException e) {
-                    runOnUiThread(() -> logToConsole("Security Error: Failed to discover services due to missing permission."));
-                }
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                runOnUiThread(() -> updateUiState(false, "Dio Hardware Offline"));
-                commandCharacteristic = null;
-            }
-        }
-
-        @Override
-        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                BluetoothGattService service = gatt.getService(SERVICE_UUID);
-                if (service != null) {
-                    commandCharacteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
-                    runOnUiThread(() -> logToConsole("Data pipeline channel mapped."));
-                } else {
-                    runOnUiThread(() -> logToConsole("Error: Service UUID matching failed."));
-                }
-            }
-        }
-    };
-
-    private void sendBleCommand(String command) {
-        if (commandCharacteristic != null && bluetoothGatt != null) {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    // Modern Android 13+ secure write execution method
-                    bluetoothGatt.writeCharacteristic(
-                            commandCharacteristic,
-                            command.getBytes(),
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    );
-                } else {
-                    // Legacy fallback compatibility for older Android versions
-                    commandCharacteristic.setValue(command.getBytes());
-                    bluetoothGatt.writeCharacteristic(commandCharacteristic);
-                }
-                logToConsole("Command Transmitted -> " + command);
-            } catch (SecurityException e) {
-                logToConsole("Security Exception: Missing OS permission mapping.");
-            }
-        } else {
-            logToConsole("Action Blocked: Hardware connection is offline.");
-        }
+    @Override
+    public void onConnectionStateChanged(boolean isConnected, String statusText) {
+        runOnUiThread(() -> {
+            btnReconnect.setEnabled(true);
+            txtStatus.setText(statusText);
+            statusIndicator.setBackgroundColor(isConnected ? 0xFF4CAF50 : 0xFFE53935);
+            onLog("System state: " + statusText);
+        });
     }
 
-    // 5. Interface UI Thread Synchronization Helpers
-    private void updateUiState(final boolean isConnected, final String statusText) {
-        txtStatus.setText(statusText);
-        statusIndicator.setBackgroundColor(isConnected ? 0xFF4CAF50 : 0xFFE53935); // Green vs Red Hex Colors
-        logToConsole("System state: " + statusText);
+    // --- Utility Functional Interfaces for Cleaner Listeners ---
+    private interface OnItemSelectedRunnable {
+        void onSelected(AdapterView<?> parent, View view, int position, long id);
     }
 
-    private void logToConsole(final String message) {
-        String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-        txtLog.append("[" + timeStamp + "] " + message + "\n");
+    private static class SimpleSpinnerListener implements AdapterView.OnItemSelectedListener {
+        private final OnItemSelectedRunnable runnable;
+        SimpleSpinnerListener(OnItemSelectedRunnable runnable) { this.runnable = runnable; }
+        @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) { runnable.onSelected(p, v, pos, id); }
+        @Override public void onNothingSelected(AdapterView<?> p) {}
+    }
+
+    private interface SimpleTextWatcher extends TextWatcher {
+        void onText(String text);
+        @Override default void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+        @Override default void onTextChanged(CharSequence s, int start, int before, int count) { onText(s.toString()); }
+        @Override default void afterTextChanged(Editable s) {}
     }
 }

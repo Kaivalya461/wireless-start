@@ -12,7 +12,7 @@ public class MainActivity extends Activity {
 
     private Button btnStart, btnStop;
     private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
-    private static final long STARTER_COOLDOWN_MS = 5000; // 5 seconds safety cooldown
+    private static final long STARTER_COOLDOWN_MS = 4000; // 4 seconds safety cooldown
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

@@ -18,6 +18,7 @@ public class BleManager {
     public interface BleListener {
         void onLog(String message);
         void onConnectionStateChanged(boolean isConnected, String statusText);
+        void onServicesReady(); // Fired when services & characteristics are ready
     }
 
     private static final String ESP32_MAC = "AA:BB:CC:DD:EE:FF";
@@ -109,7 +110,7 @@ public class BleManager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                listener.onConnectionStateChanged(true, "Dio Hardware Ready");
+                listener.onConnectionStateChanged(true, "Dio Hardware Connected");
                 try {
                     gatt.discoverServices();
                 } catch (SecurityException e) {
@@ -128,10 +129,24 @@ public class BleManager {
                 if (service != null) {
                     commandCharacteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
                     listener.onLog("Data pipeline channel mapped.");
+
+                    // 1. First sync time to ESP32
+                    sendAutoTimeSync();
+
+                    // 2. Notify listener that the pipeline is fully ready
+                    listener.onServicesReady();
                 } else {
                     listener.onLog("Error: Service UUID matching failed.");
                 }
             }
         }
     };
+
+    // Automatically sync current Unix timestamp to ESP32 for scheduled night sleep
+    private void sendAutoTimeSync() {
+        long currentEpochSeconds = System.currentTimeMillis() / 1000;
+        String syncCommand = "TIME:" + currentEpochSeconds;
+        listener.onLog("Auto-syncing system time to ESP32...");
+        sendBleCommand(syncCommand);
+    }
 }

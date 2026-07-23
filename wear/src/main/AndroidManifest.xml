@@ -19,12 +19,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Invisible Shortcut Trigger (For Home Button Double Tap) -->
+        <!-- Isolated Invisible Shortcut Trigger -->
         <activity
             android:name=".ShortcutStartActivity"
             android:label="Shortcut: Start Engine"
             android:icon="@mipmap/ic_shortcut_start"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:exported="true">
@@ -33,6 +35,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
     </application>
 
 </manifest>

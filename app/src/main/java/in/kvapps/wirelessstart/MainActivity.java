@@ -256,6 +256,11 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         });
     }
 
+    @Override
+    public void onServicesReady() {
+        onLog("GATT pipeline established. Ready for control operations.");
+    }
+
     // --- Utility Functional Interfaces for Cleaner Listeners ---
     private interface OnItemSelectedRunnable {
         void onSelected(AdapterView<?> parent, View view, int position, long id);

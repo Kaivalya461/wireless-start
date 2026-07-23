@@ -3,7 +3,6 @@ package in.kvapps.wirelessstart;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
 import android.util.Log;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
@@ -17,6 +16,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     private static final String STOP_PATH = "/dio/engine_stop";
 
     private BleManager bleManager;
+    private String pendingCommandToSend; // Store the intended command
 
     @Override
     public void onMessageReceived(MessageEvent messageEvent) {
@@ -37,17 +37,14 @@ public class WearMessageListenerService extends WearableListenerService implemen
             Intent broadCastIntent = new Intent("DIO_HARDWARE_TRIGGER");
             broadCastIntent.putExtra("COMMAND", formattedCommand);
 
-            // Send an Ordered Broadcast so we can check if MainActivity is currently alive to handle it
             sendOrderedBroadcast(broadCastIntent, null, new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    // getResultCode() == -1 means a active BroadcastReceiver consumed the intent!
                     boolean wasHandledByActivity = (getResultCode() == -1);
 
                     if (wasHandledByActivity) {
                         Log.d(TAG, "Command handled directly by open MainActivity UI.");
                     } else {
-                        // MainActivity is closed/dead -> Fallback to background BLE execution
                         Log.d(TAG, "MainActivity is closed. Executing background BLE write: " + formattedCommand);
                         executeBackgroundBleCommand(formattedCommand);
                     }
@@ -57,16 +54,33 @@ public class WearMessageListenerService extends WearableListenerService implemen
     }
 
     private void executeBackgroundBleCommand(String command) {
+        this.pendingCommandToSend = command; // Save the action command (START/STOP)
         bleManager = new BleManager(this, this);
         bleManager.connect();
-
-        new android.os.Handler(getMainLooper()).postDelayed(() -> {
-            if (bleManager != null) {
-                bleManager.sendBleCommand(command);
-            }
-        }, 1200);
     }
 
-    @Override public void onLog(String message) { Log.d(TAG, "[BLE LOG] " + message); }
-    @Override public void onConnectionStateChanged(boolean isConnected, String statusText) { Log.d(TAG, "[BLE STATE] " + statusText); }
+    @Override
+    public void onLog(String message) {
+        Log.d(TAG, "[BLE LOG] " + message);
+    }
+
+    @Override
+    public void onConnectionStateChanged(boolean isConnected, String statusText) {
+        Log.d(TAG, "[BLE STATE] " + statusText);
+    }
+
+    @Override
+    public void onServicesReady() {
+        // Services discovered AND TIME command sent!
+        // Brief 250ms delay to let the TIME packet clear the pipeline
+        if (pendingCommandToSend != null) {
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                if (bleManager != null && pendingCommandToSend != null) {
+                    Log.d(TAG, "Transmitting pending action command: " + pendingCommandToSend);
+                    bleManager.sendBleCommand(pendingCommandToSend);
+                    pendingCommandToSend = null; // Clear queue
+                }
+            }, 250);
+        }
+    }
 }

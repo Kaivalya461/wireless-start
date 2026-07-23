@@ -13,10 +13,10 @@
 #define CDI_STOP_RELAY_PIN 23
 
 // Night Sleep Window (1:30 AM to 8:30 AM)
-#define SLEEP_START_HOUR   18
+#define SLEEP_START_HOUR   1
 #define SLEEP_START_MIN    30
-#define WAKE_END_HOUR      18
-#define WAKE_END_MIN       40
+#define WAKE_END_HOUR      8
+#define WAKE_END_MIN       30
 
 // Convert sleep windows to total minutes from midnight for easy math
 const int SLEEP_START_MINUTES_TOTAL = (SLEEP_START_HOUR * 60) + SLEEP_START_MIN; // 90 mins (1:30 AM)

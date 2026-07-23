@@ -21,8 +21,10 @@
         android:theme="@style/Theme.WirelessStart">
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:exported="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

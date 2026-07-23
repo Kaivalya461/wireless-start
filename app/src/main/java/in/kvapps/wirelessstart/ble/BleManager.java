@@ -62,7 +62,7 @@ public class BleManager {
                 }
             }
 
-            bluetoothGatt = device.connectGatt(context, false, gattCallback);
+            bluetoothGatt = device.connectGatt(context, true, gattCallback);
 
         } catch (IllegalArgumentException e) {
             listener.onLog("Configuration Error: Invalid MAC address provided.");

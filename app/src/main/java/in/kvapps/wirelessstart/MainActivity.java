@@ -60,6 +60,24 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         checkPermissionsAndConnect();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Triggers reconnect attempt when app comes back to the foreground from background
+        if (hasPermissions()) {
+            onLog("App resumed. Checking BLE connection...");
+            bleManager.connect();
+        }
+    }
+
+    private boolean hasPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+                    checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
     private void initUiViews() {
         statusIndicator = findViewById(R.id.status_indicator);
         txtStatus = findViewById(R.id.txt_status);
@@ -177,18 +195,16 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     }
 
     private void checkPermissionsAndConnect() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
-                    checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-
-                onLog("Requesting hardware system permissions...");
+        if (!hasPermissions()) {
+            onLog("Requesting hardware system permissions...");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 requestPermissions(new String[]{
                         Manifest.permission.BLUETOOTH_CONNECT,
                         Manifest.permission.BLUETOOTH_SCAN
                 }, PERMISSION_REQUEST_CODE);
-                btnReconnect.setEnabled(true);
-                return;
             }
+            btnReconnect.setEnabled(true);
+            return;
         }
         bleManager.connect();
     }

@@ -213,16 +213,22 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 void setup() {
   Serial.begin(115200);
 
-  // Disable Pin Hold State from Deep Sleep
+// 1. Set pin directions FIRST
+  pinMode(START_RELAY_PIN, OUTPUT);
+  pinMode(CDI_STOP_RELAY_PIN, OUTPUT);
+
+  // 2. Immediately force output HIGH (Relays OFF)
+  digitalWrite(START_RELAY_PIN, HIGH);
+  digitalWrite(CDI_STOP_RELAY_PIN, HIGH);
+
+  // 3. Enable internal pull-ups as an extra safeguard
+  gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
+  gpio_set_pull_mode((gpio_num_t)CDI_STOP_RELAY_PIN, GPIO_PULLUP_ONLY);
+
+  // 4. Release deep sleep locks ONLY AFTER explicit pin drive is active
   gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
   gpio_hold_dis((gpio_num_t)CDI_STOP_RELAY_PIN);
   gpio_deep_sleep_hold_dis();
-
-  // Prevent relay clicking during setup
-  digitalWrite(START_RELAY_PIN, HIGH);
-  digitalWrite(CDI_STOP_RELAY_PIN, HIGH);
-  pinMode(START_RELAY_PIN, OUTPUT);
-  pinMode(CDI_STOP_RELAY_PIN, OUTPUT);
 
   BLEDevice::init("Scooter Keyless Target");
   BLEServer *pServer = BLEDevice::createServer();

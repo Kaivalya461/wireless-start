@@ -17,6 +17,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -30,11 +31,12 @@ import in.kvapps.wirelessstart.data.PreferenceManager;
 public class MainActivity extends Activity implements BleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private final String[] durationOptions = {"1700ms", "2000ms", "3000ms", "Custom"};
+    private final String[] durationOptions = {"800ms", "1700ms", "2200ms", "Custom"};
 
     // UI Controls
     private View statusIndicator;
     private TextView txtStatus, txtLog;
+    private ScrollView scrollLog;
     private Button btnStart, btnStop, btnReconnect;
     private Spinner spinnerStart, spinnerStop;
     private EditText inputCustomStart, inputCustomStop;
@@ -82,6 +84,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         statusIndicator = findViewById(R.id.status_indicator);
         txtStatus = findViewById(R.id.txt_status);
         txtLog = findViewById(R.id.txt_log);
+        scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
         btnStop = findViewById(R.id.btn_stop);
         btnReconnect = findViewById(R.id.btn_reconnect);
@@ -259,6 +262,11 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         runOnUiThread(() -> {
             String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
             txtLog.append("[" + timeStamp + "] " + message + "\n");
+
+            // Auto-scroll the terminal view down to the latest message
+            if (scrollLog != null) {
+                scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
+            }
         });
     }
 

@@ -16,8 +16,23 @@ android {
         targetSdk 36
         versionCode 1
         versionName "1.0"
+        // Read from local.properties using Groovy syntax
+        Properties properties = new Properties()
+        if (project.rootProject.file('local.properties').exists()) {
+            properties.load(project.rootProject.file('local.properties').newDataInputStream())
+        }
+
+        // Use 'def' instead of 'val'
+        def macAddress = properties.getProperty('ESP32_MAC_ADDRESS') ?: "\"00:00:00:00:00:00\""
+
+        // Inject into BuildConfig
+        buildConfigField "String", "ESP32_MAC", macAddress
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {

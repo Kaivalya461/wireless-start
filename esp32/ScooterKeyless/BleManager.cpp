@@ -3,7 +3,8 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-#include "Relay.h" // Links commands directly to relay execution engines
+#include "Relay.h"   // Links commands directly to relay execution engines
+#include "Battery.h" // Links toggle states to the ADC stream engine
 
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -27,7 +28,29 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
-        String command = pCharacteristic->getValue().c_str();
+        // 1. Extract raw data as an Arduino String natively
+        String rawValue = pCharacteristic->getValue();
+        int valueLength = rawValue.length();
+        if (valueLength == 0) return;
+
+        // 2. Intercept single-byte configuration toggles (0x02 or 0x03)
+        if (valueLength == 1) {
+            uint8_t commandByte = (uint8_t)rawValue[0]; // Access index 0 of the Arduino String
+
+            if (commandByte == 0x02) {
+                setBatteryStreamActive(false);
+                Serial.println(">>> App Command: Battery Telemetry Stream DISABLED (Power Saving Active).");
+                return; // Terminate execution block early
+            }
+            else if (commandByte == 0x03) {
+                setBatteryStreamActive(true);
+                Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
+                return; // Terminate execution block early
+            }
+        }
+
+        // 3. Fallback Route: Handle incoming plain-text action messages
+        String command = rawValue;
         command.trim();
 
         if (command.length() == 0) return;

@@ -40,3 +40,16 @@ uint16_t getBatteryMilliVolts() {
     if (smoothedBatteryVoltage < 0) return 0;
     return (uint16_t)(smoothedBatteryVoltage * 1000.0); // 12.66V becomes 12660
 }
+
+bool batteryStreamEnabled = false; // Disabled by default on boot
+
+void setBatteryStreamActive(bool active) {
+    batteryStreamEnabled = active;
+    if (!active) {
+        smoothedBatteryVoltage = -1.0; // Reset tracking if disabled
+    }
+}
+
+bool isBatteryStreamActive() {
+    return batteryStreamEnabled;
+}

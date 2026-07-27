@@ -19,6 +19,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
@@ -35,16 +36,18 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
     // UI Controls
     private View statusIndicator;
-    private TextView txtStatus, txtLog;
+    private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
     private Button btnStart, btnStop, btnReconnect;
     private Spinner spinnerStart, spinnerStop;
     private EditText inputCustomStart, inputCustomStop;
+    private Switch switchVoltage;
 
     // Helpers
     private BleManager bleManager;
     private PreferenceManager preferenceManager;
     private BroadcastReceiver watchCommandReceiver;
+    private boolean isTelemetryEnabled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,6 +96,9 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         spinnerStop = findViewById(R.id.spinner_stop);
         inputCustomStart = findViewById(R.id.input_custom_start);
         inputCustomStop = findViewById(R.id.input_custom_stop);
+
+        txtVoltageValue = findViewById(R.id.txt_voltage_value);
+        switchVoltage = findViewById(R.id.switch_voltage);
     }
 
     private void setupSpinnersAndPersistence() {
@@ -165,6 +171,22 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             btnReconnect.setEnabled(false);
             checkPermissionsAndConnect();
         });
+
+        switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                isTelemetryEnabled = true; // Allow layout updates again
+                bleManager.sendRawByteCommand((byte) 0x03);
+                onLog("Telemetry request: Resuming live stream.");
+            } else {
+                isTelemetryEnabled = false; // Block incoming data packets instantly
+                bleManager.sendRawByteCommand((byte) 0x02);
+                if (txtVoltageValue != null) {
+                    txtVoltageValue.setText("--.--V"); // Force default text
+                }
+                onLog("Telemetry request: Stopped live stream to save hardware power.");
+            }
+        });
+
     }
 
     // Helper to extract the pulse duration for precise timer matching
@@ -284,6 +306,17 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     public void onServicesReady() {
         onLog("GATT pipeline established. Ready for control operations.");
     }
+
+    @Override
+    public void onVoltageReceived(float voltage) {
+        runOnUiThread(() -> {
+            // FIX: Only update the display if the user wants to see the data
+            if (isTelemetryEnabled && txtVoltageValue != null) {
+                txtVoltageValue.setText(String.format(Locale.getDefault(), "%.2fV", voltage));
+            }
+        });
+    }
+
 
     // --- Utility Functional Interfaces for Cleaner Listeners ---
     private interface OnItemSelectedRunnable {

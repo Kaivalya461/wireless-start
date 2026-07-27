@@ -7,5 +7,7 @@ void initBattery();
 void updateBatteryFilter();
 float getBatteryVoltage();
 uint16_t getBatteryMilliVolts(); // For optimized 2-byte BLE notifications
+void setBatteryStreamActive(bool active);
+bool isBatteryStreamActive();
 
 #endif

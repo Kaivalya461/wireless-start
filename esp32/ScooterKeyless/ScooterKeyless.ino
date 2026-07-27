@@ -27,13 +27,14 @@ void loop() {
     if (millis() - lastBatteryCheckTime >= BATTERY_INTERVAL) {
         lastBatteryCheckTime = millis();
 
-        // Pull voltage, process filter arrays
-        updateBatteryFilter();
+        // ONLY consume processor juice and transmit if the phone requested it!
+        if (isBatteryStreamActive()) {
+            updateBatteryFilter();
 
-        // Stream live to the Android application if connected
-        if (isBleClientConnected()) {
-            uint16_t currentMilliVolts = getBatteryMilliVolts();
-            transmitBatteryTelemetry(currentMilliVolts);
+            if (isBleClientConnected()) {
+                uint16_t currentMilliVolts = getBatteryMilliVolts();
+                transmitBatteryTelemetry(currentMilliVolts);
+            }
         }
     }
 }

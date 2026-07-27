@@ -47,6 +47,56 @@
             android:textColor="#FFFFFF" />
     </LinearLayout>
 
+    <!-- Voltage Monitoring Panel with Toggle Switch -->
+    <LinearLayout
+        android:id="@+id/panel_voltage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="12dp"
+        android:layout_marginTop="12dp"
+        android:background="#1E1E1E"
+        app:layout_constraintTop_toBottomOf="@id/panel_status">
+
+        <View
+            android:id="@+id/voltage_indicator"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="12dp"
+            android:background="#00BCD4" />
+
+        <TextView
+            android:id="@+id/lbl_voltage_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Battery Voltage"
+            android:textColor="#CCCCCC"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/txt_voltage_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="16dp"
+            android:text="--.--V"
+            android:textColor="#00E5FF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <!-- NEW: Stream Control Switch Toggle -->
+        <Switch
+            android:id="@+id/switch_voltage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="false"
+            android:thumbTint="#00E5FF"
+            android:trackTint="#333333" />
+    </LinearLayout>
+
+
     <!-- START Section -->
     <LinearLayout
         android:id="@+id/layout_start_group"
@@ -54,8 +104,8 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="24dp"
-        app:layout_constraintTop_toBottomOf="@id/panel_status">
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/panel_voltage"> <!-- Linked to new panel -->
 
         <Button
             android:id="@+id/btn_start"

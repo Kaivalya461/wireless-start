@@ -17,10 +17,13 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ScrollView;
 import android.widget.Spinner;
-import android.widget.Switch;
 import android.widget.TextView;
+
+import androidx.appcompat.widget.PopupMenu;
+import androidx.appcompat.widget.SwitchCompat;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -38,10 +41,11 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     private View statusIndicator;
     private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
-    private Button btnStart, btnStop, btnReconnect;
-    private Spinner spinnerStart, spinnerStop;
-    private EditText inputCustomStart, inputCustomStop;
-    private Switch switchVoltage;
+    private Button btnStart;
+    private ImageButton btnMenu;
+    private Spinner spinnerStart;
+    private EditText inputCustomStart;
+    private SwitchCompat switchVoltage;
 
     // Helpers
     private BleManager bleManager;
@@ -89,13 +93,10 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         txtLog = findViewById(R.id.txt_log);
         scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
-        btnStop = findViewById(R.id.btn_stop);
-        btnReconnect = findViewById(R.id.btn_reconnect);
+        btnMenu = findViewById(R.id.btn_menu);
 
         spinnerStart = findViewById(R.id.spinner_start);
-        spinnerStop = findViewById(R.id.spinner_stop);
         inputCustomStart = findViewById(R.id.input_custom_start);
-        inputCustomStop = findViewById(R.id.input_custom_stop);
 
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
         switchVoltage = findViewById(R.id.switch_voltage);
@@ -104,13 +105,10 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     private void setupSpinnersAndPersistence() {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, durationOptions);
         spinnerStart.setAdapter(adapter);
-        spinnerStop.setAdapter(adapter);
 
         // Restore values
         spinnerStart.setSelection(preferenceManager.getStartSpinnerPosition());
-        spinnerStop.setSelection(preferenceManager.getStopSpinnerPosition());
         inputCustomStart.setText(preferenceManager.getStartCustomMs());
-        inputCustomStop.setText(preferenceManager.getStopCustomMs());
 
         // Listeners
         spinnerStart.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
@@ -118,13 +116,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             preferenceManager.saveStartSpinnerPosition(position);
         }));
 
-        spinnerStop.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
-            inputCustomStop.setVisibility(position == 3 ? View.VISIBLE : View.GONE);
-            preferenceManager.saveStopSpinnerPosition(position);
-        }));
-
         inputCustomStart.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStartCustomMs(text));
-        inputCustomStop.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStopCustomMs(text));
     }
 
     private final android.os.Handler cooldownHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -153,40 +145,34 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             }, totalCooldownMs);
         });
 
-        btnStop.setOnClickListener(v -> {
-            String command = formatCommand("STOP", spinnerStop, inputCustomStop);
-            bleManager.sendBleCommand(command);
-
-            // Brief 1-second debounce for stop button
-            btnStop.setEnabled(false);
-            btnStop.setAlpha(0.5f);
-            cooldownHandler.postDelayed(() -> {
-                btnStop.setEnabled(true);
-                btnStop.setAlpha(1.0f);
-            }, 1000);
-        });
-
-        btnReconnect.setOnClickListener(v -> {
-            onLog("Manual reconnect requested...");
-            btnReconnect.setEnabled(false);
-            checkPermissionsAndConnect();
+        btnMenu.setOnClickListener(v -> {
+            PopupMenu popup = new PopupMenu(MainActivity.this, v);
+            popup.getMenu().add(0, 1, 0, "Reconnect");
+            popup.setOnMenuItemClickListener(item -> {
+                if (item.getItemId() == 1) {
+                    onLog("Manual reconnect requested...");
+                    checkPermissionsAndConnect();
+                    return true;
+                }
+                return false;
+            });
+            popup.show();
         });
 
         switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
-                isTelemetryEnabled = true; // Allow layout updates again
+                isTelemetryEnabled = true;
                 bleManager.sendRawByteCommand((byte) 0x03);
                 onLog("Telemetry request: Resuming live stream.");
             } else {
-                isTelemetryEnabled = false; // Block incoming data packets instantly
+                isTelemetryEnabled = false;
                 bleManager.sendRawByteCommand((byte) 0x02);
                 if (txtVoltageValue != null) {
-                    txtVoltageValue.setText("--.--V"); // Force default text
+                    txtVoltageValue.setText("--.--V");
                 }
                 onLog("Telemetry request: Stopped live stream to save hardware power.");
             }
         });
-
     }
 
     // Helper to extract the pulse duration for precise timer matching
@@ -228,7 +214,6 @@ public class MainActivity extends Activity implements BleManager.BleListener {
                         Manifest.permission.BLUETOOTH_SCAN
                 }, PERMISSION_REQUEST_CODE);
             }
-            btnReconnect.setEnabled(true);
             return;
         }
         bleManager.connect();
@@ -295,7 +280,6 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         runOnUiThread(() -> {
-            btnReconnect.setEnabled(true);
             txtStatus.setText(statusText);
             statusIndicator.setBackgroundColor(isConnected ? 0xFF4CAF50 : 0xFFE53935);
             onLog("System state: " + statusText);

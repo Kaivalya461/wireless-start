@@ -3,7 +3,7 @@
 #include "BleManager.h"
 
 unsigned long lastBatteryCheckTime = 0;
-const unsigned long BATTERY_INTERVAL = 200; // Check and push metrics every 200ms
+const unsigned long BATTERY_INTERVAL = 1000; // Check and push metrics every 1000s
 
 void setup() {
     Serial.begin(115200);

@@ -9,7 +9,7 @@ float smoothedBatteryVoltage = -1.0;
 #if defined(ARDUINO_ESP32C3_DEV) || defined(ARDUINO_ESP32_C3_SUPER_MINI)
 const float CALIBRATION_MULTIPLIER = 1.084;
 #else
-const float CALIBRATION_MULTIPLIER = 1.072;
+const float CALIBRATION_MULTIPLIER = 1.079;
 #endif
 
 void initBattery() {

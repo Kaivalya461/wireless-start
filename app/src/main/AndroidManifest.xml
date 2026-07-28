@@ -31,6 +31,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".VoltageHistoryActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.WirelessStart"
+            tools:ignore="LockedOrientationActivity" />
+
         <!-- Background service to catch Watch commands even if phone screen is locked -->
         <service android:name=".WearMessageListenerService" android:exported="true">
             <intent-filter>

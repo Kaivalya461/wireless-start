@@ -65,4 +65,35 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
         cursor.close();
         return list;
     }
+
+    // Calculates the hourly average voltage over long historical windows (1Y and All)
+    public List<VoltageEntry> getHourlyAveragesSince(long cutoffTimestamp) {
+        List<VoltageEntry> list = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        // 1 Hour in milliseconds = 3,600,000 ms
+        long oneHourMs = 60L * 60 * 1000;
+
+        // SQL groups all timestamps falling within the same hour bucket together and averages their voltages
+        String query = "SELECT " +
+                "((timestamp / " + oneHourMs + ") * " + oneHourMs + ") AS hour_bucket, " +
+                "AVG(" + COLUMN_VALUE + ") AS avg_voltage " +
+                "FROM " + TABLE_VOLTAGE + " " +
+                "WHERE " + COLUMN_TIMESTAMP + " >= ? " +
+                "GROUP BY hour_bucket " +
+                "ORDER BY hour_bucket ASC";
+
+        Cursor cursor = db.rawQuery(query, new String[]{String.valueOf(cutoffTimestamp)});
+
+        if (cursor.moveToFirst()) {
+            do {
+                long hourBucketTime = cursor.getLong(cursor.getColumnIndexOrThrow("hour_bucket"));
+                float avgVolt = cursor.getFloat(cursor.getColumnIndexOrThrow("avg_voltage"));
+                list.add(new VoltageEntry(hourBucketTime, avgVolt));
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
+        return list;
+    }
+
 }

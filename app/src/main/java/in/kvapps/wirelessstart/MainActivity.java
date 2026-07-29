@@ -17,9 +17,13 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+
+import androidx.appcompat.widget.PopupMenu;
+import androidx.appcompat.widget.SwitchCompat;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -27,6 +31,7 @@ import java.util.Locale;
 
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.db.VoltageDbHelper;
 
 public class MainActivity extends Activity implements BleManager.BleListener {
 
@@ -35,22 +40,29 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
     // UI Controls
     private View statusIndicator;
-    private TextView txtStatus, txtLog;
+    private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
-    private Button btnStart, btnStop, btnReconnect;
-    private Spinner spinnerStart, spinnerStop;
-    private EditText inputCustomStart, inputCustomStop;
+    private Button btnStart;
+    private ImageButton btnMenu;
+    private Spinner spinnerStart;
+    private EditText inputCustomStart;
+    private SwitchCompat switchVoltage;
+
+    // Voltage Readings Historical Graph
+    private VoltageDbHelper dbHelper;
 
     // Helpers
     private BleManager bleManager;
     private PreferenceManager preferenceManager;
     private BroadcastReceiver watchCommandReceiver;
+    private boolean isTelemetryEnabled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        dbHelper = new VoltageDbHelper(this);
         preferenceManager = new PreferenceManager(this);
         bleManager = new BleManager(this, this);
 
@@ -58,6 +70,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
+        updateConnectionUi(false);
 
         checkPermissionsAndConnect();
     }
@@ -86,25 +99,22 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         txtLog = findViewById(R.id.txt_log);
         scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
-        btnStop = findViewById(R.id.btn_stop);
-        btnReconnect = findViewById(R.id.btn_reconnect);
+        btnMenu = findViewById(R.id.btn_menu);
 
         spinnerStart = findViewById(R.id.spinner_start);
-        spinnerStop = findViewById(R.id.spinner_stop);
         inputCustomStart = findViewById(R.id.input_custom_start);
-        inputCustomStop = findViewById(R.id.input_custom_stop);
+
+        txtVoltageValue = findViewById(R.id.txt_voltage_value);
+        switchVoltage = findViewById(R.id.switch_voltage);
     }
 
     private void setupSpinnersAndPersistence() {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, durationOptions);
         spinnerStart.setAdapter(adapter);
-        spinnerStop.setAdapter(adapter);
 
         // Restore values
         spinnerStart.setSelection(preferenceManager.getStartSpinnerPosition());
-        spinnerStop.setSelection(preferenceManager.getStopSpinnerPosition());
         inputCustomStart.setText(preferenceManager.getStartCustomMs());
-        inputCustomStop.setText(preferenceManager.getStopCustomMs());
 
         // Listeners
         spinnerStart.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
@@ -112,13 +122,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             preferenceManager.saveStartSpinnerPosition(position);
         }));
 
-        spinnerStop.setOnItemSelectedListener(new SimpleSpinnerListener((parent, view, position, id) -> {
-            inputCustomStop.setVisibility(position == 3 ? View.VISIBLE : View.GONE);
-            preferenceManager.saveStopSpinnerPosition(position);
-        }));
-
         inputCustomStart.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStartCustomMs(text));
-        inputCustomStop.addTextChangedListener((SimpleTextWatcher) text -> preferenceManager.saveStopCustomMs(text));
     }
 
     private final android.os.Handler cooldownHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -147,23 +151,40 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             }, totalCooldownMs);
         });
 
-        btnStop.setOnClickListener(v -> {
-            String command = formatCommand("STOP", spinnerStop, inputCustomStop);
-            bleManager.sendBleCommand(command);
-
-            // Brief 1-second debounce for stop button
-            btnStop.setEnabled(false);
-            btnStop.setAlpha(0.5f);
-            cooldownHandler.postDelayed(() -> {
-                btnStop.setEnabled(true);
-                btnStop.setAlpha(1.0f);
-            }, 1000);
+        btnMenu.setOnClickListener(v -> {
+            PopupMenu popup = new PopupMenu(MainActivity.this, v);
+            popup.getMenu().add(0, 1, 0, "Reconnect");
+            popup.setOnMenuItemClickListener(item -> {
+                if (item.getItemId() == 1) {
+                    onLog("Manual reconnect requested...");
+                    checkPermissionsAndConnect();
+                    return true;
+                }
+                return false;
+            });
+            popup.show();
         });
 
-        btnReconnect.setOnClickListener(v -> {
-            onLog("Manual reconnect requested...");
-            btnReconnect.setEnabled(false);
-            checkPermissionsAndConnect();
+        // Voltage Readings Chart redirect
+        View panelVoltage = findViewById(R.id.panel_voltage);
+        panelVoltage.setOnClickListener(v -> {
+            Intent intent = new Intent(MainActivity.this, VoltageHistoryActivity.class);
+            startActivity(intent);
+        });
+
+        switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) {
+                isTelemetryEnabled = true;
+                bleManager.sendRawByteCommand((byte) 0x03);
+                onLog("Telemetry request: Resuming live stream.");
+            } else {
+                isTelemetryEnabled = false;
+                bleManager.sendRawByteCommand((byte) 0x02);
+                if (txtVoltageValue != null) {
+                    txtVoltageValue.setText("--.--V");
+                }
+                onLog("Telemetry request: Stopped live stream to save hardware power.");
+            }
         });
     }
 
@@ -206,7 +227,6 @@ public class MainActivity extends Activity implements BleManager.BleListener {
                         Manifest.permission.BLUETOOTH_SCAN
                 }, PERMISSION_REQUEST_CODE);
             }
-            btnReconnect.setEnabled(true);
             return;
         }
         bleManager.connect();
@@ -253,6 +273,9 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     protected void onDestroy() {
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
+        if (dbHelper != null) {
+            dbHelper.close(); // Safely closes the database file link
+        }
         bleManager.disconnect();
     }
 
@@ -273,17 +296,51 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         runOnUiThread(() -> {
-            btnReconnect.setEnabled(true);
             txtStatus.setText(statusText);
             statusIndicator.setBackgroundColor(isConnected ? 0xFF4CAF50 : 0xFFE53935);
             onLog("System state: " + statusText);
+            updateConnectionUi(isConnected);
         });
+    }
+
+    private void updateConnectionUi(boolean isConnected) {
+        View panelVoltage = findViewById(R.id.panel_voltage);
+
+        if (isConnected) {
+            // Connected: Enable START button and Voltage Switch
+            btnStart.setEnabled(true);
+            btnStart.setAlpha(1.0f);
+        } else {
+            // Offline: Grey out START button and block/warn on Voltage Toggle interaction
+            btnStart.setEnabled(false);
+            btnStart.setAlpha(0.5f); // Visually greyed out
+        }
     }
 
     @Override
     public void onServicesReady() {
         onLog("GATT pipeline established. Ready for control operations.");
     }
+
+    @Override
+    public void onVoltageReceived(float voltage) {
+        runOnUiThread(() -> {
+            if (isTelemetryEnabled) {
+                long now = System.currentTimeMillis();
+
+                // 1. Maintain background persistent log logging (Very fast)
+                if (dbHelper != null) {
+                    dbHelper.insertReading(now, voltage);
+                }
+
+                // 2. Refresh the primary dashboard string view layout metrics
+                if (txtVoltageValue != null) {
+                    txtVoltageValue.setText(String.format(Locale.getDefault(), "%.2fV", voltage));
+                }
+            }
+        });
+    }
+
 
     // --- Utility Functional Interfaces for Cleaner Listeners ---
     private interface OnItemSelectedRunnable {

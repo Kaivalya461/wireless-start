@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Track line background when turned ON -->
+    <item android:state_checked="true" android:color="#005A66" />
+
+    <!-- Track line background when turned OFF -->
+    <item android:color="#333333" />
+</selector>

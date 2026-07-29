@@ -83,4 +83,11 @@ public class WearMessageListenerService extends WearableListenerService implemen
             }, 250);
         }
     }
+
+    @Override
+    public void onVoltageReceived(float voltage) {
+        // Leave this empty if your wearable listener doesn't need
+        // to actively process or update the voltage UI on its own.
+    }
+
 }

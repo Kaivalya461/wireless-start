@@ -6,7 +6,6 @@ App Features:
 1. Wireless Start
 2. Similar Stop Engine Functionality
 3. Wear OS Companion App
-4. Engine Running Detection (Planned)
 
 
 ---

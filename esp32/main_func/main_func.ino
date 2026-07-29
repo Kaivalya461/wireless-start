@@ -10,7 +10,6 @@
 
 // Relay Pins
 #define START_RELAY_PIN    22
-#define CDI_STOP_RELAY_PIN 23
 
 // Night Sleep Window (1:30 AM to 8:30 AM)
 #define SLEEP_START_HOUR   1
@@ -25,7 +24,6 @@ const int WAKE_END_MINUTES_TOTAL    = (WAKE_END_HOUR * 60) + WAKE_END_MIN;    //
 // Relay Safety Constraints (ms)
 const unsigned long DEFAULT_PULSE_MS       = 1500;
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
-const unsigned long DEFAULT_STOP_PULSE_MS  = 4000;
 const unsigned long MIN_SAFE_PULSE_MS      = 100;
 const unsigned long MAX_SAFE_PULSE_MS      = 5000;
 
@@ -58,11 +56,9 @@ void enterDeepSleep(uint64_t sleepDurationSeconds) {
 
   // Ensure Relays remain turned OFF (HIGH)
   digitalWrite(START_RELAY_PIN, HIGH);
-  digitalWrite(CDI_STOP_RELAY_PIN, HIGH);
 
   // Lock pin states during deep sleep so relays don't switch on boot glitches
   gpio_hold_en((gpio_num_t)START_RELAY_PIN);
-  gpio_hold_en((gpio_num_t)CDI_STOP_RELAY_PIN);
   gpio_deep_sleep_hold_en();
 
   // Set Sleep Timer
@@ -199,14 +195,6 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         }
         requestRelayPulse(START_RELAY_PIN, duration);
       }
-        // 3. Stop Scooter Command (Format: "STOP" or "STOP:3000")
-      else if (command.startsWith("STOP")) {
-        unsigned long duration = DEFAULT_STOP_PULSE_MS;
-        if (command.startsWith("STOP:")) {
-          duration = getValidatedDuration(command.substring(5).toInt());
-        }
-        requestRelayPulse(CDI_STOP_RELAY_PIN, duration);
-      }
     }
 };
 
@@ -215,19 +203,15 @@ void setup() {
 
 // 1. Set pin directions FIRST
   pinMode(START_RELAY_PIN, OUTPUT);
-  pinMode(CDI_STOP_RELAY_PIN, OUTPUT);
 
   // 2. Immediately force output HIGH (Relays OFF)
   digitalWrite(START_RELAY_PIN, HIGH);
-  digitalWrite(CDI_STOP_RELAY_PIN, HIGH);
 
   // 3. Enable internal pull-ups as an extra safeguard
   gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
-  gpio_set_pull_mode((gpio_num_t)CDI_STOP_RELAY_PIN, GPIO_PULLUP_ONLY);
 
   // 4. Release deep sleep locks ONLY AFTER explicit pin drive is active
   gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
-  gpio_hold_dis((gpio_num_t)CDI_STOP_RELAY_PIN);
   gpio_deep_sleep_hold_dis();
 
   BLEDevice::init("Scooter Keyless Target");

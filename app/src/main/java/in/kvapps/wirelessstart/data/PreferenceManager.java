@@ -7,12 +7,13 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import in.kvapps.wirelessstart.enums.DurationOption;
+
 public class PreferenceManager {
     private static final String PREFS_NAME = "WirelessStartPrefs";
     private static final String KEY_START_SPINNER_POS = "start_spinner_pos";
-    private static final String KEY_STOP_SPINNER_POS = "stop_spinner_pos";
     private static final String KEY_START_CUSTOM_MS = "start_custom_ms";
-    private static final String KEY_STOP_CUSTOM_MS = "stop_custom_ms";
+    private static final long DEFAULT_START_MS = 1500;
 
     private final SharedPreferences prefs;
     private final Context context;
@@ -31,15 +32,6 @@ public class PreferenceManager {
         return prefs.getInt(KEY_START_SPINNER_POS, 0);
     }
 
-    public void saveStopSpinnerPosition(int pos) {
-        prefs.edit().putInt(KEY_STOP_SPINNER_POS, pos).apply();
-        syncToWearables();
-    }
-
-    public int getStopSpinnerPosition() {
-        return prefs.getInt(KEY_STOP_SPINNER_POS, 0);
-    }
-
     public void saveStartCustomMs(String customMs) {
         prefs.edit().putString(KEY_START_CUSTOM_MS, customMs).apply();
         syncToWearables();
@@ -49,36 +41,72 @@ public class PreferenceManager {
         return prefs.getString(KEY_START_CUSTOM_MS, "");
     }
 
-    public void saveStopCustomMs(String customMs) {
-        prefs.edit().putString(KEY_STOP_CUSTOM_MS, customMs).apply();
-        syncToWearables();
-    }
-
-    public String getStopCustomMs() {
-        return prefs.getString(KEY_STOP_CUSTOM_MS, "");
-    }
-
-    // Resolves active pulse duration string for a given action
+    /**
+     * Resolves active pulse duration string for a given action.
+     */
     public String getFormattedCommand(String action) {
-        boolean isStart = "START".equals(action);
-        int pos = isStart ? getStartSpinnerPosition() : getStopSpinnerPosition();
-        String customVal = isStart ? getStartCustomMs() : getStopCustomMs();
+        int selectedPosition = getStartSpinnerPosition();
 
-        switch (pos) {
-            case 1: return action + ":2000";
-            case 2: return action + ":3000";
-            case 3:
-                if (!customVal.trim().isEmpty()) return action + ":" + customVal.trim();
+        // Safeguard against out-of-bounds index
+        if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
+            return action;
+        }
+
+        DurationOption selectedOption = DurationOption.values()[selectedPosition];
+
+        switch (selectedOption) {
+            case MS_800:
+            case MS_1700:
+            case MS_2200:
+                // Dynamically uses whatever millisecond value is mapped in the enum
+                return action + ":" + selectedOption.getValueMs();
+
+            case CUSTOM:
+                String customVal = getStartCustomMs();
+                String trimmed = customVal != null ? customVal.trim() : "";
+                return !trimmed.isEmpty() ? action + ":" + trimmed : action;
+
+            default:
                 return action;
-            default: return action;
         }
     }
 
-    // Sync configuration map to all connected Wear OS devices
+    public long getSelectedStartPulseDuration() {
+        int selectedPosition = getStartSpinnerPosition();
+
+        // Safeguard against out-of-bounds index
+        if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
+            return -1;
+        }
+
+        DurationOption selectedOption = DurationOption.values()[selectedPosition];
+
+        switch (selectedOption) {
+            case MS_800:
+            case MS_1700:
+            case MS_2200:
+                // Dynamically uses whatever millisecond value is mapped in the enum
+                return selectedOption.getValueMs();
+
+            case CUSTOM:
+                String customInput = getStartCustomMs();
+                try {
+                    return Long.parseLong(customInput);
+                } catch (NumberFormatException e) {
+                    return DEFAULT_START_MS;
+                }
+
+            default:
+                return DEFAULT_START_MS;
+        }
+    }
+
+    /**
+     * Syncs configuration map to all connected Wear OS devices via DataClient.
+     */
     public void syncToWearables() {
         PutDataMapRequest dataMap = PutDataMapRequest.create("/config_durations");
         dataMap.getDataMap().putString("START_CMD", getFormattedCommand("START"));
-        dataMap.getDataMap().putString("STOP_CMD", getFormattedCommand("STOP"));
 
         PutDataRequest request = dataMap.asPutDataRequest();
         request.setUrgent();

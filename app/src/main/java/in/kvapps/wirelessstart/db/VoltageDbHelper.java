@@ -66,33 +66,35 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
         return list;
     }
 
-    // Calculates the hourly average voltage over long historical windows (1Y and All)
-    public List<VoltageEntry> getHourlyAveragesSince(long cutoffTimestamp) {
+    // Calculates the average voltage grouped by any custom time interval (in milliseconds)
+    public List<VoltageEntry> getAveragesSince(long cutoffTimestamp, long intervalMs) {
         List<VoltageEntry> list = new ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
 
-        // 1 Hour in milliseconds = 3,600,000 ms
-        long oneHourMs = 60L * 60 * 1000;
-
-        // SQL groups all timestamps falling within the same hour bucket together and averages their voltages
+        // SQL groups all timestamps falling within the same bucket interval together and averages their voltages
         String query = "SELECT " +
-                "((timestamp / " + oneHourMs + ") * " + oneHourMs + ") AS hour_bucket, " +
+                "((timestamp / " + intervalMs + ") * " + intervalMs + ") AS time_bucket, " +
                 "AVG(" + COLUMN_VALUE + ") AS avg_voltage " +
                 "FROM " + TABLE_VOLTAGE + " " +
                 "WHERE " + COLUMN_TIMESTAMP + " >= ? " +
-                "GROUP BY hour_bucket " +
-                "ORDER BY hour_bucket ASC";
+                "GROUP BY time_bucket " +
+                "ORDER BY time_bucket ASC";
 
         Cursor cursor = db.rawQuery(query, new String[]{String.valueOf(cutoffTimestamp)});
 
-        if (cursor.moveToFirst()) {
-            do {
-                long hourBucketTime = cursor.getLong(cursor.getColumnIndexOrThrow("hour_bucket"));
-                float avgVolt = cursor.getFloat(cursor.getColumnIndexOrThrow("avg_voltage"));
-                list.add(new VoltageEntry(hourBucketTime, avgVolt));
-            } while (cursor.moveToNext());
+        if (cursor != null) {
+            try {
+                if (cursor.moveToFirst()) {
+                    do {
+                        long bucketTime = cursor.getLong(cursor.getColumnIndexOrThrow("time_bucket"));
+                        float avgVolt = cursor.getFloat(cursor.getColumnIndexOrThrow("avg_voltage"));
+                        list.add(new VoltageEntry(bucketTime, avgVolt));
+                    } while (cursor.moveToNext());
+                }
+            } finally {
+                cursor.close();
+            }
         }
-        cursor.close();
         return list;
     }
 

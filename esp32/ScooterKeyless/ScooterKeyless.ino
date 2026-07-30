@@ -28,7 +28,7 @@ void loop() {
         lastBatteryCheckTime = millis();
 
         // ONLY consume processor juice and transmit if the phone requested it!
-        if (isBatteryStreamActive()) {
+        if (isTelemetryEnabled()) {
             updateBatteryFilter();
 
             if (isBleClientConnected()) {

@@ -38,12 +38,12 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             uint8_t commandByte = (uint8_t)rawValue[0]; // Access index 0 of the Arduino String
 
             if (commandByte == 0x02) {
-                setBatteryStreamActive(false);
+                setTelemetryActive(false);
                 Serial.println(">>> App Command: Battery Telemetry Stream DISABLED (Power Saving Active).");
                 return; // Terminate execution block early
             }
             else if (commandByte == 0x03) {
-                setBatteryStreamActive(true);
+                setTelemetryActive(true);
                 Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
                 return; // Terminate execution block early
             }

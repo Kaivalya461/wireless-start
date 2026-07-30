@@ -1,9 +1,13 @@
 #include "Battery.h"
+#include <Preferences.h>
+
+Preferences preferences;
 
 const int BATTERY_PIN = 34;
 const float DIVIDER_RATIO = 5.7;
 const float FILTER_ALPHA = 0.05;
 float smoothedBatteryVoltage = -1.0;
+bool telemetryEnabled = false; // Initial fallback state
 
 // Auto-compiler detection selects the proper multiplier profile based on board target
 #if defined(ARDUINO_ESP32C3_DEV) || defined(ARDUINO_ESP32_C3_SUPER_MINI)
@@ -15,6 +19,14 @@ const float CALIBRATION_MULTIPLIER = 1.079;
 void initBattery() {
     pinMode(BATTERY_PIN, INPUT);
     analogSetAttenuation(ADC_11db); // Keep 11dB to read 14.X Volts safely
+
+    // Initialize Non-Volatile Storage (NVS) for Telemetry state persistence
+    preferences.begin("telemetry", false); // Namespace: "telemetry", read-write mode: false
+
+    // Load persisted state. Defaults to false if it's the very first boot.
+    telemetryEnabled = preferences.getBool("telemetry_state", false);
+
+    Serial.printf(">>> Loaded Telemetry State from NVS: %s\n", telemetryEnabled ? "ENABLED" : "DISABLED");
 }
 
 void updateBatteryFilter() {
@@ -41,15 +53,20 @@ uint16_t getBatteryMilliVolts() {
     return (uint16_t)(smoothedBatteryVoltage * 1000.0); // 12.66V becomes 12660
 }
 
-bool batteryStreamEnabled = false; // Disabled by default on boot
+void setTelemetryActive(bool active) {
+    if (telemetryEnabled != active) {
+        telemetryEnabled = active;
 
-void setBatteryStreamActive(bool active) {
-    batteryStreamEnabled = active;
+        // Save the updated state to flash memory instantly
+        preferences.putBool("telemetry_state", telemetryEnabled);
+        Serial.printf(">>> Telemetry State Saved to NVS: %s\n", telemetryEnabled ? "ENABLED" : "DISABLED");
+    }
+
     if (!active) {
         smoothedBatteryVoltage = -1.0; // Reset tracking if disabled
     }
 }
 
-bool isBatteryStreamActive() {
-    return batteryStreamEnabled;
+bool isTelemetryEnabled() {
+    return telemetryEnabled;
 }

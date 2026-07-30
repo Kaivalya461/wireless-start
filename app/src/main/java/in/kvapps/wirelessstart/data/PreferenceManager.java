@@ -7,12 +7,17 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import in.kvapps.wirelessstart.BuildConfig;
 import in.kvapps.wirelessstart.enums.DurationOption;
 
 public class PreferenceManager {
     private static final String PREFS_NAME = "WirelessStartPrefs";
     private static final String KEY_START_SPINNER_POS = "start_spinner_pos";
     private static final String KEY_START_CUSTOM_MS = "start_custom_ms";
+    private static final String KEY_TELEMETRY_ENABLED = "telemetry_enabled";
+    private static final String KEY_TARGET_HW_NAME = "target_hw_name";
+    private static final String DEFAULT_HW_NAME = "Vehicle 001";
+    private static final String KEY_TARGET_MAC = "target_mac_address";
     private static final long DEFAULT_START_MS = 1500;
 
     private final SharedPreferences prefs;
@@ -39,6 +44,33 @@ public class PreferenceManager {
 
     public String getStartCustomMs() {
         return prefs.getString(KEY_START_CUSTOM_MS, "");
+    }
+
+    public void setTelemetryEnabled(boolean enabled) {
+        prefs.edit().putBoolean(KEY_TELEMETRY_ENABLED, enabled).apply();
+    }
+
+    public boolean isTelemetryEnabled() {
+        return prefs.getBoolean(KEY_TELEMETRY_ENABLED, false);
+    }
+
+    // Save the new target hardware name
+    public void saveTargetHwName(String name) {
+        prefs.edit().putString(KEY_TARGET_HW_NAME, name).apply();
+    }
+
+    // Retrieve the stored target hardware name (returns default if none saved)
+    public String getTargetHwName() {
+        return prefs.getString(KEY_TARGET_HW_NAME, DEFAULT_HW_NAME);
+    }
+
+    public void saveTargetMacAddress(String mac) {
+        prefs.edit().putString(KEY_TARGET_MAC, mac).apply();
+    }
+
+    public String getTargetMacAddress() {
+        // Fallback to your BuildConfig or a default string if nothing is saved yet
+        return prefs.getString(KEY_TARGET_MAC, BuildConfig.ESP32_MAC);
     }
 
     /**

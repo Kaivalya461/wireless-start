@@ -56,7 +56,7 @@ public class CustomMarkerView extends MarkerView {
         }
 
         // Format layout text string output configuration matrix parameters
-        txtContent.setText(String.format(Locale.US, "%.1fV | %s", e.getY(), formattedDateTime));
+        txtContent.setText(String.format(Locale.US, "%.2fV | %s", e.getY(), formattedDateTime));
 
         super.refreshContent(e, highlight);
     }
@@ -64,5 +64,33 @@ public class CustomMarkerView extends MarkerView {
     @Override
     public MPPointF getOffset() {
         return new MPPointF((-(float) getWidth() / 2), -getHeight() - 15);
+    }
+
+    // To fix the Market getting cut off when at extreme right side of the chart.
+    @Override
+    public MPPointF getOffsetForDrawingAtPoint(float posX, float posY) {
+        MPPointF offset = super.getOffsetForDrawingAtPoint(posX, posY);
+
+        // Default behavior: center horizontally, place above the point vertically
+        float xOffset = -(getWidth() / 2f);
+        float yOffset = -getHeight() - 15f;
+
+        // Check if chartView context is available
+        if (getChartView() != null) {
+            float chartWidth = getChartView().getWidth();
+
+            // If marker goes off the right edge, shift it entirely to the left of the touch point
+            if (posX + xOffset + getWidth() > chartWidth) {
+                xOffset = -getWidth();
+            }
+            // If marker goes off the left edge, pin it to the left side
+            else if (posX + xOffset < 0f) {
+                xOffset = -posX;
+            }
+        }
+
+        offset.x = xOffset;
+        offset.y = yOffset;
+        return offset;
     }
 }

@@ -1,7 +1,10 @@
 package in.kvapps.wirelessstart.ble;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -24,8 +27,8 @@ public class BleManager {
         void onServicesReady();
         void onVoltageReceived(float voltage); // NEW: Dispatches updated voltage string
     }
-
-    private static final String ESP32_MAC = BuildConfig.ESP32_MAC;
+    private String targetHwName = "Vehicle 001";
+    private String ESP32_MAC = BuildConfig.ESP32_MAC;
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
@@ -37,15 +40,50 @@ public class BleManager {
     private final BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic commandCharacteristic;
+    private boolean isReceiverRegistered = false;
 
     public BleManager(Context context, BleListener listener) {
         this.context = context;
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        registerBluetoothStateReceiver();
     }
+
+    private void registerBluetoothStateReceiver() {
+        if (!isReceiverRegistered) {
+            IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(bluetoothStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(bluetoothStateReceiver, filter);
+            }
+            isReceiverRegistered = true;
+        }
+    }
+
+    private final BroadcastReceiver bluetoothStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
+                int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+
+                // Only trigger once when Bluetooth is completely off
+                if (state == BluetoothAdapter.STATE_OFF) {
+                    listener.onLog("System Alert: Phone Bluetooth was turned off.");
+                    disconnect();
+                    listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
+                }
+            }
+        }
+    };
 
     public boolean isBluetoothEnabled() {
         return bluetoothAdapter != null && bluetoothAdapter.isEnabled();
+    }
+
+    public boolean isConnected() {
+        return bluetoothGatt != null;
     }
 
     public void connect() {
@@ -57,7 +95,7 @@ public class BleManager {
 
         disconnect(); // Disconnect existing stale connections
 
-        listener.onLog("Searching for Dio hardware [" + ESP32_MAC + "]...");
+        listener.onLog("Searching for " + targetHwName + " [" + ESP32_MAC + "]...");
         try {
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(ESP32_MAC);
 
@@ -113,7 +151,6 @@ public class BleManager {
                     descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                     gatt.writeDescriptor(descriptor);
                 }
-                listener.onLog("Battery stream channel listening.");
             }
         } catch (SecurityException e) {
             listener.onLog("Security Error: Blocked from enabling notifications.");
@@ -146,10 +183,37 @@ public class BleManager {
             try {
                 bluetoothGatt.disconnect();
                 bluetoothGatt.close();
+                listener.onConnectionStateChanged(false, "Bluetooth Connection Disconnected");
             } catch (SecurityException e) {
                 listener.onLog("Security Error while disconnecting GATT.");
             }
             bluetoothGatt = null;
+        }
+        commandCharacteristic = null;
+    }
+
+    // Call this if your app destroys the manager instance to prevent memory leaks
+    public void release() {
+        if (isReceiverRegistered) {
+            try {
+                context.unregisterReceiver(bluetoothStateReceiver);
+            } catch (IllegalArgumentException e) {
+                // Receiver was already unregistered
+            }
+            isReceiverRegistered = false;
+        }
+        disconnect();
+    }
+
+    public void setTargetHwName(String targetHwName) {
+        if (targetHwName != null && !targetHwName.trim().isEmpty()) {
+            this.targetHwName = targetHwName;
+        }
+    }
+
+    public void setMacAdd(String macAdd) {
+        if (macAdd != null && !macAdd.trim().isEmpty()) {
+            this.ESP32_MAC = macAdd;
         }
     }
 
@@ -157,14 +221,14 @@ public class BleManager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                listener.onConnectionStateChanged(true, "Dio Hardware Connected");
+                listener.onConnectionStateChanged(true, targetHwName + " Connected");
                 try {
                     gatt.discoverServices();
                 } catch (SecurityException e) {
                     listener.onLog("Security Error: Failed to discover services.");
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                listener.onConnectionStateChanged(false, "Dio Hardware Offline");
+                listener.onConnectionStateChanged(false, targetHwName + " Offline");
                 commandCharacteristic = null;
             }
         }
@@ -177,12 +241,8 @@ public class BleManager {
                     commandCharacteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
                     listener.onLog("Data pipeline channel mapped.");
 
-                    // Enable background telemetry updates
-                    // 1. First sync time to ESP32
+                    // 1. Enable to BLE Push Communications between Phone and ESP32
                     enableNotifications(gatt, commandCharacteristic);
-
-                    // Sync calendar time markers
-                    sendAutoTimeSync();
 
                     // 2. Notify listener that the pipeline is fully ready
                     listener.onServicesReady();
@@ -223,8 +283,15 @@ public class BleManager {
         }
     };
 
+    // Force-sync telemetry state to ESP32 (0x03 = Enable, 0x02 = Disable)
+    public void syncTelemetryState(boolean isEnabled) {
+        byte commandByte = (byte) (isEnabled ? 0x03 : 0x02);
+        sendRawByteCommand(commandByte);
+        listener.onLog("Syncing telemetry state -> " + (isEnabled ? "ENABLED" : "DISABLED"));
+    }
+
     // Automatically sync current Unix timestamp to ESP32 for scheduled night sleep
-    private void sendAutoTimeSync() {
+    public void sendAutoTimeSync() {
         long currentEpochSeconds = System.currentTimeMillis() / 1000;
         String syncCommand = "TIME:" + currentEpochSeconds;
         listener.onLog("Auto-syncing system time to ESP32...");

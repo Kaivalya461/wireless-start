@@ -1,7 +1,6 @@
 package in.kvapps.wirelessstart;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -18,6 +17,7 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 
@@ -25,13 +25,14 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
+import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
 
-public class MainActivity extends Activity implements BleManager.BleListener {
+public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
     // UI Controls
     private View statusIndicator, panelVoltage;
     private TextView txtStatus, txtLog, txtVoltageValue;
@@ -58,27 +59,25 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
         initDependencies();
         initUiViews();
+        loadTelemetryPreference();
         setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
+        // Register the lifecycle observer for automatic BLE reconnection handling
+        getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, this::onLog));
 
         updateConnectionUi(false);
         checkPermissionsAndConnect();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (PermissionUtils.hasBluetoothPermissions(this)) {
-            onLog("App resumed. Checking BLE connection...");
-            bleManager.connect();
-        }
     }
 
     private void initDependencies() {
         dbHelper = new VoltageDbHelper(this);
         preferenceManager = new PreferenceManager(this);
         bleManager = new BleManager(this, this);
+
+        // Load User saved Device Configuration
+        bleManager.setTargetHwName(preferenceManager.getTargetHwName());
+        bleManager.setMacAdd(preferenceManager.getTargetMacAddress());
     }
 
     private void initUiViews() {
@@ -124,11 +123,19 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
+
+        // Add menu items (ID 1 for Reconnect, ID 2 for Rename)
         popup.getMenu().add(0, 1, 0, "Reconnect");
+        popup.getMenu().add(0, 2, 1, "Edit Config");
+
         popup.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() == 1) {
+            int id = item.getItemId();
+            if (id == 1) {
                 onLog("Manual reconnect requested...");
                 checkPermissionsAndConnect();
+                return true;
+            } else if (id == 2) {
+                showEditConfigDialog();
                 return true;
             }
             return false;
@@ -146,6 +153,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
             if (txtVoltageValue != null) txtVoltageValue.setText("--.--V");
             onLog("Telemetry request: Stopped live stream to save hardware power.");
         }
+        preferenceManager.setTelemetryEnabled(isChecked);
     }
 
     private void checkPermissionsAndConnect() {
@@ -159,6 +167,7 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
             onLog("Permissions approved by user.");
             bleManager.connect();
@@ -195,7 +204,10 @@ public class MainActivity extends Activity implements BleManager.BleListener {
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
         if (dbHelper != null) dbHelper.close();
-        bleManager.disconnect();
+        if (bleManager != null) {
+            bleManager.disconnect();
+            bleManager.release();
+        }
     }
 
     // --- BLE Manager Callbacks ---
@@ -213,10 +225,17 @@ public class MainActivity extends Activity implements BleManager.BleListener {
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         runOnUiThread(() -> {
-            txtStatus.setText(statusText);
-            statusIndicator.setBackgroundColor(isConnected ? 0xFF4CAF50 : 0xFFE53935);
-            onLog("System state: " + statusText);
-            updateConnectionUi(isConnected);
+            // Format with Sci-Fi prefix
+            String sciFiStatus = "SYSTEMS: " + statusText.toUpperCase();
+            txtStatus.setText(sciFiStatus);
+
+            if (isConnected) {
+                statusIndicator.setBackgroundResource(R.drawable.indicator_online);
+                updateConnectionUi(true);
+            } else {
+                statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
+                updateConnectionUi(false);
+            }
         });
     }
 
@@ -226,6 +245,13 @@ public class MainActivity extends Activity implements BleManager.BleListener {
 
     @Override
     public void onServicesReady() {
+        // 1. Auto-sync current system time to ESP32
+        bleManager.sendAutoTimeSync();
+
+        // 2. Force-sync the user's preferred telemetry state to the ESP32
+        boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
+        bleManager.syncTelemetryState(savedTelemetryState);
+
         onLog("GATT pipeline established. Ready for control operations.");
     }
 
@@ -240,5 +266,66 @@ public class MainActivity extends Activity implements BleManager.BleListener {
                 }
             }
         });
+    }
+
+    // Load saved telemetry state into local variable
+    private void loadTelemetryPreference() {
+        isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
+
+        if (switchVoltage != null) {
+            // Set switch checked state without triggering listeners (if any)
+            switchVoltage.setChecked(isTelemetryEnabled);
+        }
+    }
+
+    private void showEditConfigDialog() {
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        builder.setTitle("Device Configuration");
+
+        // Create a container layout to hold multiple inputs
+        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(50, 40, 50, 20);
+
+        // 1. Device Name Input
+        final EditText inputName = new EditText(this);
+        inputName.setHint("Device Name (e.g. Vehicle 001)");
+        String currentName = preferenceManager.getTargetHwName();
+        inputName.setText(currentName);
+        container.addView(inputName);
+
+        // 2. MAC Address Input
+        final EditText inputMac = new EditText(this);
+        inputMac.setHint("MAC Address (e.g. AA:BB:CC:DD:EE:FF)");
+        // Fetch current saved MAC from your preferenceManager (make sure to create this method)
+        String currentMac = preferenceManager.getTargetMacAddress();
+        if (currentMac != null && !currentMac.isEmpty()) {
+            inputMac.setText(currentMac);
+        }
+        container.addView(inputMac);
+
+        builder.setView(container);
+
+        builder.setPositiveButton("Save", (dialog, which) -> {
+            String newName = inputName.getText().toString().trim();
+            String newMac = inputMac.getText().toString().trim();
+
+            if (!newName.isEmpty()) {
+                preferenceManager.saveTargetHwName(newName);
+                bleManager.setTargetHwName(newName);
+            }
+
+            // Save and update MAC address if valid format is entered
+            if (!newMac.isEmpty()) {
+                preferenceManager.saveTargetMacAddress(newMac);
+                bleManager.setMacAdd(newMac);
+            }
+
+            onLog("Configuration updated. Reconnecting...");
+            bleManager.connect();
+        });
+
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
+        builder.show();
     }
 }

@@ -21,12 +21,14 @@ import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.model.VoltageEntry;
 
 public class VoltageHistoryActivity extends Activity {
-
+    private static final String DEFAULT_1H_VIEW = "1H";
+    private static final long INTERVAL_15_MIN = 15L * 60 * 1000;
+    private static final long INTERVAL_1_HOUR = 60L * 60 * 1000;
     private LineChart voltageChart;
     private CustomMarkerView markerView;
     private VoltageDbHelper dbHelper;
     private Button btn1D, btn7D, btn1M, btn1Y;
-    private String currentFilter = "1H";
+    private String currentFilter = DEFAULT_1H_VIEW;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,11 +61,24 @@ public class VoltageHistoryActivity extends Activity {
         voltageChart.setBorderColor(Color.parseColor("#333333"));
         voltageChart.setBorderWidth(1f);
 
+        // DISABLE ALL ZOOMING
+        voltageChart.setScaleXEnabled(false);
+        voltageChart.setScaleYEnabled(false);
+        voltageChart.setPinchZoom(false);
+        voltageChart.setDoubleTapToZoomEnabled(false);
+
         // Y-Axis Grid Rules Styling
         voltageChart.getAxisLeft().setTextColor(Color.parseColor("#CCCCCC"));
         voltageChart.getAxisLeft().setGridColor(Color.parseColor("#333333"));
         voltageChart.getAxisRight().setEnabled(false);
         voltageChart.getAxisLeft().setDrawAxisLine(true);
+        // APPEND "V" TO Y-AXIS LABELS
+        voltageChart.getAxisLeft().setValueFormatter(new com.github.mikephil.charting.formatter.ValueFormatter() {
+            @Override
+            public String getFormattedValue(float value) {
+                return String.format(java.util.Locale.US, "%.1fV", value);
+            }
+        });
 
         // X-Axis Timeline Constraints
         voltageChart.getXAxis().setTextColor(Color.parseColor("#888888"));
@@ -72,9 +87,10 @@ public class VoltageHistoryActivity extends Activity {
         voltageChart.getXAxis().setDrawLabels(false);
 
         // Inject padding space inside the view window container bounds
-        voltageChart.setViewPortOffsets(60f, 40f, 40f, 60f);
+        voltageChart.setViewPortOffsets(85f, 40f, 10f, 60f);
 
         markerView = new CustomMarkerView(this, R.layout.chart_marker_view);
+        markerView.setChartView(voltageChart);
         voltageChart.setMarker(markerView);
     }
 
@@ -109,7 +125,7 @@ public class VoltageHistoryActivity extends Activity {
         final long filterCutoffTime;
 
         switch (currentFilter) {
-            case "1H":  filterCutoffTime = now - (60L * 60 * 1000); break;
+            case DEFAULT_1H_VIEW:  filterCutoffTime = now - (60L * 60 * 1000); break;
             case "7D":  filterCutoffTime = now - (7L * 24 * 60 * 60 * 1000); break;
             case "1Y":  filterCutoffTime = now - (365L * 24 * 60 * 60 * 1000); break;
             case "All": filterCutoffTime = 0; break;
@@ -121,17 +137,20 @@ public class VoltageHistoryActivity extends Activity {
 
             // 1. CONDITIONAL DATA DOWNSAMPLING SWITCH
             List<VoltageEntry> filteredHistory;
-            if ("1Y".equals(currentFilter) || "All".equals(currentFilter)) {
-                // Fetch downsampled hourly trends for long windows
-                filteredHistory = dbHelper.getHourlyAveragesSince(filterCutoffTime);
+            if ("7D".equals(currentFilter)) {
+                // Fetch lightweight 15-minute aggregated buckets for the 7-day view
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_15_MIN);
+            } else if ("1Y".equals(currentFilter) || "All".equals(currentFilter)) {
+                // Fetch hourly averages for long windows
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_HOUR);
             } else {
-                // Fetch raw, granular per-second points for 1H and 7D windows
+                // Fetch raw, granular per-second points strictly for the 1H window
                 filteredHistory = dbHelper.getReadingsSince(filterCutoffTime);
             }
 
             // 2. ADAPTIVE GAP CLOSURE COEFFICIENT
             long gapThresholdMs;
-            if (currentFilter.equals("1H")) {
+            if (currentFilter.equals(DEFAULT_1H_VIEW)) {
                 gapThresholdMs = 1L * 60 * 1000;
             } else if (currentFilter.equals("7D")) {
                 gapThresholdMs = 15L * 60 * 1000;
@@ -164,7 +183,11 @@ public class VoltageHistoryActivity extends Activity {
                     dataSet.setCircleRadius(0f);
                     dataSet.setDrawCircleHole(false);
                     dataSet.setDrawValues(false);
-                    dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+                    if (DEFAULT_1H_VIEW.equals(currentFilter)) {
+                        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+                    } else {
+                        dataSet.setMode(LineDataSet.Mode.LINEAR); // Much faster rendering for 7D/1Y
+                    }
                     dataSet.setDrawFilled(true);
                     dataSet.setFillColor(Color.parseColor("#00E5FF"));
                     dataSet.setFillAlpha(30);

@@ -1,8 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.WirelessStart" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="android:statusBarColor">#121212</item>
+
+        <!-- Ensure icons in the status bar are light-colored (since your background is dark) -->
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <style name="Theme.WirelessStart" parent="Base.Theme.WirelessStart" />

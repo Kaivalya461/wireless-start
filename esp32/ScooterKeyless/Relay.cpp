@@ -32,10 +32,10 @@ bool getIsPulseActive() {
 
 void initRelays() {
     pinMode(START_RELAY_PIN, OUTPUT);
-    digitalWrite(START_RELAY_PIN, HIGH); // Force off safely instantly
+    digitalWrite(START_RELAY_PIN, LOW); // Force off safely instantly (Active-HIGH: LOW = OFF)
 
-    // Retain states across deep sleep cycles safely
-    gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
+    // Retain states across deep sleep cycles safely (Pull-down for Active-HIGH)
+    gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
     gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
     gpio_deep_sleep_hold_dis();
 }
@@ -53,7 +53,7 @@ void syncTime(unsigned long epochTime) {
 void enterDeepSleep(uint64_t sleepDurationSeconds) {
     Serial.println(">>> Entering Scheduled Night Deep Sleep...");
 
-    digitalWrite(START_RELAY_PIN, HIGH);
+    digitalWrite(START_RELAY_PIN, LOW); // Ensure MOSFET is OFF before sleeping
     gpio_hold_en((gpio_num_t)START_RELAY_PIN);
     gpio_deep_sleep_hold_en();
 
@@ -113,7 +113,7 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
     activePulseDuration  = durationMs;
     isPulseActive        = true;
 
-    digitalWrite(pin, LOW);
+    digitalWrite(pin, HIGH); // Active-HIGH: HIGH = ON
     Serial.print("-> Relay PIN ");
     Serial.print(pin);
     Serial.print(" ON for ");
@@ -129,8 +129,8 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
 void updateRelayPulses() {
     if (isPulseActive) {
         if (millis() - pulseStartTime >= activePulseDuration) {
-            digitalWrite(activeRelayPin, HIGH);
-            Serial.println("-> Pulse complete. Relay Pin restored HIGH.");
+            digitalWrite(activeRelayPin, LOW); // Active-HIGH: LOW = OFF
+            Serial.println("-> Pulse complete. Relay Pin restored LOW.");
             isPulseActive = false;
             activeRelayPin = -1;
         }

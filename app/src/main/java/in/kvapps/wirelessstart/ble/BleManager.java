@@ -244,7 +244,8 @@ public class BleManager {
                     enableNotifications(gatt, commandCharacteristic);
 
                     // 2. Notify listener that the pipeline is fully ready
-                    listener.onServicesReady();
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(listener::onServicesReady, 50);
                 } else {
                     listener.onLog("Error: Service UUID matching failed.");
                 }

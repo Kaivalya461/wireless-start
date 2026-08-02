@@ -171,7 +171,7 @@ public class BleManager {
                     commandCharacteristic.setValue(payload);
                     bluetoothGatt.writeCharacteristic(commandCharacteristic);
                 }
-                listener.onLog("Byte Packet Transmitted -> 0x" + String.format("%02X", controlByte));
+//                listener.onLog("Byte Packet Transmitted -> 0x" + String.format("%02X", controlByte));
             } catch (SecurityException e) {
                 listener.onLog("Security Error passing raw bytes.");
             }
@@ -238,7 +238,6 @@ public class BleManager {
                 BluetoothGattService service = gatt.getService(SERVICE_UUID);
                 if (service != null) {
                     commandCharacteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
-                    listener.onLog("Data pipeline channel mapped.");
 
                     // 1. Enable to BLE Push Communications between Phone and ESP32
                     enableNotifications(gatt, commandCharacteristic);

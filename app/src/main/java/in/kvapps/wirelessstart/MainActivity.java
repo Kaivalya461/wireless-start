@@ -115,11 +115,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         long totalCooldownMs = pulseMs + 3000; // Pulse time + 3s starter motor resting cooldown
 
         UiUtils.setButtonState(btnStart, false, 0.5f);
-        onLog("[SAFETY] Starter cooling down for " + (totalCooldownMs / 1000) + "s...");
+        onLog("[SAFETY] Cooling down for " + (totalCooldownMs / 1000) + "s...");
 
         cooldownHandler.postDelayed(() -> {
             UiUtils.setButtonState(btnStart, true, 1.0f);
-            onLog("[SAFETY] Ignition ready.");
+            onLog("[SAFETY] Start Engine button is re-enabled");
         }, totalCooldownMs);
     }
 
@@ -254,9 +254,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
-        FeedbackUtil.triggerDoubleVibrate(this);
         FeedbackUtil.sendConnectionSuccessHapticToWatch(this);
-        onLog("GATT pipeline established. Ready for control operations.");
+        FeedbackUtil.triggerDoubleVibrate(this);
+        onLog("Connection established. Ready for control operations.");
     }
 
     @Override

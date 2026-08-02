@@ -23,7 +23,7 @@ public class PhoneMessageListenerService extends WearableListenerService {
         super.onMessageReceived(messageEvent);
 
         if (VIBRATE_PATH.equals(messageEvent.getPath())) {
-            Log.d(TAG, "Vibrate message received from phone. Triggering watch motor.");
+            Log.d(TAG, "Vibrate message received from phone. Triggering watch vibrate.");
             triggerDoubleVibrate(this);
         }
     }

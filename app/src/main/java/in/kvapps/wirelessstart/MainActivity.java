@@ -60,6 +60,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         initDependencies();
         initUiViews();
+        loadStoredLogsForToday();
         loadTelemetryPreference();
         setupSpinnersAndPersistence();
         setupClickListeners();
@@ -216,10 +217,22 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     public void onLog(String message) {
         runOnUiThread(() -> {
-            String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+            long currentTime = System.currentTimeMillis();
+            String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(currentTime));
+
+            // 1. Display on UI (Existing behavior)
             txtLog.append("[" + timeStamp + "] " + message + "\n");
             if (scrollLog != null) {
                 scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
+            }
+
+            // 2. Save log to database
+            // Database Performance: Writing individual logs directly from the main thread via dbHelper.
+            // insertLog() is usually fine for intermittent debugging messages.
+            // However, if your hardware streams a high volume of logs,
+            // consider using a background thread or a queue to avoid blocking the UI thread.
+            if (dbHelper != null) {
+                dbHelper.insertLog(currentTime, message);
             }
         });
     }
@@ -332,5 +345,32 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
         builder.show();
+    }
+
+    private void loadStoredLogsForToday() {
+        if (dbHelper == null) return;
+
+        // Clear existing text just in case
+        txtLog.setText("");
+
+        // Fetch logs from SQLite database for the current day
+        java.util.List<String> todayLogs = dbHelper.getTodayLogs();
+
+        if (todayLogs != null && !todayLogs.isEmpty()) {
+            StringBuilder logBuilder = new StringBuilder();
+            for (String logLine : todayLogs) {
+                logBuilder.append(logLine).append("\n");
+            }
+            txtLog.setText(logBuilder.toString());
+
+            // Scroll down to the latest log entry automatically
+            if (scrollLog != null) {
+                scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
+            }
+        } else {
+            // Optional welcome log if no history exists for today yet
+            String timeStamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
+            txtLog.append("[" + timeStamp + "] SYSTEMS: Initialized fresh session logs.\n");
+        }
     }
 }

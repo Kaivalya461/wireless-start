@@ -227,7 +227,9 @@ public class BleManager {
                     listener.onLog("Security Error: Failed to discover services.");
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                listener.onConnectionStateChanged(false, targetHwName + " Offline");
+                String statusText = targetHwName + " Offline";
+                listener.onLog("System Alert: " + statusText);
+                listener.onConnectionStateChanged(false, statusText);
                 commandCharacteristic = null;
             }
         }

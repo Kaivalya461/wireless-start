@@ -9,9 +9,11 @@ import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import java.util.Set;
 
+import in.kvapps.wirelessstart.shared.Constants;
+
 public class ActionUtil {
-    public static final String START_PATH = "/dio/engine_start";
-    public static final String STOP_PATH = "/dio/engine_stop";
+    public static final String START_PATH = Constants.START_PATH;
+    public static final String STOP_PATH = Constants.STOP_PATH;
 
     public static void transmitActionToPhone(Context context, String targetPath, String promptText) {
         Task<CapabilityInfo> lookupTask = Wearable.getCapabilityClient(context)

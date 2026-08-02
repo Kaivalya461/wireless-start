@@ -9,11 +9,13 @@ import com.google.android.gms.wearable.WearableListenerService;
 
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.shared.Constants;
 
+// Listener to consume messages sent by Wear App
 public class WearMessageListenerService extends WearableListenerService implements BleManager.BleListener {
-    private static final String TAG = "DioWearListener";
-    private static final String START_PATH = "/dio/engine_start";
-    private static final String STOP_PATH = "/dio/engine_stop";
+    private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
+    private static final String START_PATH = Constants.START_PATH;
+    private static final String STOP_PATH = Constants.STOP_PATH;
 
     private BleManager bleManager;
     private String pendingCommandToSend; // Store the intended command

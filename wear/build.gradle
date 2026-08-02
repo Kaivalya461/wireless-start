@@ -34,4 +34,7 @@ android {
 
 dependencies {
     implementation(libs.play.services.wearable)
+
+    // Custom Shared Module to hold common code between PhoneApp and WearApp
+    implementation project(':shared')
 }

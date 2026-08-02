@@ -29,6 +29,7 @@ import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
+import in.kvapps.wirelessstart.util.FeedbackUtil;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
 
@@ -106,6 +107,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void handleStartAction() {
+        FeedbackUtil.triggerDoubleVibrate(this);
         String command = preferenceManager.getFormattedCommand("START");
         bleManager.sendBleCommand(command);
 
@@ -252,6 +254,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
+        FeedbackUtil.triggerDoubleVibrate(this);
+        FeedbackUtil.sendConnectionSuccessHapticToWatch(this);
         onLog("GATT pipeline established. Ready for control operations.");
     }
 

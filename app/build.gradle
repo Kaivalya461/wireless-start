@@ -60,4 +60,7 @@ dependencies {
     // Google Wearable Sync Data Pipeline API
     implementation 'com.google.android.gms:play-services-wearable:19.0.0'
     implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
+
+    // Custom Shared Module to hold common code between PhoneApp and WearApp
+    implementation project(':shared')
 }

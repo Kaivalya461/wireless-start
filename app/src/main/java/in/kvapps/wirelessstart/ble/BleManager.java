@@ -183,7 +183,6 @@ public class BleManager {
             try {
                 bluetoothGatt.disconnect();
                 bluetoothGatt.close();
-                listener.onConnectionStateChanged(false, "Bluetooth Connection Disconnected");
             } catch (SecurityException e) {
                 listener.onLog("Security Error while disconnecting GATT.");
             }

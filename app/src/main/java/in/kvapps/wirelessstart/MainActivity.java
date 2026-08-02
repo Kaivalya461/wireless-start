@@ -321,6 +321,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 bleManager.setMacAdd(newMac);
             }
 
+            onConnectionStateChanged(false, "Reconnecting");
             onLog("Configuration updated. Reconnecting...");
             bleManager.connect();
         });

@@ -3,6 +3,11 @@
 #include "esp_sleep.h"
 #include <sys/time.h>
 
+// --- Relay Logic Configuration ---
+// Set to true if LOW turns the relay ON (common for optocoupler modules/MOSFETs)
+// Set to false if HIGH turns the relay ON
+bool RELAY_ACTIVE_LOW = true;
+
 // Night Sleep Window (1:30 AM to 8:30 AM)
 #define SLEEP_START_HOUR   1
 #define SLEEP_START_MIN    30
@@ -26,16 +31,30 @@ unsigned long pulseStartTime               = 0;
 unsigned long activePulseDuration          = 0;
 bool timeIsSynced                          = false;
 
+// --- Helper Functions for Dynamic Relay Logic ---
+void setRelayState(int pin, bool state) {
+    if (RELAY_ACTIVE_LOW) {
+        digitalWrite(pin, state ? LOW : HIGH);
+    } else {
+        digitalWrite(pin, state ? HIGH : LOW);
+    }
+}
+
 bool getIsPulseActive() {
     return isPulseActive;
 }
 
 void initRelays() {
     pinMode(START_RELAY_PIN, OUTPUT);
-    digitalWrite(START_RELAY_PIN, LOW); // Force off safely instantly (Active-HIGH: LOW = OFF)
+    setRelayState(START_RELAY_PIN, false); // Force off safely instantly
 
-    // Retain states across deep sleep cycles safely (Pull-down for Active-HIGH)
-    gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
+    // Retain states across deep sleep cycles safely
+    if (RELAY_ACTIVE_LOW) {
+        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
+    } else {
+        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
+    }
+
     gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
     gpio_deep_sleep_hold_dis();
 }
@@ -53,7 +72,7 @@ void syncTime(unsigned long epochTime) {
 void enterDeepSleep(uint64_t sleepDurationSeconds) {
     Serial.println(">>> Entering Scheduled Night Deep Sleep...");
 
-    digitalWrite(START_RELAY_PIN, LOW); // Ensure MOSFET is OFF before sleeping
+    setRelayState(START_RELAY_PIN, false); // Ensure Relay is OFF before sleeping
     gpio_hold_en((gpio_num_t)START_RELAY_PIN);
     gpio_deep_sleep_hold_en();
 
@@ -113,7 +132,7 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
     activePulseDuration  = durationMs;
     isPulseActive        = true;
 
-    digitalWrite(pin, HIGH); // Active-HIGH: HIGH = ON
+    setRelayState(pin, true); // Turn Relay ON using dynamic logic
     Serial.print("-> Relay PIN ");
     Serial.print(pin);
     Serial.print(" ON for ");
@@ -129,8 +148,8 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
 void updateRelayPulses() {
     if (isPulseActive) {
         if (millis() - pulseStartTime >= activePulseDuration) {
-            digitalWrite(activeRelayPin, LOW); // Active-HIGH: LOW = OFF
-            Serial.println("-> Pulse complete. Relay Pin restored LOW.");
+            setRelayState(activeRelayPin, false); // Turn Relay OFF using dynamic logic
+            Serial.println("-> Pulse complete. Relay Pin restored to OFF state.");
             isPulseActive = false;
             activeRelayPin = -1;
         }

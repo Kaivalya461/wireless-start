@@ -3,7 +3,6 @@
 
 Preferences preferences;
 
-const int BATTERY_PIN = 34;
 const float DIVIDER_RATIO = 5.7;
 const float FILTER_ALPHA = 0.05;
 float smoothedBatteryVoltage = -1.0;
@@ -11,8 +10,10 @@ bool telemetryEnabled = false; // Initial fallback state
 
 // Auto-compiler detection selects the proper multiplier profile based on board target
 #if defined(ARDUINO_ESP32C3_DEV) || defined(ARDUINO_ESP32_C3_SUPER_MINI)
-const float CALIBRATION_MULTIPLIER = 1.084;
+const int BATTERY_PIN = 4; // Use GPIO 4 for ESP32-C3 Super Mini
+const float CALIBRATION_MULTIPLIER = 1.109;
 #else
+const int BATTERY_PIN = 34; // Default to GPIO 34 for standard ESP32 Dev Board
 const float CALIBRATION_MULTIPLIER = 1.079;
 #endif
 
@@ -34,7 +35,7 @@ void updateBatteryFilter() {
     float pinVoltage = pinMilliVolts / 1000.0;
     float voltageAfterDiode = pinVoltage * DIVIDER_RATIO;
 
-    float instantBatteryVoltage = (voltageAfterDiode * CALIBRATION_MULTIPLIER) + 0.31;
+    float instantBatteryVoltage = (voltageAfterDiode * CALIBRATION_MULTIPLIER) + 0.81;
     if (pinMilliVolts == 0) instantBatteryVoltage = 0.0;
 
     if (smoothedBatteryVoltage < 0.0) {

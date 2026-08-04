@@ -4,7 +4,7 @@
 Preferences preferences;
 
 const float DIVIDER_RATIO = 5.7;
-const float FILTER_ALPHA = 0.05;
+const float FILTER_ALPHA = 0.222; //1.0: No smoothing at all (passes raw instant voltage straight through)
 float smoothedBatteryVoltage = -1.0;
 bool telemetryEnabled = false; // Initial fallback state
 

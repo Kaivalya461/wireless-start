@@ -182,4 +182,64 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
         }
         return logsList;
     }
+
+    public List<String> getLogsForDate(String targetDate) {
+        List<String> logsList = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        long startOfDayTimestamp = 0;
+        long endOfDayTimestamp = 0;
+
+        try {
+            // Parse the targetDate string ("yyyy-MM-dd") to get start and end timestamps
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault());
+            java.util.Date parsedDate = sdf.parse(targetDate);
+
+            if (parsedDate != null) {
+                java.util.Calendar calendar = java.util.Calendar.getInstance();
+                calendar.setTime(parsedDate);
+
+                // Set to 00:00:00.000
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                calendar.set(java.util.Calendar.MINUTE, 0);
+                calendar.set(java.util.Calendar.SECOND, 0);
+                calendar.set(java.util.Calendar.MILLISECOND, 0);
+                startOfDayTimestamp = calendar.getTimeInMillis();
+
+                // Set to 23:59:59.999
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 23);
+                calendar.set(java.util.Calendar.MINUTE, 59);
+                calendar.set(java.util.Calendar.SECOND, 59);
+                calendar.set(java.util.Calendar.MILLISECOND, 999);
+                endOfDayTimestamp = calendar.getTimeInMillis();
+            }
+        } catch (java.text.ParseException e) {
+            e.printStackTrace();
+            return logsList; // Return empty list if parsing fails
+        }
+
+        // Query logs falling within that day's time range
+        String query = "SELECT " + COLUMN_LOG_TIMESTAMP + ", " + COLUMN_LOG_MESSAGE +
+                " FROM " + TABLE_LOGS +
+                " WHERE " + COLUMN_LOG_TIMESTAMP + " >= ? AND " + COLUMN_LOG_TIMESTAMP + " <= ? " +
+                " ORDER BY " + COLUMN_LOG_TIMESTAMP + " ASC";
+
+        Cursor cursor = db.rawQuery(query, new String[]{String.valueOf(startOfDayTimestamp), String.valueOf(endOfDayTimestamp)});
+
+        if (cursor != null) {
+            try {
+                while (cursor.moveToNext()) {
+                    long timestamp = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_LOG_TIMESTAMP));
+                    String message = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_LOG_MESSAGE));
+
+                    // Format timestamp back to human-readable string and append
+                    String timeStampFormatted = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date(timestamp));
+                    logsList.add("[" + timeStampFormatted + "] " + message);
+                }
+            } finally {
+                cursor.close();
+            }
+        }
+        return logsList;
+    }
 }

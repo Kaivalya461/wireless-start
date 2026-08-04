@@ -42,6 +42,8 @@
             android:theme="@style/Theme.WirelessStart"
             tools:ignore="LockedOrientationActivity" />
 
+        <activity android:name=".LogHistoryActivity" android:exported="false" />
+
         <!-- Background service to catch Watch commands even if phone screen is locked -->
         <service android:name=".WearMessageListenerService" android:exported="true">
             <intent-filter>

@@ -6,5 +6,6 @@
 void initBle();
 void transmitBatteryTelemetry(uint16_t mvPayload);
 bool isBleClientConnected();
+void updateBleAdvertisingState();
 
 #endif

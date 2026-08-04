@@ -35,7 +35,7 @@ import in.kvapps.wirelessstart.util.UiUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
     // UI Controls
-    private View statusIndicator, panelVoltage;
+    private View statusIndicator, panelVoltage, cardLogSection;
     private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
     private Button btnStart;
@@ -94,6 +94,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
         switchVoltage = findViewById(R.id.switch_voltage);
         panelVoltage = findViewById(R.id.panel_voltage);
+        cardLogSection = findViewById(R.id.card_log_section);
     }
 
     private void setupSpinnersAndPersistence() {
@@ -105,6 +106,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         btnMenu.setOnClickListener(this::showPopupMenu);
         panelVoltage.setOnClickListener(v -> startActivity(new Intent(this, VoltageHistoryActivity.class)));
         switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> handleTelemetryToggle(isChecked));
+        cardLogSection.setOnClickListener(v -> {
+            Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
+            startActivity(intent);
+        });
     }
 
     private void handleStartAction() {

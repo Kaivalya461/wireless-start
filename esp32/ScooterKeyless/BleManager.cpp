@@ -14,15 +14,38 @@ const unsigned long DEFAULT_START_PULSE_MS = 1700;
 BLECharacteristic *pCharacteristic;
 bool bleConnected = false;
 
+// Eco Mode tracking variables encapsulated inside BleManager
+static unsigned long disconnectionTime = 0;
+static bool isFastAdvertising = true;
+const unsigned long ECO_MODE_DELAY_MS = 30UL * 60UL * 1000UL; // 30 minutes
+const unsigned long FAST_BLE_MIN_INTERVAL = 400; // 250ms
+const unsigned long FAST_BLE_MAX_INTERVAL = 800; // 500ms
+
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
         bleConnected = true;
-        Serial.println(">>> App Connected!");
+        Serial.println(">>> App Connected! Restoring Fast BLE Advertising parameters.");
+
+        disconnectionTime = millis();
+        isFastAdvertising = true;
+
+        // Reset advertising back to fast speeds for immediate response next time
+        BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+        pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
+        pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
     }
     void onDisconnect(BLEServer* pServer) override {
         bleConnected = false;
-        Serial.println(">>> App Disconnected!");
-        pServer->getAdvertising()->start();
+        Serial.println(">>> App Disconnected! Restarting with Fast BLE Advertising...");
+
+        disconnectionTime = millis();
+        isFastAdvertising = true;
+
+        // Ensure fast intervals are set before restarting advertising on drop
+        BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+        pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
+        pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
+        pAdvertising->start();
     }
 };
 
@@ -105,21 +128,43 @@ void initBle() {
     );
 
     pCharacteristic->setCallbacks(new MyCallbacks());
-    pCharacteristic->addDescriptor(new BLE2902()); // Added required notification layout
+    pCharacteristic->addDescriptor(new BLE2902());
 
     pService->start();
+
+    disconnectionTime = millis();
+    isFastAdvertising = true;
+
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->setScanResponse(true);
 
     pAdvertising->setMinPreferred(0x06);
-    pAdvertising->setMinInterval(0x0640);
-    pAdvertising->setMaxInterval(0x0C80);
+    pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
+    pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
+
     BLEDevice::startAdvertising();
 }
 
 bool isBleClientConnected() {
     return bleConnected;
+}
+
+// Background handler to drop into Eco Mode automatically if left disconnected
+void updateBleAdvertisingState() {
+    if (!bleConnected) {
+        if (isFastAdvertising && (millis() - disconnectionTime > ECO_MODE_DELAY_MS)) {
+            Serial.println(">>> Switching BLE Advertising to Eco Mode (Slow Interval) to save battery.");
+            isFastAdvertising = false;
+
+            BLEDevice::stopAdvertising();
+            BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+            // Eco Mode BLE Advert
+            pAdvertising->setMinInterval(3200); // 2000ms (2s)
+            pAdvertising->setMaxInterval(4800); // 3000ms (3s)
+            BLEDevice::startAdvertising();
+        }
+    }
 }
 
 void transmitBatteryTelemetry(uint16_t mvPayload) {

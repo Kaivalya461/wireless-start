@@ -13,7 +13,7 @@ void setup() {
     initBattery();
     initBle();
 
-    Serial.println(">>> Modular Scooter Controller Initialized successfully.");
+    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.1");
 }
 
 void loop() {
@@ -23,7 +23,10 @@ void loop() {
     // 2. Scheduled Night Sleep Check (Evaluates if time synced & conditions clear)
     checkScheduledNightSleep();
 
-    // 3. Timed Battery Evaluation & App Notification Loop
+    // 3. Monitor and manage BLE advertising intervals (Fast vs Eco Mode)
+    updateBleAdvertisingState();
+
+    // 4. Timed Battery Evaluation & App Notification Loop
     if (millis() - lastBatteryCheckTime >= BATTERY_INTERVAL) {
         lastBatteryCheckTime = millis();
 

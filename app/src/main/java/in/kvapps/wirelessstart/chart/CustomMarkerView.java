@@ -15,7 +15,7 @@ import in.kvapps.wirelessstart.R;
 public class CustomMarkerView extends MarkerView {
     private final TextView txtContent;
     private long baseCutoffTimeMs;
-    private String currentActiveFilter = "1H"; // Default configuration matching starting view state
+    private String currentActiveFilter = "4H"; // Default configuration matching starting view state
 
     // 1. Separate formatters for short versus long timeline representations
     private final SimpleDateFormat shortTimeFormat = new SimpleDateFormat("h:mm a", Locale.getDefault());
@@ -48,7 +48,7 @@ public class CustomMarkerView extends MarkerView {
         String formattedDateTime;
 
         // 3. Select appropriate date pattern configuration path based on user time intervals
-        if ("1H".equals(currentActiveFilter)) {
+        if ("4H".equals(currentActiveFilter)) {
             formattedDateTime = shortTimeFormat.format(targetDate);
         } else {
             // For 7D, 1Y, All views: Upper-case the text to output clean formal asset lines like "7 JUL 2026"

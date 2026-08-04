@@ -55,11 +55,50 @@
         android:gravity="center"
         app:layout_constraintTop_toBottomOf="@id/voltage_trend_chart">
 
-        <!-- CHANGED: Swapped text to 1H, 7D, 1Y, ALL -->
-        <Button android:id="@+id/btn_filter_1d" android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1" android:text="1H" android:textSize="11sp" android:textColor="#FFFFFF" android:backgroundTint="#222222" style="?android:attr/borderlessButtonStyle"/>
-        <Button android:id="@+id/btn_filter_7d" android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1" android:text="7D" android:textSize="11sp" android:textColor="#666666" android:backgroundTint="#121212" style="?android:attr/borderlessButtonStyle"/>
-        <Button android:id="@+id/btn_filter_1m" android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1" android:text="1Y" android:textSize="11sp" android:textColor="#666666" android:backgroundTint="#121212" style="?android:attr/borderlessButtonStyle"/>
-        <Button android:id="@+id/btn_filter_1y" android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1" android:text="All" android:textSize="11sp" android:textColor="#666666" android:backgroundTint="#121212" style="?android:attr/borderlessButtonStyle"/>
+        <!-- UPDATED: 4H, 2D, 1M, All buttons matching the Java logic -->
+        <Button
+            android:id="@+id/btn_filter_4h"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="4H"
+            android:textSize="11sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#222222"
+            style="?android:attr/borderlessButtonStyle"/>
+
+        <Button
+            android:id="@+id/btn_filter_2d"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="2D"
+            android:textSize="11sp"
+            android:textColor="#666666"
+            android:backgroundTint="#121212"
+            style="?android:attr/borderlessButtonStyle"/>
+
+        <Button
+            android:id="@+id/btn_filter_1m"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="1M"
+            android:textSize="11sp"
+            android:textColor="#666666"
+            android:backgroundTint="#121212"
+            style="?android:attr/borderlessButtonStyle"/>
+
+        <Button
+            android:id="@+id/btn_filter_all"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="All"
+            android:textSize="11sp"
+            android:textColor="#666666"
+            android:backgroundTint="#121212"
+            style="?android:attr/borderlessButtonStyle"/>
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

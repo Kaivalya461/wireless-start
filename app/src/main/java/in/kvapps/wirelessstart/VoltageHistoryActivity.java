@@ -21,14 +21,14 @@ import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.model.VoltageEntry;
 
 public class VoltageHistoryActivity extends Activity {
-    private static final String DEFAULT_1H_VIEW = "1H";
+    private static final String DEFAULT_4H_VIEW = "4H";
     private static final long INTERVAL_15_MIN = 15L * 60 * 1000;
     private static final long INTERVAL_1_HOUR = 60L * 60 * 1000;
     private LineChart voltageChart;
     private CustomMarkerView markerView;
     private VoltageDbHelper dbHelper;
-    private Button btn1D, btn7D, btn1M, btn1Y;
-    private String currentFilter = DEFAULT_1H_VIEW;
+    private Button btn4H, btn2D, btn1M, btn1Y; // Note: XML button IDs can remain or change depending on your layout, using btn4H, btn2D, btn1M, btnAll equivalents
+    private String currentFilter = DEFAULT_4H_VIEW;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,10 +39,10 @@ public class VoltageHistoryActivity extends Activity {
 
         // Bind Views
         voltageChart = findViewById(R.id.voltage_trend_chart);
-        btn1D = findViewById(R.id.btn_filter_1d);
-        btn7D = findViewById(R.id.btn_filter_7d);
+        btn4H = findViewById(R.id.btn_filter_4h);
+        btn2D = findViewById(R.id.btn_filter_2d);
         btn1M = findViewById(R.id.btn_filter_1m);
-        btn1Y = findViewById(R.id.btn_filter_1y);
+        btn1Y = findViewById(R.id.btn_filter_all); // Mapping the last filter button to "All"
 
         findViewById(R.id.btn_back).setOnClickListener(v -> finish()); // Back Button
 
@@ -99,8 +99,8 @@ public class VoltageHistoryActivity extends Activity {
             ColorStateList unselectedBg = ColorStateList.valueOf(Color.parseColor("#121212"));
 
             // 1. Reset backgrounds using universal ViewCompat tool
-            ViewCompat.setBackgroundTintList(btn1D, unselectedBg); btn1D.setTextColor(Color.parseColor("#666666"));
-            ViewCompat.setBackgroundTintList(btn7D, unselectedBg); btn7D.setTextColor(Color.parseColor("#666666"));
+            ViewCompat.setBackgroundTintList(btn4H, unselectedBg); btn4H.setTextColor(Color.parseColor("#666666"));
+            ViewCompat.setBackgroundTintList(btn2D, unselectedBg); btn2D.setTextColor(Color.parseColor("#666666"));
             ViewCompat.setBackgroundTintList(btn1M, unselectedBg); btn1M.setTextColor(Color.parseColor("#666666"));
             ViewCompat.setBackgroundTintList(btn1Y, unselectedBg); btn1Y.setTextColor(Color.parseColor("#666666"));
 
@@ -113,8 +113,8 @@ public class VoltageHistoryActivity extends Activity {
             updateChartData();
         };
 
-        btn1D.setOnClickListener(filterListener);
-        btn7D.setOnClickListener(filterListener);
+        btn4H.setOnClickListener(filterListener);
+        btn2D.setOnClickListener(filterListener);
         btn1M.setOnClickListener(filterListener);
         btn1Y.setOnClickListener(filterListener);
     }
@@ -125,11 +125,11 @@ public class VoltageHistoryActivity extends Activity {
         final long filterCutoffTime;
 
         switch (currentFilter) {
-            case DEFAULT_1H_VIEW:  filterCutoffTime = now - (60L * 60 * 1000); break;
-            case "7D":  filterCutoffTime = now - (7L * 24 * 60 * 60 * 1000); break;
-            case "1Y":  filterCutoffTime = now - (365L * 24 * 60 * 60 * 1000); break;
-            case "All": filterCutoffTime = 0; break;
-            default:    filterCutoffTime = now - (60L * 60 * 1000); break;
+            case DEFAULT_4H_VIEW: filterCutoffTime = now - (4L * 60 * 60 * 1000); break;
+            case "2D":            filterCutoffTime = now - (2L * 24 * 60 * 60 * 1000); break;
+            case "1M":            filterCutoffTime = now - (30L * 24 * 60 * 60 * 1000); break;
+            case "All":           filterCutoffTime = 0; break;
+            default:              filterCutoffTime = now - (4L * 60 * 60 * 1000); break;
         }
 
         new Thread(() -> {
@@ -137,26 +137,25 @@ public class VoltageHistoryActivity extends Activity {
 
             // 1. CONDITIONAL DATA DOWNSAMPLING SWITCH
             List<VoltageEntry> filteredHistory;
-            if ("7D".equals(currentFilter)) {
-                // Fetch lightweight 15-minute aggregated buckets for the 7-day view
-                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_15_MIN);
-            } else if ("1Y".equals(currentFilter) || "All".equals(currentFilter)) {
-                // Fetch hourly averages for long windows
-                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_HOUR);
-            } else {
-                // Fetch raw, granular per-second points strictly for the 1H window
+            if (DEFAULT_4H_VIEW.equals(currentFilter)) {
+                // Fetch granular raw data or lightweight 1-minute averages for 4H
                 filteredHistory = dbHelper.getReadingsSince(filterCutoffTime);
+            } else if ("2D".equals(currentFilter) || "1M".equals(currentFilter)) {
+                // Fetch 15-minute aggregated buckets for the 2-day and 1-month view
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_15_MIN);
+            } else {
+                // Fetch hourly averages for All windows
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_HOUR);
             }
 
             // 2. ADAPTIVE GAP CLOSURE COEFFICIENT
             long gapThresholdMs;
-            if (currentFilter.equals(DEFAULT_1H_VIEW)) {
-                gapThresholdMs = 1L * 60 * 1000;
-            } else if (currentFilter.equals("7D")) {
-                gapThresholdMs = 15L * 60 * 1000;
+            if (currentFilter.equals(DEFAULT_4H_VIEW)) {
+                gapThresholdMs = 5L * 60 * 1000; // 5 mins gap for 4H
+            } else if (currentFilter.equals("2D") || currentFilter.equals("1M")) {
+                gapThresholdMs = 45L * 60 * 1000; // 45 mins gap for 2D and 1M
             } else {
-                // Since data is grouped hourly, a gap exists if no logs are found for > 3 Hours
-                gapThresholdMs = 3L * 60 * 60 * 1000;
+                gapThresholdMs = 3L * 60 * 60 * 1000; // 3 hours gap for All
             }
 
             long lastTimestamp = -1;
@@ -180,13 +179,14 @@ public class VoltageHistoryActivity extends Activity {
                     dataSet.setColor(Color.parseColor("#00E5FF"));
                     dataSet.setLineWidth(2f);
                     dataSet.setDrawCircles(true);
-                    dataSet.setCircleRadius(0f);
+                    dataSet.setCircleRadius(1.5f);
                     dataSet.setDrawCircleHole(false);
                     dataSet.setDrawValues(false);
-                    if (DEFAULT_1H_VIEW.equals(currentFilter)) {
+
+                    if (DEFAULT_4H_VIEW.equals(currentFilter)) {
                         dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
                     } else {
-                        dataSet.setMode(LineDataSet.Mode.LINEAR); // Much faster rendering for 7D/1Y
+                        dataSet.setMode(LineDataSet.Mode.LINEAR); // Faster rendering for larger windows
                     }
                     dataSet.setDrawFilled(true);
                     dataSet.setFillColor(Color.parseColor("#00E5FF"));

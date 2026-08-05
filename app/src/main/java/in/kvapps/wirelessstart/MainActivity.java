@@ -29,6 +29,7 @@ import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
+import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.FeedbackUtil;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
@@ -255,6 +256,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             } else {
                 statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
                 updateConnectionUi(false);
+                FeedbackUtil.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
+                FeedbackUtil.triggerDisconnectVibrate(this);
             }
         });
     }
@@ -272,7 +275,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
-        FeedbackUtil.sendConnectionSuccessHapticToWatch(this);
+        FeedbackUtil.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
         FeedbackUtil.triggerDoubleVibrate(this);
         onLog("Connection established. Ready for control operations.");
     }

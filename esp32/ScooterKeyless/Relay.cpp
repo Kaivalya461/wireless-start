@@ -16,6 +16,8 @@ bool RELAY_ACTIVE_LOW = true;
 
 const int SLEEP_START_MINUTES_TOTAL = (SLEEP_START_HOUR * 60) + SLEEP_START_MIN;
 const int WAKE_END_MINUTES_TOTAL    = (WAKE_END_HOUR * 60) + WAKE_END_MIN;
+// 15 minutes inactivity before going to sleep during Night Time
+const unsigned long INACTIVITY_SLEEP_WINDOW_MS = 15UL * 60UL * 1000UL; // 15 minutes
 
 // Operational Safety Constants
 const unsigned long MIN_SAFE_PULSE_MS      = 100;
@@ -82,8 +84,14 @@ void enterDeepSleep(uint64_t sleepDurationSeconds) {
 }
 
 void checkScheduledNightSleep() {
-    // Pull remote link flag from the BLE module state
+    // 1. Check basic blocks: time must be synced, no active pulse, and NO current active BLE connection
     if (!timeIsSynced || isBleClientConnected() || isPulseActive) return;
+
+    // 2. Enforce the 15-minute connection inactivity window after a drop
+    unsigned long timeSinceDisconnection = millis() - getDisconnectionTime();
+    if (timeSinceDisconnection < INACTIVITY_SLEEP_WINDOW_MS) {
+        return; // Skip deep sleep until 15 minutes of continuous disconnection have passed
+    }
 
     time_t now;
     struct tm timeinfo;
@@ -97,7 +105,7 @@ void checkScheduledNightSleep() {
         int secondsToWait = 59 - timeinfo.tm_sec;
         uint64_t totalSleepSeconds = (minutesToWait * 60) + secondsToWait;
 
-        Serial.print(">>> Night Window Deep Sleep Active. Sleeping for ");
+        Serial.print(">>> Night Window & 15-min Inactivity Met. Sleeping for ");
         Serial.print(totalSleepSeconds / 3600.0);
         Serial.println(" hours until 8:30 AM.");
 

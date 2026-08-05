@@ -24,7 +24,13 @@ public class PhoneMessageListenerService extends WearableListenerService {
 
         if (VIBRATE_PATH.equals(messageEvent.getPath())) {
             Log.d(TAG, "Vibrate message received from phone. Triggering watch vibrate.");
-            triggerDoubleVibrate(this);
+            String command = new String(messageEvent.getData());
+
+            if (Constants.HAPTIC_DISCONNECT.equals(command)) {
+                triggerDisconnectVibrate(this);
+            } else if (Constants.HAPTIC_CONNECT.equals(command)) {
+                triggerDoubleVibrate(this);
+            }
         }
     }
 
@@ -41,6 +47,28 @@ public class PhoneMessageListenerService extends WearableListenerService {
             long[] timings = {0, 80, 80, 80};
             int[] amplitudes = {0, 255, 0, 255};
             vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1));
+        }
+    }
+
+    /**
+     * Triggers a distinct disconnect vibration pattern optimized for standard haptic motors.
+     * Pattern: Strong snap, brief pause, lighter click.
+     */
+    public static void triggerDisconnectVibrate(Context context) {
+        Vibrator vibrator;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            VibratorManager vibratorManager = (VibratorManager) context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+            vibrator = vibratorManager != null ? vibratorManager.getDefaultVibrator() : null;
+        } else {
+            vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        }
+
+        if (vibrator != null && vibrator.hasVibrator()) {
+            // Snap-Thud pattern:
+            // Wait 0ms | Vibrate 70ms (Amp: 255) | Pause 50ms | Vibrate 40ms (Amp: 120)
+            long[] timings = {0, 70, 50, 40};
+            int[] amplitudes = {0, 255, 0, 120};
+            vibrator.vibrate(android.os.VibrationEffect.createWaveform(timings, amplitudes, -1));
         }
     }
 }

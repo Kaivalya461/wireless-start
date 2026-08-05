@@ -17,7 +17,7 @@ bool bleConnected = false;
 // Eco Mode tracking variables encapsulated inside BleManager
 static unsigned long disconnectionTime = 0;
 static bool isFastAdvertising = true;
-const unsigned long ECO_MODE_DELAY_MS = 30UL * 60UL * 1000UL; // 30 minutes
+const unsigned long ECO_MODE_DELAY_MS = 70UL * 60UL * 1000UL; // 70 minutes
 const unsigned long FAST_BLE_MIN_INTERVAL = 400; // 250ms
 const unsigned long FAST_BLE_MAX_INTERVAL = 800; // 500ms
 
@@ -148,6 +148,10 @@ void initBle() {
 
 bool isBleClientConnected() {
     return bleConnected;
+}
+
+unsigned long getDisconnectionTime() {
+    return disconnectionTime;
 }
 
 // Background handler to drop into Eco Mode automatically if left disconnected

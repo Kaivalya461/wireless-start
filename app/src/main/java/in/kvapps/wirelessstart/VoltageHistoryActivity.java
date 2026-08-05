@@ -13,6 +13,8 @@ import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +24,8 @@ import in.kvapps.wirelessstart.model.VoltageEntry;
 
 public class VoltageHistoryActivity extends Activity {
     private static final String DEFAULT_4H_VIEW = "4H";
-    private static final long INTERVAL_15_MIN = 15L * 60 * 1000;
+    private static final long INTERVAL_1_MIN = 60 * 1000;
+    private static final long INTERVAL_10_MIN = 10L * 60 * 1000;
     private static final long INTERVAL_1_HOUR = 60L * 60 * 1000;
     private LineChart voltageChart;
     private CustomMarkerView markerView;
@@ -138,25 +141,28 @@ public class VoltageHistoryActivity extends Activity {
             // 1. CONDITIONAL DATA DOWNSAMPLING SWITCH
             List<VoltageEntry> filteredHistory;
             if (DEFAULT_4H_VIEW.equals(currentFilter)) {
-                // Fetch granular raw data or lightweight 1-minute averages for 4H
-                filteredHistory = dbHelper.getReadingsSince(filterCutoffTime);
-            } else if ("2D".equals(currentFilter) || "1M".equals(currentFilter)) {
-                // Fetch 15-minute aggregated buckets for the 2-day and 1-month view
-                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_15_MIN);
+                // lightweight 1-minute averages for 4H
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_MIN);
+            } else if ("2D".equals(currentFilter)) {
+                // lightweight 1-minute aggregated buckets for the 2-day view
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_MIN);
             } else {
-                // Fetch hourly averages for All windows
-                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_1_HOUR);
+                // Fetch 10-min averages for 1M and All windows
+                filteredHistory = dbHelper.getAveragesSince(filterCutoffTime, INTERVAL_10_MIN);
             }
 
             // 2. ADAPTIVE GAP CLOSURE COEFFICIENT
             long gapThresholdMs;
             if (currentFilter.equals(DEFAULT_4H_VIEW)) {
                 gapThresholdMs = 5L * 60 * 1000; // 5 mins gap for 4H
-            } else if (currentFilter.equals("2D") || currentFilter.equals("1M")) {
+            } else if (currentFilter.equals("2D")) {
                 gapThresholdMs = 45L * 60 * 1000; // 45 mins gap for 2D and 1M
             } else {
                 gapThresholdMs = 3L * 60 * 60 * 1000; // 3 hours gap for All
             }
+
+            List<ILineDataSet> dataSets = new ArrayList<>();
+            List<Entry> currentSegmentEntries = new ArrayList<>();
 
             long lastTimestamp = -1;
 
@@ -164,35 +170,31 @@ public class VoltageHistoryActivity extends Activity {
                 long currentTimestamp = data.getTimestamp();
                 float relativeTime = (float) (currentTimestamp - filterCutoffTime) / (60 * 1000);
 
+                // Check if the gap exceeds our threshold
                 if (lastTimestamp != -1 && (currentTimestamp - lastTimestamp) > gapThresholdMs) {
-                    float breakTimeStart = (float) ((lastTimestamp + 1000) - filterCutoffTime) / (60 * 1000);
-                    chartEntries.add(new Entry(breakTimeStart, Float.NaN));
+                    // 1. If we have accumulated valid points, push them as a completed segment dataset
+                    if (!currentSegmentEntries.isEmpty()) {
+                        dataSets.add(createStyledDataSet(currentSegmentEntries, currentFilter));
+                        currentSegmentEntries = new ArrayList<>(); // Start a new segment
+                    }
                 }
 
-                chartEntries.add(new Entry(relativeTime, data.getVoltage()));
+                currentSegmentEntries.add(new Entry(relativeTime, data.getVoltage()));
                 lastTimestamp = currentTimestamp;
             }
 
+            // Add any remaining entries as the final segment
+            if (!currentSegmentEntries.isEmpty()) {
+                dataSets.add(createStyledDataSet(currentSegmentEntries, currentFilter));
+            }
+
             runOnUiThread(() -> {
-                if (!chartEntries.isEmpty()) {
-                    LineDataSet dataSet = new LineDataSet(chartEntries, "Battery Voltage Status");
-                    dataSet.setColor(Color.parseColor("#00E5FF"));
-                    dataSet.setLineWidth(2f);
-                    dataSet.setDrawCircles(true);
-                    dataSet.setCircleRadius(1.5f);
-                    dataSet.setDrawCircleHole(false);
-                    dataSet.setDrawValues(false);
+                // 1. CRITICAL: Clear existing highlights/markers before loading new data
+                // to prevent looking up old indices against a new dataset structure.
+                voltageChart.highlightValues(null);
 
-                    if (DEFAULT_4H_VIEW.equals(currentFilter)) {
-                        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
-                    } else {
-                        dataSet.setMode(LineDataSet.Mode.LINEAR); // Faster rendering for larger windows
-                    }
-                    dataSet.setDrawFilled(true);
-                    dataSet.setFillColor(Color.parseColor("#00E5FF"));
-                    dataSet.setFillAlpha(30);
-
-                    LineData lineData = new LineData(dataSet);
+                if (!dataSets.isEmpty()) {
+                    LineData lineData = new LineData(dataSets);
                     voltageChart.setData(lineData);
 
                     if (markerView != null) {
@@ -200,9 +202,11 @@ public class VoltageHistoryActivity extends Activity {
                         markerView.setActiveFilter(currentFilter);
                     }
 
+                    voltageChart.notifyDataSetChanged();
                     voltageChart.invalidate();
                 } else {
                     voltageChart.clear();
+                    voltageChart.invalidate();
                 }
             });
         }).start();
@@ -212,5 +216,25 @@ public class VoltageHistoryActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (dbHelper != null) dbHelper.close(); // Clean data disconnect closing event
+    }
+
+    private LineDataSet createStyledDataSet(List<Entry> entries, String filter) {
+        LineDataSet dataSet = new LineDataSet(entries, "Battery Voltage Status");
+        dataSet.setColor(Color.parseColor("#00E5FF"));
+        dataSet.setLineWidth(2f);
+        dataSet.setDrawCircles(false);
+        dataSet.setDrawValues(false);
+
+        if (DEFAULT_4H_VIEW.equals(filter)) {
+            dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+        } else {
+            dataSet.setMode(LineDataSet.Mode.LINEAR);
+        }
+
+        dataSet.setDrawFilled(true);
+        dataSet.setFillColor(Color.parseColor("#00E5FF"));
+        dataSet.setFillAlpha(30);
+
+        return dataSet;
     }
 }

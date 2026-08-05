@@ -43,7 +43,8 @@ public class CustomMarkerView extends MarkerView {
         }
 
         // Rebuild absolute milliseconds context location out from relative chart minutes floats
-        long actualTimestampMs = baseCutoffTimeMs + ((long) e.getX() * 60 * 1000);
+        // FIXED: Multiply float minutes by 60,000 first, then convert/cast to long cleanly
+        long actualTimestampMs = baseCutoffTimeMs + (long) (e.getX() * 60 * 1000f);
         Date targetDate = new Date(actualTimestampMs);
         String formattedDateTime;
 
@@ -51,7 +52,7 @@ public class CustomMarkerView extends MarkerView {
         if ("4H".equals(currentActiveFilter)) {
             formattedDateTime = shortTimeFormat.format(targetDate);
         } else {
-            // For 7D, 1Y, All views: Upper-case the text to output clean formal asset lines like "7 JUL 2026"
+            // For 2D, 1M, All views: Upper-case the text to output clean formal asset lines like "7 JUL 2026"
             formattedDateTime = longTimeFormat.format(targetDate).toUpperCase(Locale.getDefault());
         }
 

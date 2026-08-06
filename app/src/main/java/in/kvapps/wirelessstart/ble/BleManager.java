@@ -117,20 +117,30 @@ public class BleManager {
         }
     }
 
-    public void sendBleCommand(String command) {
+    public void sendBleCommand(String command, Runnable onSuccess) {
         if (commandCharacteristic != null && bluetoothGatt != null) {
             try {
+                boolean success = false;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    bluetoothGatt.writeCharacteristic(
+                    int status = bluetoothGatt.writeCharacteristic(
                             commandCharacteristic,
                             command.getBytes(),
                             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     );
+                    // Note: writeCharacteristic returns a status code in newer APIs,
+                    // but if it initiates successfully without throwing:
+                    success = (status == BluetoothGatt.GATT_SUCCESS); // Or check API specific return
                 } else {
                     commandCharacteristic.setValue(command.getBytes());
-                    bluetoothGatt.writeCharacteristic(commandCharacteristic);
+                    success = bluetoothGatt.writeCharacteristic(commandCharacteristic);
                 }
-                listener.onLog("Command Transmitted -> " + command);
+
+                if (success) {
+                    listener.onLog("Command Transmitted -> " + command);
+                    if (onSuccess != null) {
+                        onSuccess.run(); // Trigger the success callback
+                    }
+                }
             } catch (SecurityException e) {
                 listener.onLog("Security Exception: Missing OS permission mapping.");
             }
@@ -296,6 +306,6 @@ public class BleManager {
         long currentEpochSeconds = System.currentTimeMillis() / 1000;
         String syncCommand = "TIME:" + currentEpochSeconds;
         listener.onLog("Auto-syncing system time to ESP32...");
-        sendBleCommand(syncCommand);
+        sendBleCommand(syncCommand, null);
     }
 }

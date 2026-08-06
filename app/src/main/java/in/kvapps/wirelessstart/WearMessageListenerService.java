@@ -10,6 +10,8 @@ import com.google.android.gms.wearable.WearableListenerService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.util.AppLogger;
+import in.kvapps.wirelessstart.util.FeedbackUtils;
 
 // Listener to consume messages sent by Wear App
 public class WearMessageListenerService extends WearableListenerService implements BleManager.BleListener {
@@ -63,7 +65,8 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
     @Override
     public void onLog(String message) {
-        Log.d(TAG, "[BLE LOG] " + message);
+        // Shared logging handles both Logcat and background DB persistence
+        AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] " + message);
     }
 
     @Override
@@ -78,8 +81,10 @@ public class WearMessageListenerService extends WearableListenerService implemen
         if (pendingCommandToSend != null) {
             new android.os.Handler(getMainLooper()).postDelayed(() -> {
                 if (bleManager != null && pendingCommandToSend != null) {
-                    Log.d(TAG, "Transmitting pending action command: " + pendingCommandToSend);
-                    bleManager.sendBleCommand(pendingCommandToSend);
+                    onLog("Transmitting pending action command: " + pendingCommandToSend);
+                    bleManager.sendBleCommand(pendingCommandToSend, () -> {
+                        FeedbackUtils.sendCmdSuccessAckToWatch(this);
+                    });
                     pendingCommandToSend = null; // Clear queue
                 }
             }, 250);

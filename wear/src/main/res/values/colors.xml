@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Default Blue Colors -->
+    <color name="default_core_color">#FFE0F7FF</color>
+    <color name="default_glow_color">#FF00B0FF</color>
+
+    <!-- Success Green Colors -->
+    <color name="success_core_color">#4CAF50</color>
+    <color name="success_glow_color">#4CAF50</color>
+
+    <!-- Timeout Red Colors -->
+    <color name="timeout_core_color">#E91E63</color>
+    <color name="timeout_glow_color">#E91E63</color>
+</resources>

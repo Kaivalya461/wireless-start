@@ -12,17 +12,17 @@ import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.wear.pubsub.StartEventBus;
 
 // Listener to consume messages sent by Phone App
 public class PhoneMessageListenerService extends WearableListenerService {
     private static final String TAG = Constants.PHONE_DATA_LAYER_TAG;
-    private static final String VIBRATE_PATH = Constants.VIBRATE_PATH;
 
     @Override
     public void onMessageReceived(@NonNull MessageEvent messageEvent) {
         super.onMessageReceived(messageEvent);
 
-        if (VIBRATE_PATH.equals(messageEvent.getPath())) {
+        if (Constants.VIBRATE_PATH.equals(messageEvent.getPath())) {
             Log.d(TAG, "Vibrate message received from phone. Triggering watch vibrate.");
             String command = new String(messageEvent.getData());
 
@@ -31,6 +31,14 @@ public class PhoneMessageListenerService extends WearableListenerService {
             } else if (Constants.HAPTIC_CONNECT.equals(command)) {
                 triggerDoubleVibrate(this);
             }
+        }
+
+        if (Constants.START_SUCCESS_PATH.equals(messageEvent.getPath())) {
+            Log.d(TAG, "Start_Success message received from phone. Triggering command completion watch feedback.");
+            triggerDoubleVibrate(this);
+
+            // Notify UI Screen
+            StartEventBus.notifySuccess();
         }
     }
 

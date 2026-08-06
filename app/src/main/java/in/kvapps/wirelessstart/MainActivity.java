@@ -30,7 +30,8 @@ import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.shared.Constants;
-import in.kvapps.wirelessstart.util.FeedbackUtil;
+import in.kvapps.wirelessstart.util.AppLogger;
+import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
 
@@ -114,9 +115,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void handleStartAction() {
-        FeedbackUtil.triggerDoubleVibrate(this);
         String command = preferenceManager.getFormattedCommand("START");
-        bleManager.sendBleCommand(command);
+
+        bleManager.sendBleCommand(command, () -> {
+            FeedbackUtils.triggerDoubleVibrate(this); //onSuccess callback
+        });
 
         long pulseMs = preferenceManager.getSelectedStartPulseDuration();
         long totalCooldownMs = pulseMs + 3000; // Pulse time + 3s starter motor resting cooldown
@@ -194,7 +197,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 String formattedCommand = intent.getStringExtra("COMMAND");
                 if (formattedCommand != null) {
                     onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
-                    bleManager.sendBleCommand(formattedCommand);
+                    bleManager.sendBleCommand(formattedCommand, () -> {
+                        FeedbackUtils.sendCmdSuccessAckToWatch(context);
+                    });
                     setResultCode(-1); // Mark handled
                 }
             }
@@ -222,23 +227,17 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     // --- BLE Manager Callbacks ---
     @Override
     public void onLog(String message) {
+        // 1. Save to Database and Logcat via shared utility
+        AppLogger.logToDatabaseAndLogcat(this, "", message);
+
+        // 2. Handle UI updates on the Main Thread
         runOnUiThread(() -> {
             long currentTime = System.currentTimeMillis();
             String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(currentTime));
 
-            // 1. Display on UI (Existing behavior)
             txtLog.append("[" + timeStamp + "] " + message + "\n");
             if (scrollLog != null) {
                 scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
-            }
-
-            // 2. Save log to database
-            // Database Performance: Writing individual logs directly from the main thread via dbHelper.
-            // insertLog() is usually fine for intermittent debugging messages.
-            // However, if your hardware streams a high volume of logs,
-            // consider using a background thread or a queue to avoid blocking the UI thread.
-            if (dbHelper != null) {
-                dbHelper.insertLog(currentTime, message);
             }
         });
     }
@@ -256,8 +255,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             } else {
                 statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
                 updateConnectionUi(false);
-                FeedbackUtil.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
-                FeedbackUtil.triggerDisconnectVibrate(this);
+                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
+                FeedbackUtils.triggerDisconnectVibrate(this);
             }
         });
     }
@@ -275,8 +274,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
-        FeedbackUtil.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
-        FeedbackUtil.triggerDoubleVibrate(this);
+        FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+        FeedbackUtils.triggerDoubleVibrate(this);
         onLog("Connection established. Ready for control operations.");
     }
 

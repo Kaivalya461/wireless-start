@@ -1,5 +1,7 @@
 package in.kvapps.wirelessstart.wear.util;
 
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -9,32 +11,53 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import in.kvapps.wirelessstart.wear.R;
+
 public class EdgeAnimationView extends View {
     private final Paint paint = new Paint();
     private final RectF rectF = new RectF();
     private float sweepAngle = 0f;
-    private boolean isAnimating = true;
 
     private boolean isClosing = false;
     private int alphaVal = 255;
 
-    // Base colors stored to handle synchronized alpha scaling
-    private static final int CORE_COLOR = 0xFFE0F7FF;
-    private static final int GLOW_COLOR = 0xFF00B0FF;
+    // Color definitions (loaded dynamically from resources)
+    private final int defaultCoreColor;
+    private final int defaultGlowColor;
+    private final int successCoreColor;
+    private final int successGlowColor;
+    private final int timeoutCoreColor;
+    private final int timeoutGlowColor;
+
+    // Mutable current colors used during rendering
+    private int currentCoreColor;
+    private int currentGlowColor;
+
+    private ValueAnimator creepAnimator;
+    private boolean isCreeping = false;
 
     public EdgeAnimationView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
-
-        // Force software layer for the view so the neon shadow/glow renders smoothly
         setLayerType(LAYER_TYPE_SOFTWARE, null);
+
+        // Load colors safely using Context
+        defaultCoreColor = context.getResources().getColor(R.color.default_core_color, context.getTheme());
+        defaultGlowColor = context.getResources().getColor(R.color.default_glow_color, context.getTheme());
+        successCoreColor = context.getResources().getColor(R.color.success_core_color, context.getTheme());
+        successGlowColor = context.getResources().getColor(R.color.success_glow_color, context.getTheme());
+        timeoutCoreColor = context.getResources().getColor(R.color.timeout_core_color, context.getTheme());
+        timeoutGlowColor = context.getResources().getColor(R.color.timeout_glow_color, context.getTheme());
+
+        // Initialize current colors to default
+        currentCoreColor = defaultCoreColor;
+        currentGlowColor = defaultGlowColor;
 
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(8f);
         paint.setAntiAlias(true);
 
-        // Initial setup
-        paint.setColor(CORE_COLOR);
-        paint.setShadowLayer(24f, 0f, 0f, GLOW_COLOR);
+        paint.setColor(currentCoreColor);
+        paint.setShadowLayer(24f, 0f, 0f, currentGlowColor);
     }
 
     @Override
@@ -49,46 +72,120 @@ public class EdgeAnimationView extends View {
         super.onDraw(canvas);
 
         if (isClosing) {
-            alphaVal -= 35; // Slightly faster, clean fade step
+            alphaVal -= 35;
             if (alphaVal < 0) alphaVal = 0;
 
-            // Synchronize alpha for both the inner stroke and the outer shadow layer
-            // by recalculating the color components with the current alphaVal.
-            int currentCoreAlpha = (int) (((alphaVal / 255f) * ((CORE_COLOR >> 24) & 0xFF)));
-            int currentGlowAlpha = (int) (((alphaVal / 255f) * ((GLOW_COLOR >> 24) & 0xFF)));
+            int coreAlpha = (int) (((alphaVal / 255f) * ((currentCoreColor >> 24) & 0xFF)));
+            int glowAlpha = (int) (((alphaVal / 255f) * ((currentGlowColor >> 24) & 0xFF)));
 
-            int syncedCoreColor = (currentCoreAlpha << 24) | (CORE_COLOR & 0x00FFFFFF);
-            int syncedGlowColor = (currentGlowAlpha << 24) | (GLOW_COLOR & 0x00FFFFFF);
+            int syncedCoreColor = (coreAlpha << 24) | (currentCoreColor & 0x00FFFFFF);
+            int syncedGlowColor = (glowAlpha << 24) | (currentGlowColor & 0x00FFFFFF);
 
             paint.setColor(syncedCoreColor);
-            // Re-applying shadow layer with the matched alpha forces the Android canvas
-            // to render the blur gradient accurately relative to the fading core.
             paint.setShadowLayer(24f, 0f, 0f, syncedGlowColor);
 
-            invalidate();
-        } else {
-            paint.setAlpha(alphaVal);
-        }
-
-        // Draw expanding neon edge circle segment
-        canvas.drawArc(rectF, -90, sweepAngle, false, paint);
-
-        if (isClosing) {
-            if (alphaVal <= 0) {
-                // Stop invalidating once fully transparent
+            if (alphaVal > 0) {
+                invalidate();
+            } else {
                 isClosing = false;
             }
-        } else if (isAnimating) {
-            sweepAngle += 10f; // Speed of animation progression
-            if (sweepAngle > 360f) {
-                sweepAngle = 360f;
-            }
-            invalidate(); // Keep refreshing until full circle
+        } else {
+            paint.setAlpha(alphaVal);
+            paint.setColor(currentCoreColor);
+            paint.setShadowLayer(24f, 0f, 0f, currentGlowColor);
         }
+
+        canvas.drawArc(rectF, -90, sweepAngle, false, paint);
+    }
+
+    public void startCreepingProgress() {
+        isCreeping = true;
+        final float targetAngle = 288f; // 80%
+
+        creepAnimator = ValueAnimator.ofFloat(0f, targetAngle);
+        creepAnimator.setDuration(4000);
+        creepAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator(2.0f));
+
+        creepAnimator.addUpdateListener(animation -> {
+            if (isCreeping) {
+                sweepAngle = (float) animation.getAnimatedValue();
+                invalidate();
+            }
+        });
+        creepAnimator.start();
+    }
+
+    public void completeAndFadeOut() {
+        isCreeping = false;
+        if (creepAnimator != null) {
+            creepAnimator.cancel();
+        }
+
+        ValueAnimator completionAnimator = ValueAnimator.ofFloat(sweepAngle, 360f);
+        completionAnimator.setDuration(250);
+        completionAnimator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+
+        ArgbEvaluator argbEvaluator = new ArgbEvaluator();
+        int startCore = currentCoreColor;
+        int startGlow = currentGlowColor;
+
+        completionAnimator.addUpdateListener(animation -> {
+            float fraction = animation.getAnimatedFraction();
+            sweepAngle = (float) animation.getAnimatedValue();
+
+            currentCoreColor = (int) argbEvaluator.evaluate(fraction, startCore, successCoreColor);
+            currentGlowColor = (int) argbEvaluator.evaluate(fraction, startGlow, successGlowColor);
+
+            float currentShadowRadius = 24f + (8f * fraction);
+            paint.setShadowLayer(currentShadowRadius, 0f, 0f, currentGlowColor);
+
+            invalidate();
+        });
+
+        completionAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                postDelayed(() -> startFadeOut(), 1000); // 1s GREEN color hold
+            }
+        });
+
+        completionAnimator.start();
+    }
+
+    /**
+     * Shifts colors to warning red, holds position, and triggers fade out.
+     */
+    public void timeoutAndFadeOut() {
+        isCreeping = false;
+        if (creepAnimator != null) {
+            creepAnimator.cancel();
+        }
+
+        ValueAnimator timeoutAnimator = ValueAnimator.ofFloat(0f, 1f);
+        timeoutAnimator.setDuration(300);
+
+        ArgbEvaluator argbEvaluator = new ArgbEvaluator();
+        int startCore = currentCoreColor;
+        int startGlow = currentGlowColor;
+
+        timeoutAnimator.addUpdateListener(animation -> {
+            float fraction = animation.getAnimatedFraction();
+            currentCoreColor = (int) argbEvaluator.evaluate(fraction, startCore, timeoutCoreColor);
+            currentGlowColor = (int) argbEvaluator.evaluate(fraction, startGlow, timeoutGlowColor);
+            invalidate();
+        });
+
+        timeoutAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                postDelayed(() -> startFadeOut(), 2000); // 2s RED color hold
+            }
+        });
+
+        timeoutAnimator.start();
     }
 
     public void startFadeOut() {
-        isAnimating = false;
         isClosing = true;
         invalidate();
     }

@@ -10,7 +10,7 @@ import com.google.android.gms.wearable.Wearable;
 
 import in.kvapps.wirelessstart.shared.Constants;
 
-public class FeedbackUtil {
+public class FeedbackUtils {
     private static final String VIBRATE_MESSAGE_PATH = Constants.VIBRATE_PATH;
 
     public static void triggerDoubleVibrate(Context context) {
@@ -68,5 +68,16 @@ public class FeedbackUtil {
             int[] amplitudes = {0, 255, 0, 120};
             vibrator.vibrate(android.os.VibrationEffect.createWaveform(timings, amplitudes, -1));
         }
+    }
+
+    public static void sendCmdSuccessAckToWatch(Context context) {
+        Wearable.getNodeClient(context).getConnectedNodes().addOnSuccessListener(nodes -> {
+            for (Node node : nodes) {
+                Wearable.getMessageClient(context).sendMessage(
+                        node.getId(),
+                        Constants.START_SUCCESS_PATH,
+                        new byte[0]);
+            }
+        });
     }
 }

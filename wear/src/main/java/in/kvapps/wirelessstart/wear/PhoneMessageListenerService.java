@@ -33,12 +33,18 @@ public class PhoneMessageListenerService extends WearableListenerService {
             }
         }
 
-        if (Constants.START_SUCCESS_PATH.equals(messageEvent.getPath())) {
+        if (Constants.START_COMMAND_RESULT_PATH.equals(messageEvent.getPath())) {
             Log.d(TAG, "Start_Success message received from phone. Triggering command completion watch feedback.");
-            triggerDoubleVibrate(this);
+            String command = new String(messageEvent.getData());
 
-            // Notify UI Screen
-            StartEventBus.notifySuccess();
+            if (Constants.START_SUCCESS.equals(command)) {
+                triggerDoubleVibrate(this);
+
+                // Notify UI Screen
+                StartEventBus.notifySuccess();
+            } else if (Constants.START_FAILURE.equals(command)) {
+                StartEventBus.notifyFailure();
+            }
         }
     }
 

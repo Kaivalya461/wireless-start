@@ -117,9 +117,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void handleStartAction() {
         String command = preferenceManager.getFormattedCommand("START");
 
-        bleManager.sendBleCommand(command, () -> {
-            FeedbackUtils.triggerDoubleVibrate(this); //onSuccess callback
-        });
+        bleManager.sendBleCommand(
+                command,
+                () -> FeedbackUtils.triggerDoubleVibrate(this), //onSuccess callback
+                null //onFailure callback
+        );
 
         long pulseMs = preferenceManager.getSelectedStartPulseDuration();
         long totalCooldownMs = pulseMs + 3000; // Pulse time + 3s starter motor resting cooldown
@@ -174,7 +176,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             PermissionUtils.requestBluetoothPermissions(this);
             return;
         }
-        bleManager.connect();
+        bleManager.connect(true);
     }
 
     @Override
@@ -182,7 +184,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
             onLog("Permissions approved by user.");
-            bleManager.connect();
+            bleManager.connect(true);
         } else {
             onLog("CRITICAL ERROR: Bluetooth permissions denied.");
             onConnectionStateChanged(false, "Permissions Denied");
@@ -197,9 +199,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 String formattedCommand = intent.getStringExtra("COMMAND");
                 if (formattedCommand != null) {
                     onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
-                    bleManager.sendBleCommand(formattedCommand, () -> {
-                        FeedbackUtils.sendCmdSuccessAckToWatch(context);
-                    });
+                    bleManager.sendBleCommand(
+                            formattedCommand,
+                            () -> FeedbackUtils.sendCmdResultAckToWatch(context, Constants.START_SUCCESS),
+                            () -> FeedbackUtils.sendCmdResultAckToWatch(context, Constants.START_FAILURE)
+                    );
                     setResultCode(-1); // Mark handled
                 }
             }
@@ -347,7 +351,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
             onConnectionStateChanged(false, "Reconnecting");
             onLog("Configuration updated. Reconnecting...");
-            bleManager.connect();
+            bleManager.connect(true);
         });
 
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());

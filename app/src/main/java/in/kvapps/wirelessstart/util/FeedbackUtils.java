@@ -70,13 +70,19 @@ public class FeedbackUtils {
         }
     }
 
-    public static void sendCmdSuccessAckToWatch(Context context) {
+    /**
+     * Sends the command result acknowledgment payload (Success or Failure) to the watch.
+     * @param context The application context
+     * @param resultPayload Constants.START_SUCCESS or Constants.START_FAILURE
+     */
+    public static void sendCmdResultAckToWatch(Context context, String resultPayload) {
+        byte[] payload = resultPayload != null ? resultPayload.getBytes() : new byte[0];
         Wearable.getNodeClient(context).getConnectedNodes().addOnSuccessListener(nodes -> {
             for (Node node : nodes) {
                 Wearable.getMessageClient(context).sendMessage(
                         node.getId(),
-                        Constants.START_SUCCESS_PATH,
-                        new byte[0]);
+                        Constants.START_COMMAND_RESULT_PATH,
+                        payload);
             }
         });
     }

@@ -86,7 +86,8 @@ public class BleManager {
         return bluetoothGatt != null;
     }
 
-    public void connect() {
+    // Pass true for background auto-reconnect, false for fast watch shortcuts
+    public void connect(boolean autoConnect) {
         if (!isBluetoothEnabled()) {
             listener.onLog("System Alert: Please turn on phone Bluetooth.");
             listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
@@ -107,7 +108,8 @@ public class BleManager {
                 }
             }
 
-            bluetoothGatt = device.connectGatt(context, true, gattCallback);
+            // Dynamically pass the autoConnect flag here
+            bluetoothGatt = device.connectGatt(context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE);
 
         } catch (IllegalArgumentException e) {
             listener.onLog("Configuration Error: Invalid MAC address provided.");
@@ -117,7 +119,7 @@ public class BleManager {
         }
     }
 
-    public void sendBleCommand(String command, Runnable onSuccess) {
+    public void sendBleCommand(String command, Runnable onSuccess, Runnable onFailure) {
         if (commandCharacteristic != null && bluetoothGatt != null) {
             try {
                 boolean success = false;
@@ -143,9 +145,11 @@ public class BleManager {
                 }
             } catch (SecurityException e) {
                 listener.onLog("Security Exception: Missing OS permission mapping.");
+                if (onFailure != null) onFailure.run();
             }
         } else {
             listener.onLog("Action Blocked: Hardware connection is offline.");
+            if (onFailure != null) onFailure.run();
         }
     }
 
@@ -231,6 +235,22 @@ public class BleManager {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 listener.onConnectionStateChanged(true, targetHwName + " Connected");
+
+                // REQUEST HIGH PRIORITY
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                            gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                        } else {
+                            listener.onLog("Security Warning: Missing BLUETOOTH_CONNECT permission for priority request.");
+                        }
+                    } else {
+                        gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                    }
+                } catch (SecurityException e) {
+                    listener.onLog("Security Exception: Blocked from setting connection priority.");
+                }
+
                 try {
                     gatt.discoverServices();
                 } catch (SecurityException e) {
@@ -306,6 +326,6 @@ public class BleManager {
         long currentEpochSeconds = System.currentTimeMillis() / 1000;
         String syncCommand = "TIME:" + currentEpochSeconds;
         listener.onLog("Auto-syncing system time to ESP32...");
-        sendBleCommand(syncCommand, null);
+        sendBleCommand(syncCommand, null, null);
     }
 }

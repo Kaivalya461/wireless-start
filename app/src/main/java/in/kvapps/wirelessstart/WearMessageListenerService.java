@@ -59,8 +59,19 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
     private void executeBackgroundBleCommand(String command) {
         this.pendingCommandToSend = command; // Save the action command (START/STOP)
+
+        // Clean up any stale manager instance first
+        if (bleManager != null) {
+            bleManager.release();
+        }
+
         bleManager = new BleManager(this, this);
-        bleManager.connect();
+
+        PreferenceManager preferenceManager = new PreferenceManager(this);
+        bleManager.setTargetHwName(preferenceManager.getTargetHwName());
+        bleManager.setMacAdd(preferenceManager.getTargetMacAddress());
+
+        bleManager.connect(false);
     }
 
     @Override
@@ -72,22 +83,33 @@ public class WearMessageListenerService extends WearableListenerService implemen
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         Log.d(TAG, "[BLE STATE] " + statusText);
+        if (!isConnected) {
+            // Clean up if connection drops or fails
+            cleanup();
+        }
     }
 
     @Override
     public void onServicesReady() {
-        // Services discovered AND TIME command sent!
-        // Brief 250ms delay to let the TIME packet clear the pipeline
+        // Reduced safety delay from 250ms to 50ms for faster execution once services are up
         if (pendingCommandToSend != null) {
             new android.os.Handler(getMainLooper()).postDelayed(() -> {
                 if (bleManager != null && pendingCommandToSend != null) {
                     onLog("Transmitting pending action command: " + pendingCommandToSend);
-                    bleManager.sendBleCommand(pendingCommandToSend, () -> {
-                        FeedbackUtils.sendCmdSuccessAckToWatch(this);
-                    });
-                    pendingCommandToSend = null; // Clear queue
+                    bleManager.sendBleCommand(
+                            pendingCommandToSend,
+                            () -> {
+                                FeedbackUtils.sendCmdResultAckToWatch(this, Constants.START_SUCCESS);
+                                cleanup();
+                            },
+                            () -> {
+                                FeedbackUtils.sendCmdResultAckToWatch(this, Constants.START_FAILURE);
+                                cleanup();
+                            }
+                    );
+                    pendingCommandToSend = null;
                 }
-            }, 250);
+            }, 50);
         }
     }
 
@@ -97,4 +119,11 @@ public class WearMessageListenerService extends WearableListenerService implemen
         // to actively process or update the voltage UI on its own.
     }
 
+    private void cleanup() {
+        if (bleManager != null) {
+            bleManager.release();
+            bleManager = null;
+        }
+        pendingCommandToSend = null;
+    }
 }

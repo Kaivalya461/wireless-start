@@ -50,7 +50,17 @@ public class ShortcutStartActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        StartEventBus.setListener(this::onEngineStartSuccess);
+        StartEventBus.setListener(new StartEventBus.StartCallbackListener() {
+            @Override
+            public void onSuccess() {
+                onEngineStartSuccess();
+            }
+
+            @Override
+            public void onFailure() {
+                onEngineStartFailure();
+            }
+        });
     }
 
     @Override
@@ -70,10 +80,28 @@ public class ShortcutStartActivity extends Activity {
 
         // Animation - Complete the circle, turn green, and trigger visual fade out
         if (edgeView != null) {
-            edgeView.completeAndFadeOut();
+            edgeView.completeAndFadeOut(); // Complete and GREEN
         }
 
         // Close activity fully after the finish visual feedback runs
         handler.postDelayed(this::finish, 1500);
+    }
+
+    private void onEngineStartFailure() {
+        if (isFinished) return;
+        isFinished = true;
+
+        // Animation - Cancel the safety timeout since we received a definite response
+        if (timeoutRunnable != null) {
+            handler.removeCallbacks(timeoutRunnable);
+        }
+
+        // Animation - Trigger the red visual feedback and fade out
+        if (edgeView != null) {
+            edgeView.timeoutAndFadeOut(); // Halt and RED
+        }
+
+        // Close activity fully after visual feedback completes
+        handler.postDelayed(this::finish, 2500);
     }
 }

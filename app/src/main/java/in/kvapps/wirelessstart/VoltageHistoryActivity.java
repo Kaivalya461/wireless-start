@@ -43,9 +43,9 @@ public class VoltageHistoryActivity extends Activity {
         // Bind Views
         voltageChart = findViewById(R.id.voltage_trend_chart);
         btn4H = findViewById(R.id.btn_filter_4h);
-        btn2D = findViewById(R.id.btn_filter_2d);
-        btn1M = findViewById(R.id.btn_filter_1m);
-        btn1Y = findViewById(R.id.btn_filter_all); // Mapping the last filter button to "All"
+//        btn2D = findViewById(R.id.btn_filter_2d);
+//        btn1M = findViewById(R.id.btn_filter_1m);
+//        btn1Y = findViewById(R.id.btn_filter_all); // Mapping the last filter button to "All"
 
         findViewById(R.id.btn_back).setOnClickListener(v -> finish()); // Back Button
 
@@ -103,9 +103,9 @@ public class VoltageHistoryActivity extends Activity {
 
             // 1. Reset backgrounds using universal ViewCompat tool
             ViewCompat.setBackgroundTintList(btn4H, unselectedBg); btn4H.setTextColor(Color.parseColor("#666666"));
-            ViewCompat.setBackgroundTintList(btn2D, unselectedBg); btn2D.setTextColor(Color.parseColor("#666666"));
-            ViewCompat.setBackgroundTintList(btn1M, unselectedBg); btn1M.setTextColor(Color.parseColor("#666666"));
-            ViewCompat.setBackgroundTintList(btn1Y, unselectedBg); btn1Y.setTextColor(Color.parseColor("#666666"));
+//            ViewCompat.setBackgroundTintList(btn2D, unselectedBg); btn2D.setTextColor(Color.parseColor("#666666"));
+//            ViewCompat.setBackgroundTintList(btn1M, unselectedBg); btn1M.setTextColor(Color.parseColor("#666666"));
+//            ViewCompat.setBackgroundTintList(btn1Y, unselectedBg); btn1Y.setTextColor(Color.parseColor("#666666"));
 
             // 2. Highlight the clicked item button element
             Button clickedButton = (Button) v;
@@ -117,9 +117,9 @@ public class VoltageHistoryActivity extends Activity {
         };
 
         btn4H.setOnClickListener(filterListener);
-        btn2D.setOnClickListener(filterListener);
-        btn1M.setOnClickListener(filterListener);
-        btn1Y.setOnClickListener(filterListener);
+//        btn2D.setOnClickListener(filterListener);
+//        btn1M.setOnClickListener(filterListener);
+//        btn1Y.setOnClickListener(filterListener);
     }
 
 

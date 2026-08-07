@@ -61,44 +61,46 @@
             android:layout_width="0dp"
             android:layout_height="36dp"
             android:layout_weight="1"
-            android:text="4H"
+            android:text="Last 4 Hours Data"
             android:textSize="11sp"
             android:textColor="#FFFFFF"
             android:backgroundTint="#222222"
             style="?android:attr/borderlessButtonStyle"/>
 
-        <Button
-            android:id="@+id/btn_filter_2d"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:text="2D"
-            android:textSize="11sp"
-            android:textColor="#666666"
-            android:backgroundTint="#121212"
-            style="?android:attr/borderlessButtonStyle"/>
+<!--        Disable below charts as they are difficult to read due to nature of how voltage readings are captured. -->
+<!--        Eg: When vehicle is not active, there are no readings and cause gaps in the charts making bad UX especially for long durations -->
+<!--        <Button-->
+<!--            android:id="@+id/btn_filter_2d"-->
+<!--            android:layout_width="0dp"-->
+<!--            android:layout_height="36dp"-->
+<!--            android:layout_weight="1"-->
+<!--            android:text="2D"-->
+<!--            android:textSize="11sp"-->
+<!--            android:textColor="#666666"-->
+<!--            android:backgroundTint="#121212"-->
+<!--            style="?android:attr/borderlessButtonStyle"/>-->
 
-        <Button
-            android:id="@+id/btn_filter_1m"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:text="1M"
-            android:textSize="11sp"
-            android:textColor="#666666"
-            android:backgroundTint="#121212"
-            style="?android:attr/borderlessButtonStyle"/>
+<!--        <Button-->
+<!--            android:id="@+id/btn_filter_1m"-->
+<!--            android:layout_width="0dp"-->
+<!--            android:layout_height="36dp"-->
+<!--            android:layout_weight="1"-->
+<!--            android:text="1M"-->
+<!--            android:textSize="11sp"-->
+<!--            android:textColor="#666666"-->
+<!--            android:backgroundTint="#121212"-->
+<!--            style="?android:attr/borderlessButtonStyle"/>-->
 
-        <Button
-            android:id="@+id/btn_filter_all"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:text="All"
-            android:textSize="11sp"
-            android:textColor="#666666"
-            android:backgroundTint="#121212"
-            style="?android:attr/borderlessButtonStyle"/>
+<!--        <Button-->
+<!--            android:id="@+id/btn_filter_all"-->
+<!--            android:layout_width="0dp"-->
+<!--            android:layout_height="36dp"-->
+<!--            android:layout_weight="1"-->
+<!--            android:text="All"-->
+<!--            android:textSize="11sp"-->
+<!--            android:textColor="#666666"-->
+<!--            android:backgroundTint="#121212"-->
+<!--            style="?android:attr/borderlessButtonStyle"/>-->
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -54,6 +54,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
 
     private boolean isTelemetryEnabled = false;
+    private long commandStartTime = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -117,9 +118,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void handleStartAction() {
         String command = preferenceManager.getFormattedCommand("START");
 
+        // Record start time before sending
+        this.commandStartTime = System.currentTimeMillis();
+
         bleManager.sendBleCommand(
                 command,
-                () -> FeedbackUtils.triggerDoubleVibrate(this), //onSuccess callback
+                () -> handleCommandResult(command, Constants.START_SUCCESS, false),  //onSuccess callback
                 null //onFailure callback
         );
 
@@ -198,11 +202,14 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             public void onReceive(Context context, Intent intent) {
                 String formattedCommand = intent.getStringExtra("COMMAND");
                 if (formattedCommand != null) {
-                    onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
+                    // Record start time when the watch trigger is received by UI
+                    commandStartTime = System.currentTimeMillis();
+
+//                    onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
                     bleManager.sendBleCommand(
                             formattedCommand,
-                            () -> FeedbackUtils.sendCmdResultAckToWatch(context, Constants.START_SUCCESS),
-                            () -> FeedbackUtils.sendCmdResultAckToWatch(context, Constants.START_FAILURE)
+                            () -> handleCommandResult(formattedCommand, Constants.START_SUCCESS, true),
+                            () -> handleCommandResult(formattedCommand, Constants.START_FAILURE, true)
                     );
                     setResultCode(-1); // Mark handled
                 }
@@ -383,5 +390,25 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             String timeStamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
             txtLog.append("[" + timeStamp + "] SYSTEMS: Initialized fresh session logs.\n");
         }
+    }
+
+    private void handleCommandResult(String executedCommand, String resultPayload, boolean isWatchRx) {
+        long timeTaken = System.currentTimeMillis() - commandStartTime;
+
+        // Add [Watch] prefix if the trigger came from the watch
+        String logPrefix = isWatchRx ? "[WATCH RX] " : "";
+
+        onLog(logPrefix + "Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
+
+        if (isWatchRx) {
+            FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
+        } else {
+            if (Constants.START_SUCCESS.equals(resultPayload)) {
+                FeedbackUtils.triggerDoubleVibrate(this);
+            }
+        }
+
+        // Reset timer
+        commandStartTime = 0;
     }
 }

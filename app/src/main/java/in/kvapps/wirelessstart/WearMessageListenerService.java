@@ -21,6 +21,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
     private BleManager bleManager;
     private String pendingCommandToSend; // Store the intended command
+    private long commandStartTime = 0;
 
     @Override
     public void onMessageReceived(MessageEvent messageEvent) {
@@ -60,6 +61,9 @@ public class WearMessageListenerService extends WearableListenerService implemen
     private void executeBackgroundBleCommand(String command) {
         this.pendingCommandToSend = command; // Save the action command (START/STOP)
 
+        // Record start time when background execution begins
+        this.commandStartTime = System.currentTimeMillis();
+
         // Clean up any stale manager instance first
         if (bleManager != null) {
             bleManager.release();
@@ -91,26 +95,33 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
     @Override
     public void onServicesReady() {
-        // Reduced safety delay from 250ms to 50ms for faster execution once services are up
         if (pendingCommandToSend != null) {
+            final String executedCommand = pendingCommandToSend; // capture for lambda scope
+
             new android.os.Handler(getMainLooper()).postDelayed(() -> {
                 if (bleManager != null && pendingCommandToSend != null) {
-                    onLog("Transmitting pending action command: " + pendingCommandToSend);
+                    onLog("Transmitting pending action command: " + executedCommand);
+
                     bleManager.sendBleCommand(
-                            pendingCommandToSend,
-                            () -> {
-                                FeedbackUtils.sendCmdResultAckToWatch(this, Constants.START_SUCCESS);
-                                cleanup();
-                            },
-                            () -> {
-                                FeedbackUtils.sendCmdResultAckToWatch(this, Constants.START_FAILURE);
-                                cleanup();
-                            }
+                            executedCommand,
+                            () -> handleCommandResult(executedCommand, Constants.START_SUCCESS),
+                            () -> handleCommandResult(executedCommand, Constants.START_FAILURE)
                     );
                     pendingCommandToSend = null;
                 }
             }, 50);
         }
+    }
+
+    private void handleCommandResult(String executedCommand, String resultPayload) {
+        long timeTaken = System.currentTimeMillis() - commandStartTime;
+
+        onLog("[WATCH RX] Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
+
+        FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
+
+        // Reset timer
+        commandStartTime = 0;
     }
 
     @Override

@@ -9,6 +9,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableString;
+import android.text.SpannableStringBuilder;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -246,7 +248,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             long currentTime = System.currentTimeMillis();
             String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(currentTime));
 
-            txtLog.append("[" + timeStamp + "] " + message + "\n");
+            String fullLogLine = "[" + timeStamp + "] " + message + "\n";
+
+            // Use helper function for color styling
+            SpannableString styledLog = AppLogger.formatLogLine(fullLogLine);
+            txtLog.append(styledLog);
+
             if (scrollLog != null) {
                 scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
             }
@@ -375,11 +382,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         java.util.List<String> todayLogs = dbHelper.getTodayLogs();
 
         if (todayLogs != null && !todayLogs.isEmpty()) {
-            StringBuilder logBuilder = new StringBuilder();
+            SpannableStringBuilder spannableBuilder = new SpannableStringBuilder();
+
             for (String logLine : todayLogs) {
-                logBuilder.append(logLine).append("\n");
+                String fullLine = logLine + "\n";
+                // Use helper function for color styling
+                spannableBuilder.append(AppLogger.formatLogLine(fullLine));
             }
-            txtLog.setText(logBuilder.toString());
+
+            txtLog.setText(spannableBuilder);
 
             // Scroll down to the latest log entry automatically
             if (scrollLog != null) {
@@ -387,8 +398,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             }
         } else {
             // Optional welcome log if no history exists for today yet
-            String timeStamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
-            txtLog.append("[" + timeStamp + "] SYSTEMS: Initialized fresh session logs.\n");
+            String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+            String welcomeLine = "[" + timeStamp + "] SYSTEMS: Initialized fresh session logs.\n";
+            txtLog.append(AppLogger.formatLogLine(welcomeLine));
         }
     }
 

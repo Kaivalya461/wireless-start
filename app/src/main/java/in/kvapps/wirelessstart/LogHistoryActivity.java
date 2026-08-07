@@ -9,12 +9,15 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.text.SpannableStringBuilder;
+
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
+import in.kvapps.wirelessstart.util.AppLogger;
 
 public class LogHistoryActivity extends AppCompatActivity {
 
@@ -65,16 +68,18 @@ public class LogHistoryActivity extends AppCompatActivity {
         txtHistoryLog.setText("");
 
         // Fetch logs from SQLite database for the specified date
-        // Note: Make sure to implement getLogsForDate(date) in your dbHelper
-        // that queries your database using the provided date string.
         java.util.List<String> dateLogs = dbHelper.getLogsForDate(date);
 
         if (dateLogs != null && !dateLogs.isEmpty()) {
-            StringBuilder logBuilder = new StringBuilder();
+            SpannableStringBuilder spannableBuilder = new SpannableStringBuilder();
+
             for (String logLine : dateLogs) {
-                logBuilder.append(logLine).append("\n");
+                String fullLine = logLine + "\n";
+                // Use formatLogLine to apply the same colors here
+                spannableBuilder.append(AppLogger.formatLogLine(fullLine));
             }
-            txtHistoryLog.setText(logBuilder.toString());
+
+            txtHistoryLog.setText(spannableBuilder);
 
             // Scroll down to the latest log entry automatically
             if (scrollHistoryLog != null) {
@@ -82,7 +87,8 @@ public class LogHistoryActivity extends AppCompatActivity {
             }
         } else {
             // Fallback message if no logs exist for the selected date
-            txtHistoryLog.setText("No activity logs found for " + date + ".\n");
+            String fallbackLine = "No activity logs found for " + date + ".\n";
+            txtHistoryLog.setText(AppLogger.formatLogLine(fallbackLine));
         }
     }
 }

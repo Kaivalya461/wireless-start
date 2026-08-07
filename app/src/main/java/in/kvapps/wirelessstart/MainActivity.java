@@ -180,7 +180,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             PermissionUtils.requestBluetoothPermissions(this);
             return;
         }
-        bleManager.connect(true);
+        bleManager.connect(false);
     }
 
     @Override
@@ -188,7 +188,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
             onLog("Permissions approved by user.");
-            bleManager.connect(true);
+            bleManager.connect(false);
         } else {
             onLog("CRITICAL ERROR: Bluetooth permissions denied.");
             onConnectionStateChanged(false, "Permissions Denied");
@@ -358,7 +358,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
             onConnectionStateChanged(false, "Reconnecting");
             onLog("Configuration updated. Reconnecting...");
-            bleManager.connect(true);
+            bleManager.connect(false);
         });
 
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());

@@ -44,7 +44,7 @@ public class BleLifecycleObserver implements DefaultLifecycleObserver {
                 if (logCallback != null) {
                     logCallback.onLog("App resumed. Checking BLE connection...");
                 }
-                bleManager.connect(true);
+                bleManager.connect(false);
             }
         }
     }

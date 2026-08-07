@@ -260,7 +260,7 @@ public class BleManager {
                 String statusText = targetHwName + " Offline";
                 listener.onLog("System Alert: " + statusText);
                 listener.onConnectionStateChanged(false, statusText);
-                commandCharacteristic = null;
+                release();
             }
         }
 

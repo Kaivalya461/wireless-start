@@ -116,7 +116,7 @@ public class VoltageHistoryActivity extends Activity {
             updateChartData();
         };
 
-        btn4H.setOnClickListener(filterListener);
+//        btn4H.setOnClickListener(filterListener);
 //        btn2D.setOnClickListener(filterListener);
 //        btn1M.setOnClickListener(filterListener);
 //        btn1Y.setOnClickListener(filterListener);

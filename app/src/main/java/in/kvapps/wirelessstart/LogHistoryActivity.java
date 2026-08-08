@@ -40,6 +40,7 @@ public class LogHistoryActivity extends AppCompatActivity {
         loadLogsForDate(currentDate);
 
         btnSelectDate.setOnClickListener(v -> showDatePickerDialog());
+        findViewById(R.id.btn_back).setOnClickListener(v -> finish()); // Back Button
 
         dbHelper = new VoltageDbHelper(this);
     }

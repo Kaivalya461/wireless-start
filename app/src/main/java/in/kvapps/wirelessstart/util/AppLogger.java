@@ -36,7 +36,7 @@ public class AppLogger {
         SpannableString spannableLine = new SpannableString(logLine);
 
         // Apply Soft Red for safety/errors/denied
-        if (logLine.contains("System Alert") || logLine.contains("FAILURE")) {
+        if (logLine.contains("System Alert") || logLine.contains("FAILURE") || logLine.contains("Error")) {
             spannableLine.setSpan(
                     new ForegroundColorSpan(Color.parseColor(SOFT_RED)),
                     0,

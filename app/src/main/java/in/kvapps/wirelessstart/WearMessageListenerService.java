@@ -1,5 +1,6 @@
 package in.kvapps.wirelessstart;
 
+import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -45,7 +46,8 @@ public class WearMessageListenerService extends WearableListenerService implemen
             sendOrderedBroadcast(broadCastIntent, null, new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    boolean wasHandledByActivity = (getResultCode() == -1);
+                    int resultCode = getResultCode();
+                    boolean wasHandledByActivity = (resultCode == Activity.RESULT_OK);
 
                     if (wasHandledByActivity) {
                         AppLogger.logToDatabaseAndLogcat(context, TAG, "Command handled directly by open MainActivity UI.");
@@ -54,22 +56,23 @@ public class WearMessageListenerService extends WearableListenerService implemen
                         executeBackgroundBleCommand(formattedCommand);
                     }
                 }
-            }, null, 0, null, null);
+            }, null, Activity.RESULT_CANCELED, null, null);
         }
     }
 
     private void executeBackgroundBleCommand(String command) {
-        this.pendingCommandToSend = command; // Save the action command (START/STOP)
-
-        // Record start time when background execution begins
+        this.pendingCommandToSend = command;
         this.commandStartTime = System.currentTimeMillis();
 
         // Clean up any stale manager instance first
         if (bleManager != null) {
             bleManager.release();
+            bleManager = null;
         }
 
-        bleManager = new BleManager(this, this);
+        // Pass application context instead of service context if possible
+        // to decouple it from short-lived service states
+        bleManager = new BleManager(getApplicationContext(), this);
 
         PreferenceManager preferenceManager = new PreferenceManager(this);
         bleManager.setTargetHwName(preferenceManager.getTargetHwName());

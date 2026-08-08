@@ -1,6 +1,7 @@
 package in.kvapps.wirelessstart;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -204,6 +205,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             public void onReceive(Context context, Intent intent) {
                 String formattedCommand = intent.getStringExtra("COMMAND");
                 if (formattedCommand != null) {
+                    if (bleManager == null || !bleManager.isConnected()) {
+                        // Do NOT call setResultCode(-1), letting the broadcast fall through to the service.
+                        return;
+                    }
+
                     // Record start time when the watch trigger is received by UI
                     commandStartTime = System.currentTimeMillis();
 
@@ -213,7 +219,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                             () -> handleCommandResult(formattedCommand, Constants.START_SUCCESS, true),
                             () -> handleCommandResult(formattedCommand, Constants.START_FAILURE, true)
                     );
-                    setResultCode(-1); // Mark handled
+                    setResultCode(Activity.RESULT_OK); // Mark handled
                 }
             }
         };
@@ -224,6 +230,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         } else {
             registerReceiver(watchCommandReceiver, filter);
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Refresh the log UI from the database every time the activity comes to the foreground
+        loadStoredLogsForToday();
     }
 
     @Override

@@ -48,9 +48,9 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     boolean wasHandledByActivity = (getResultCode() == -1);
 
                     if (wasHandledByActivity) {
-                        Log.d(TAG, "Command handled directly by open MainActivity UI.");
+                        AppLogger.logToDatabaseAndLogcat(context, TAG, "Command handled directly by open MainActivity UI.");
                     } else {
-                        Log.d(TAG, "MainActivity is closed. Executing background BLE write: " + formattedCommand);
+                        AppLogger.logToDatabaseAndLogcat(context, TAG, "MainActivity is closed. Executing background BLE write: " + formattedCommand);
                         executeBackgroundBleCommand(formattedCommand);
                     }
                 }
@@ -122,6 +122,8 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
         // Reset timer
         commandStartTime = 0;
+
+        cleanup();
     }
 
     @Override

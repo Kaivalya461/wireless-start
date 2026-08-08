@@ -318,14 +318,14 @@ public class BleManager {
     public void syncTelemetryState(boolean isEnabled) {
         byte commandByte = (byte) (isEnabled ? 0x03 : 0x02);
         sendRawByteCommand(commandByte);
-        listener.onLog("Syncing telemetry state -> " + (isEnabled ? "ENABLED" : "DISABLED"));
+//        listener.onLog("Syncing telemetry state -> " + (isEnabled ? "ENABLED" : "DISABLED"));
     }
 
     // Automatically sync current Unix timestamp to ESP32 for scheduled night sleep
     public void sendAutoTimeSync() {
         long currentEpochSeconds = System.currentTimeMillis() / 1000;
         String syncCommand = "TIME:" + currentEpochSeconds;
-        listener.onLog("Auto-syncing system time to ESP32...");
+//        listener.onLog("Auto-syncing system time to ESP32...");
         sendBleCommand(syncCommand, null, null);
     }
 }

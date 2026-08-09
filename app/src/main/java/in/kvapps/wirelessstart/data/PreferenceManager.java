@@ -18,6 +18,7 @@ public class PreferenceManager {
     private static final String KEY_TARGET_HW_NAME = "target_hw_name";
     private static final String DEFAULT_HW_NAME = "Vehicle 001";
     private static final String KEY_TARGET_MAC = "target_mac_address";
+    private static final String KEY_TARGET_AUTO_CONNECT = "target_auto_connect";
     private static final long DEFAULT_START_MS = 1500;
 
     private final SharedPreferences prefs;
@@ -143,5 +144,13 @@ public class PreferenceManager {
         PutDataRequest request = dataMap.asPutDataRequest();
         request.setUrgent();
         Wearable.getDataClient(context).putDataItem(request);
+    }
+
+    public boolean isAutoConnectEnabled() {
+        return prefs.getBoolean(KEY_TARGET_AUTO_CONNECT, false); // Default to false
+    }
+
+    public void setAutoConnectEnabled(boolean enabled) {
+        prefs.edit().putBoolean(KEY_TARGET_AUTO_CONNECT, enabled).apply();
     }
 }

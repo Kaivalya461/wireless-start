@@ -96,7 +96,7 @@ public class BleManager {
 
         disconnect(); // Disconnect existing stale connections
 
-        listener.onLog("Searching for " + targetHwName + " [" + ESP32_MAC + "]...");
+        listener.onLog("Searching for " + targetHwName + " [" + ESP32_MAC + "] (Auto-Connect: " + autoConnect + ")...");
         try {
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(ESP32_MAC);
 

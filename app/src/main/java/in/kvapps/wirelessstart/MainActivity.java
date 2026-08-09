@@ -44,7 +44,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
     private Button btnStart;
-    private ImageButton btnMenu;
+    private ImageButton btnMenu, btnReconnect;
     private Spinner spinnerStart;
     private EditText inputCustomStart;
     private SwitchCompat switchVoltage;
@@ -72,7 +72,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         setupClickListeners();
         registerWatchReceiver();
         // Register the lifecycle observer for automatic BLE reconnection handling
-        getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, this::onLog));
+        getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, preferenceManager, this::onLog));
 
         updateConnectionUi(false);
         checkPermissionsAndConnect();
@@ -95,6 +95,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
         btnMenu = findViewById(R.id.btn_menu);
+        btnReconnect = findViewById(R.id.btn_reconnect);
         spinnerStart = findViewById(R.id.spinner_start);
         inputCustomStart = findViewById(R.id.input_custom_start);
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
@@ -115,6 +116,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         cardLogSection.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
             startActivity(intent);
+        });
+        btnReconnect.setOnClickListener(v -> handleReconnect());
+        btnReconnect.setOnLongClickListener(v -> {
+            v.setTooltipText("Reconnect");
+            return false;
         });
     }
 
@@ -145,18 +151,32 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
 
-        // Add menu items (ID 1 for Reconnect, ID 2 for Rename)
+        // Add menu items (ID 1 for Reconnect, ID 2 for Edit Config, ID 3 for Auto Connect checkbox)
         popup.getMenu().add(0, 1, 0, "Reconnect");
         popup.getMenu().add(0, 2, 1, "Edit Config");
+
+        // Add Auto Connect checkable menu item
+        android.view.MenuItem autoConnectItem = popup.getMenu().add(0, 3, 2, "Auto Connect");
+        autoConnectItem.setCheckable(true);
+        autoConnectItem.setChecked(preferenceManager.isAutoConnectEnabled());
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) {
-                onLog("Manual reconnect requested...");
-                checkPermissionsAndConnect();
+                handleReconnect();
                 return true;
             } else if (id == 2) {
                 showEditConfigDialog();
+                return true;
+            } else if (id == 3) {
+                // Toggle the state
+                boolean newState = !item.isChecked();
+                item.setChecked(newState);
+                preferenceManager.setAutoConnectEnabled(newState);
+
+                onLog("Auto-Connect preference updated: " + (newState ? "ENABLED" : "DISABLED"));
+
+                // Keep the menu open so the user sees the checkbox change
                 return true;
             }
             return false;
@@ -183,7 +203,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             PermissionUtils.requestBluetoothPermissions(this);
             return;
         }
-        bleManager.connect(false);
+        bleManager.connect(preferenceManager.isAutoConnectEnabled());
     }
 
     @Override
@@ -191,7 +211,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
             onLog("Permissions approved by user.");
-            bleManager.connect(false);
+            bleManager.connect(preferenceManager.isAutoConnectEnabled());
         } else {
             onLog("CRITICAL ERROR: Bluetooth permissions denied.");
             onConnectionStateChanged(false, "Permissions Denied");
@@ -294,6 +314,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void updateConnectionUi(boolean isConnected) {
         UiUtils.setButtonState(btnStart, isConnected, isConnected ? 1.0f : 0.5f);
+
+        // Show the reconnect button ONLY when disconnected, hide it when connected
+        if (btnReconnect != null) {
+            btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
+        }
     }
 
     @Override
@@ -378,7 +403,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
             onConnectionStateChanged(false, "Reconnecting");
             onLog("Configuration updated. Reconnecting...");
-            bleManager.connect(false);
+            bleManager.connect(preferenceManager.isAutoConnectEnabled());
         });
 
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
@@ -435,5 +460,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // Reset timer
         commandStartTime = 0;
+    }
+
+    private void handleReconnect() {
+        onLog("Manual reconnect requested...");
+        checkPermissionsAndConnect();
     }
 }

@@ -5,11 +5,13 @@ import androidx.annotation.NonNull;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 
 public class BleLifecycleObserver implements DefaultLifecycleObserver {
     private final Activity activity;
     private final BleManager bleManager;
+    private final PreferenceManager preferenceManager; // Added PreferenceManager reference
     private final LogCallback logCallback;
 
     // Tracks whether the initial activity creation lifecycle has already passed
@@ -20,9 +22,10 @@ public class BleLifecycleObserver implements DefaultLifecycleObserver {
     }
 
     // Update constructor to take Activity
-    public BleLifecycleObserver(Activity activity, BleManager bleManager, LogCallback logCallback) {
+    public BleLifecycleObserver(Activity activity, BleManager bleManager, PreferenceManager preferenceManager, LogCallback logCallback) {
         this.activity = activity;
         this.bleManager = bleManager;
+        this.preferenceManager = preferenceManager;
         this.logCallback = logCallback;
     }
 
@@ -44,7 +47,10 @@ public class BleLifecycleObserver implements DefaultLifecycleObserver {
                 if (logCallback != null) {
                     logCallback.onLog("App resumed. Checking BLE connection...");
                 }
-                bleManager.connect(false);
+
+                // Fetch user preference for autoConnect dynamically
+                boolean autoConnectSetting = preferenceManager != null && preferenceManager.isAutoConnectEnabled();
+                bleManager.connect(autoConnectSetting);
             }
         }
     }

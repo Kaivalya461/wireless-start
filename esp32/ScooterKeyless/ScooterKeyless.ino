@@ -13,7 +13,9 @@ void setup() {
     initBattery();
     initBle();
 
-    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.1");
+    // setCalibration(1.253, 0.81);
+
+    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.2");
 }
 
 void loop() {

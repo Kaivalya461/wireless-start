@@ -20,6 +20,8 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
@@ -75,6 +77,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, preferenceManager, this::onLog));
 
         updateConnectionUi(false);
+        pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
     }
 
@@ -82,10 +85,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         dbHelper = new VoltageDbHelper(this);
         preferenceManager = new PreferenceManager(this);
         bleManager = new BleManager(this, this);
-
-        // Load User saved Device Configuration
-        bleManager.setTargetHwName(preferenceManager.getTargetHwName());
-        bleManager.setMacAdd(preferenceManager.getTargetMacAddress());
     }
 
     private void initUiViews() {
@@ -166,7 +165,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 handleReconnect();
                 return true;
             } else if (id == 2) {
-                showEditConfigDialog();
+                // Launch separate configuration activity
+                Intent intent = new Intent(MainActivity.this, EditConfigActivity.class);
+                editConfigLauncher.launch(intent);
                 return true;
             } else if (id == 3) {
                 // Toggle the state
@@ -175,6 +176,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 preferenceManager.setAutoConnectEnabled(newState);
 
                 onLog("Auto-Connect preference updated: " + (newState ? "ENABLED" : "DISABLED"));
+                handleReconnect();
 
                 // Keep the menu open so the user sees the checkbox change
                 return true;
@@ -358,58 +360,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
     }
 
-    private void showEditConfigDialog() {
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
-        builder.setTitle("Device Configuration");
-
-        // Create a container layout to hold multiple inputs
-        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
-        container.setOrientation(android.widget.LinearLayout.VERTICAL);
-        container.setPadding(50, 40, 50, 20);
-
-        // 1. Device Name Input
-        final EditText inputName = new EditText(this);
-        inputName.setHint("Device Name (e.g. Vehicle 001)");
-        String currentName = preferenceManager.getTargetHwName();
-        inputName.setText(currentName);
-        container.addView(inputName);
-
-        // 2. MAC Address Input
-        final EditText inputMac = new EditText(this);
-        inputMac.setHint("MAC Address (e.g. AA:BB:CC:DD:EE:FF)");
-        // Fetch current saved MAC from your preferenceManager (make sure to create this method)
-        String currentMac = preferenceManager.getTargetMacAddress();
-        if (currentMac != null && !currentMac.isEmpty()) {
-            inputMac.setText(currentMac);
-        }
-        container.addView(inputMac);
-
-        builder.setView(container);
-
-        builder.setPositiveButton("Save", (dialog, which) -> {
-            String newName = inputName.getText().toString().trim();
-            String newMac = inputMac.getText().toString().trim();
-
-            if (!newName.isEmpty()) {
-                preferenceManager.saveTargetHwName(newName);
-                bleManager.setTargetHwName(newName);
-            }
-
-            // Save and update MAC address if valid format is entered
-            if (!newMac.isEmpty()) {
-                preferenceManager.saveTargetMacAddress(newMac);
-                bleManager.setMacAdd(newMac);
-            }
-
-            onConnectionStateChanged(false, "Reconnecting");
-            onLog("Configuration updated. Reconnecting...");
-            bleManager.connect(preferenceManager.isAutoConnectEnabled());
-        });
-
-        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
-        builder.show();
-    }
-
     private void loadStoredLogsForToday() {
         if (dbHelper == null) return;
 
@@ -466,4 +416,22 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         onLog("Manual reconnect requested...");
         checkPermissionsAndConnect();
     }
+
+    private void pruneOldDatabaseRecords() {
+        long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000);
+        if (dbHelper != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start();
+            }, 5000); // Wait 5 seconds after app launch before cleaning up
+        }
+    }
+
+    private final ActivityResultLauncher<Intent> editConfigLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    onConnectionStateChanged(false, "Reconnecting");
+                    onLog("Configuration updated. Reconnecting...");
+                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
+                }
+            });
 }

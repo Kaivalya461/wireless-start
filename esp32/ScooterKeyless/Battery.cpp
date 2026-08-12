@@ -8,13 +8,15 @@ const float FILTER_ALPHA = 0.222; //1.0: No smoothing at all (passes raw instant
 float smoothedBatteryVoltage = -1.0;
 bool telemetryEnabled = false; // Initial fallback state
 
+// Dynamic calibration variables loaded from NVS
+float calibrationMultiplier = 1.109;
+float calibrationOffset = 0.81;
+
 // Auto-compiler detection selects the proper multiplier profile based on board target
 #if defined(ARDUINO_ESP32C3_DEV) || defined(ARDUINO_ESP32_C3_SUPER_MINI)
 const int BATTERY_PIN = 4; // Use GPIO 4 for ESP32-C3 Super Mini
-const float CALIBRATION_MULTIPLIER = 1.109;
 #else
 const int BATTERY_PIN = 34; // Default to GPIO 34 for standard ESP32 Dev Board
-const float CALIBRATION_MULTIPLIER = 1.079;
 #endif
 
 void initBattery() {
@@ -27,7 +29,12 @@ void initBattery() {
     // Load persisted state. Defaults to false if it's the very first boot.
     telemetryEnabled = preferences.getBool("telemetry_state", false);
 
-    Serial.printf(">>> Loaded Telemetry State from NVS: %s\n", telemetryEnabled ? "ENABLED" : "DISABLED");
+    // Load per-device calibration values from NVS (fallback to defaults if first boot)
+    calibrationMultiplier = preferences.getFloat("cal_mult", 1.109);
+    calibrationOffset = preferences.getFloat("cal_off", 0.81);
+
+    Serial.printf(">>> Loaded Telemetry State: %s\n", telemetryEnabled ? "ENABLED" : "DISABLED");
+    Serial.printf(">>> Loaded Calibration -> Mult: %.3f, Offset: %.3f\n", calibrationMultiplier, calibrationOffset);
 }
 
 void updateBatteryFilter() {
@@ -35,7 +42,7 @@ void updateBatteryFilter() {
     float pinVoltage = pinMilliVolts / 1000.0;
     float voltageAfterDiode = pinVoltage * DIVIDER_RATIO;
 
-    float instantBatteryVoltage = (voltageAfterDiode * CALIBRATION_MULTIPLIER) + 0.81;
+    float instantBatteryVoltage = (voltageAfterDiode * calibrationMultiplier) + calibrationOffset;
     if (pinMilliVolts == 0) instantBatteryVoltage = 0.0;
 
     if (smoothedBatteryVoltage < 0.0) {
@@ -70,4 +77,13 @@ void setTelemetryActive(bool active) {
 
 bool isTelemetryEnabled() {
     return telemetryEnabled;
+}
+
+// Optional helper function to dynamically save new calibration values for Board 2 via code/serial
+void setCalibration(float mult, float offset) {
+    calibrationMultiplier = mult;
+    calibrationOffset = offset;
+    preferences.putFloat("cal_mult", calibrationMultiplier);
+    preferences.putFloat("cal_off", calibrationOffset);
+    Serial.printf(">>> New Calibration Saved -> Mult: %.3f, Offset: %.3f\n", calibrationMultiplier, calibrationOffset);
 }

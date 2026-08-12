@@ -11,6 +11,7 @@ import java.util.List;
 import in.kvapps.wirelessstart.model.VoltageEntry;
 
 public class VoltageDbHelper extends SQLiteOpenHelper {
+    private static final String TAG = "VoltageDbHelper";
     private static final String DATABASE_NAME = "telemetry.db";
     private static final int DATABASE_VERSION = 2; // Incremented version for schema update
 
@@ -241,5 +242,22 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
             }
         }
         return logsList;
+    }
+
+    /**
+     * Deletes voltage history and app logs older than the specified cutoff timestamp.
+     * @param cutoffTimestamp The threshold timestamp (e.g., 30 days ago in milliseconds)
+     */
+    public void deleteOldRecords(long cutoffTimestamp) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        try {
+            // Delete records older than cutoff from voltage table
+            db.delete(TABLE_VOLTAGE, COLUMN_TIMESTAMP + " < ?", new String[]{String.valueOf(cutoffTimestamp)});
+
+            // Delete records older than cutoff from logs table
+            db.delete(TABLE_LOGS, COLUMN_LOG_TIMESTAMP + " < ?", new String[]{String.valueOf(cutoffTimestamp)});
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to delete old records from database", e);
+        }
     }
 }

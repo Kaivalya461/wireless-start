@@ -17,7 +17,7 @@ import android.bluetooth.BluetoothProfile;
 import android.os.Build;
 import java.util.UUID;
 
-import in.kvapps.wirelessstart.BuildConfig;
+import in.kvapps.wirelessstart.data.PreferenceManager;
 
 public class BleManager {
 
@@ -27,8 +27,6 @@ public class BleManager {
         void onServicesReady();
         void onVoltageReceived(float voltage); // NEW: Dispatches updated voltage string
     }
-    private String targetHwName = "Vehicle 001";
-    private String ESP32_MAC = BuildConfig.ESP32_MAC;
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
@@ -41,11 +39,14 @@ public class BleManager {
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic commandCharacteristic;
     private boolean isReceiverRegistered = false;
+    private final PreferenceManager preferenceManager;
 
     public BleManager(Context context, BleListener listener) {
         this.context = context;
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        this.preferenceManager = new PreferenceManager(context);
+
         registerBluetoothStateReceiver();
     }
 
@@ -94,11 +95,24 @@ public class BleManager {
             return;
         }
 
-        disconnect(); // Disconnect existing stale connections
+        disconnect();
 
-        listener.onLog("Searching for " + targetHwName + " [" + ESP32_MAC + "] (Auto-Connect: " + autoConnect + ")...");
+        // Retrieve the latest saved values directly from the class-level PreferenceManager
+        String currentMac = preferenceManager.getTargetMacAddress();
+        String currentHwName = preferenceManager.getTargetHwName();
+
+        if (currentMac == null || currentMac.trim().isEmpty()) {
+            listener.onLog("Configuration Error: No MAC address configured.");
+            listener.onConnectionStateChanged(false, "Invalid MAC");
+            return;
+        }
+
+        String maskedMac = currentMac.length() >= 5 ? "..." + currentMac.substring(currentMac.length() - 5) : "......";
+
+        listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "] (Auto-Connect: " + autoConnect + ")...");
+
         try {
-            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(ESP32_MAC);
+            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(currentMac);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -108,11 +122,11 @@ public class BleManager {
                 }
             }
 
-            // Dynamically pass the autoConnect flag here
             bluetoothGatt = device.connectGatt(context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE);
 
         } catch (IllegalArgumentException e) {
             listener.onLog("Configuration Error: Invalid MAC address provided.");
+            listener.onConnectionStateChanged(false, "Invalid MAC");
         } catch (SecurityException e) {
             listener.onLog("Security Error: Operating system blocked connection profile.");
             listener.onConnectionStateChanged(false, "Security Exception");
@@ -218,23 +232,11 @@ public class BleManager {
         disconnect();
     }
 
-    public void setTargetHwName(String targetHwName) {
-        if (targetHwName != null && !targetHwName.trim().isEmpty()) {
-            this.targetHwName = targetHwName;
-        }
-    }
-
-    public void setMacAdd(String macAdd) {
-        if (macAdd != null && !macAdd.trim().isEmpty()) {
-            this.ESP32_MAC = macAdd;
-        }
-    }
-
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                listener.onConnectionStateChanged(true, targetHwName + " Connected");
+                listener.onConnectionStateChanged(true, preferenceManager.getTargetHwName() + " Connected");
 
                 // REQUEST HIGH PRIORITY
                 try {
@@ -257,7 +259,7 @@ public class BleManager {
                     listener.onLog("Security Error: Failed to discover services.");
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                String statusText = targetHwName + " Offline";
+                String statusText = preferenceManager.getTargetHwName() + " Offline";
                 listener.onLog("System Alert: " + statusText);
                 listener.onConnectionStateChanged(false, statusText);
                 release();

@@ -40,12 +40,32 @@ public class BleManager {
     private BluetoothGattCharacteristic commandCharacteristic;
     private boolean isReceiverRegistered = false;
     private final PreferenceManager preferenceManager;
+    private final BleScanManager bleScanManager;
 
     public BleManager(Context context, BleListener listener) {
         this.context = context;
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.preferenceManager = new PreferenceManager(context);
+
+        // Initialize the dedicated Custom Scan Manager
+        this.bleScanManager = new BleScanManager(
+                context,
+                SERVICE_UUID,
+                preferenceManager.getTargetMacAddress(),
+                new BleScanManager.ScanListener() {
+                    @Override
+                    public void onDeviceFound(String macAddress) {
+                        // When device is detected via scan, connect instantly (autoConnect = false)
+                        connect(false);
+                    }
+
+                    @Override
+                    public void onScanLog(String message) {
+                        listener.onLog(message);
+                    }
+                }
+        );
 
         registerBluetoothStateReceiver();
     }
@@ -109,7 +129,7 @@ public class BleManager {
 
         String maskedMac = currentMac.length() >= 5 ? "..." + currentMac.substring(currentMac.length() - 5) : "......";
 
-        listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "] (Auto-Connect: " + autoConnect + ")...");
+        listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "]...");
 
         try {
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(currentMac);
@@ -122,7 +142,9 @@ public class BleManager {
                 }
             }
 
-            bluetoothGatt = device.connectGatt(context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE);
+            // Always pass 'false' to connectGatt for instant connection.
+            // The "auto-connect" behavior is intelligently handled by Custom BleScanManager instead of Android's lazy stack.
+            bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
 
         } catch (IllegalArgumentException e) {
             listener.onLog("Configuration Error: Invalid MAC address provided.");
@@ -221,6 +243,7 @@ public class BleManager {
 
     // Call this if your app destroys the manager instance to prevent memory leaks
     public void release() {
+        bleScanManager.stopScan();
         if (isReceiverRegistered) {
             try {
                 context.unregisterReceiver(bluetoothStateReceiver);
@@ -236,6 +259,7 @@ public class BleManager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                bleScanManager.stopScan();
                 listener.onConnectionStateChanged(true, preferenceManager.getTargetHwName() + " Connected");
 
                 // REQUEST HIGH PRIORITY
@@ -263,6 +287,13 @@ public class BleManager {
                 listener.onLog("System Alert: " + statusText);
                 listener.onConnectionStateChanged(false, statusText);
                 release();
+
+                // ONLY start background scanning if the user's auto-connect preference is TRUE
+                if (preferenceManager.isAutoConnectEnabled()) {
+                    bleScanManager.startScan();
+                } else {
+                    listener.onLog("Auto-connect is disabled. Standing by.");
+                }
             }
         }
 

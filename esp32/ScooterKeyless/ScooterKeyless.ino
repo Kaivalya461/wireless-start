@@ -7,12 +7,14 @@ const unsigned long BATTERY_INTERVAL = 1000; // Check and push metrics every 100
 
 void setup() {
     Serial.begin(115200);
+    setCpuFrequencyMhz(80); // Drops the clock speed from 160MHz to 80MHz
 
     // Initialize individual sub-components independently
     initRelays();
     initBattery();
     initBle();
 
+    // setDeviceName("Vehicle001");
     // setCalibration(1.253, 0.81);
 
     Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.2");

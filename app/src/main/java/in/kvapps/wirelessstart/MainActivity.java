@@ -30,7 +30,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
@@ -73,8 +72,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
-        // Register the lifecycle observer for automatic BLE reconnection handling
-        getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, preferenceManager, this::onLog));
 
         updateConnectionUi(false);
         pruneOldDatabaseRecords();
@@ -257,6 +254,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     protected void onResume() {
         super.onResume();
+        // Re-bind this activity as the active BLE listener when returning from other layouts/activities
+        if (bleManager != null) {
+            bleManager.setListener(this);
+        }
         // Refresh the log UI from the database every time the activity comes to the foreground
         loadStoredLogsForToday();
     }

@@ -34,7 +34,7 @@ public class BleManager {
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     private final Context context;
-    private final BleListener listener;
+    private BleListener listener; // Modified to allow updating listener dynamically across layouts/activities
     private final BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic commandCharacteristic;
@@ -43,14 +43,14 @@ public class BleManager {
     private final BleScanManager bleScanManager;
 
     public BleManager(Context context, BleListener listener) {
-        this.context = context;
+        this.context = context.getApplicationContext(); // Use application context to prevent memory leaks across Activity navigations
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        this.preferenceManager = new PreferenceManager(context);
+        this.preferenceManager = new PreferenceManager(this.context);
 
         // Initialize the dedicated Custom Scan Manager
         this.bleScanManager = new BleScanManager(
-                context,
+                this.context,
                 SERVICE_UUID,
                 preferenceManager.getTargetMacAddress(),
                 new BleScanManager.ScanListener() {
@@ -62,12 +62,19 @@ public class BleManager {
 
                     @Override
                     public void onScanLog(String message) {
-                        listener.onLog(message);
+                        if (BleManager.this.listener != null) {
+                            BleManager.this.listener.onLog(message);
+                        }
                     }
                 }
         );
 
         registerBluetoothStateReceiver();
+    }
+
+    // Allows updating the UI listener when navigating between activities
+    public void setListener(BleListener listener) {
+        this.listener = listener;
     }
 
     private void registerBluetoothStateReceiver() {
@@ -91,9 +98,11 @@ public class BleManager {
 
                 // Only trigger once when Bluetooth is completely off
                 if (state == BluetoothAdapter.STATE_OFF) {
-                    listener.onLog("System Alert: Phone Bluetooth was turned off.");
+                    if (listener != null) {
+                        listener.onLog("System Alert: Phone Bluetooth was turned off.");
+                        listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
+                    }
                     disconnect();
-                    listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
                 }
             }
         }
@@ -110,8 +119,10 @@ public class BleManager {
     // Pass true for background auto-reconnect, false for fast watch shortcuts
     public void connect(boolean autoConnect) {
         if (!isBluetoothEnabled()) {
-            listener.onLog("System Alert: Please turn on phone Bluetooth.");
-            listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
+            if (listener != null) {
+                listener.onLog("System Alert: Please turn on phone Bluetooth.");
+                listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
+            }
             return;
         }
 
@@ -122,22 +133,28 @@ public class BleManager {
         String currentHwName = preferenceManager.getTargetHwName();
 
         if (currentMac == null || currentMac.trim().isEmpty()) {
-            listener.onLog("Configuration Error: No MAC address configured.");
-            listener.onConnectionStateChanged(false, "Invalid MAC");
+            if (listener != null) {
+                listener.onLog("Configuration Error: No MAC address configured.");
+                listener.onConnectionStateChanged(false, "Invalid MAC");
+            }
             return;
         }
 
         String maskedMac = currentMac.length() >= 5 ? "..." + currentMac.substring(currentMac.length() - 5) : "......";
 
-        listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "]...");
+        if (listener != null) {
+            listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "]...");
+        }
 
         try {
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(currentMac);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    listener.onLog("Error: Missing runtime Bluetooth connection permission.");
-                    listener.onConnectionStateChanged(false, "Permission Missing");
+                    if (listener != null) {
+                        listener.onLog("Error: Missing runtime Bluetooth connection permission.");
+                        listener.onConnectionStateChanged(false, "Permission Missing");
+                    }
                     return;
                 }
             }
@@ -147,11 +164,15 @@ public class BleManager {
             bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
 
         } catch (IllegalArgumentException e) {
-            listener.onLog("Configuration Error: Invalid MAC address provided.");
-            listener.onConnectionStateChanged(false, "Invalid MAC");
+            if (listener != null) {
+                listener.onLog("Configuration Error: Invalid MAC address provided.");
+                listener.onConnectionStateChanged(false, "Invalid MAC");
+            }
         } catch (SecurityException e) {
-            listener.onLog("Security Error: Operating system blocked connection profile.");
-            listener.onConnectionStateChanged(false, "Security Exception");
+            if (listener != null) {
+                listener.onLog("Security Error: Operating system blocked connection profile.");
+                listener.onConnectionStateChanged(false, "Security Exception");
+            }
         }
     }
 
@@ -174,17 +195,17 @@ public class BleManager {
                 }
 
                 if (success) {
-                    listener.onLog("Command Transmitted -> " + command);
+                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
                     if (onSuccess != null) {
                         onSuccess.run(); // Trigger the success callback
                     }
                 }
             } catch (SecurityException e) {
-                listener.onLog("Security Exception: Missing OS permission mapping.");
+                if (listener != null) listener.onLog("Security Exception: Missing OS permission mapping.");
                 if (onFailure != null) onFailure.run();
             }
         } else {
-            listener.onLog("Action Blocked: Hardware connection is offline.");
+            if (listener != null) listener.onLog("Action Blocked: Hardware connection is offline.");
             if (onFailure != null) onFailure.run();
         }
     }
@@ -203,7 +224,7 @@ public class BleManager {
                 }
             }
         } catch (SecurityException e) {
-            listener.onLog("Security Error: Blocked from enabling notifications.");
+            if (listener != null) listener.onLog("Security Error: Blocked from enabling notifications.");
         }
     }
 
@@ -223,7 +244,7 @@ public class BleManager {
                 }
 //                listener.onLog("Byte Packet Transmitted -> 0x" + String.format("%02X", controlByte));
             } catch (SecurityException e) {
-                listener.onLog("Security Error passing raw bytes.");
+                if (listener != null) listener.onLog("Security Error passing raw bytes.");
             }
         }
     }
@@ -234,7 +255,7 @@ public class BleManager {
                 bluetoothGatt.disconnect();
                 bluetoothGatt.close();
             } catch (SecurityException e) {
-                listener.onLog("Security Error while disconnecting GATT.");
+                if (listener != null) listener.onLog("Security Error while disconnecting GATT.");
             }
             bluetoothGatt = null;
         }
@@ -260,38 +281,42 @@ public class BleManager {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 bleScanManager.stopScan();
-                listener.onConnectionStateChanged(true, preferenceManager.getTargetHwName() + " Connected");
+                if (listener != null) {
+                    listener.onConnectionStateChanged(true, preferenceManager.getTargetHwName() + " Connected");
+                }
 
                 // REQUEST HIGH PRIORITY
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                             gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-                        } else {
+                        } else if (listener != null) {
                             listener.onLog("Security Warning: Missing BLUETOOTH_CONNECT permission for priority request.");
                         }
                     } else {
                         gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
                     }
                 } catch (SecurityException e) {
-                    listener.onLog("Security Exception: Blocked from setting connection priority.");
+                    if (listener != null) listener.onLog("Security Exception: Blocked from setting connection priority.");
                 }
 
                 try {
                     gatt.discoverServices();
                 } catch (SecurityException e) {
-                    listener.onLog("Security Error: Failed to discover services.");
+                    if (listener != null) listener.onLog("Security Error: Failed to discover services.");
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 String statusText = preferenceManager.getTargetHwName() + " Offline";
-                listener.onLog("System Alert: " + statusText);
-                listener.onConnectionStateChanged(false, statusText);
+                if (listener != null) {
+                    listener.onLog("System Alert: " + statusText);
+                    listener.onConnectionStateChanged(false, statusText);
+                }
                 release();
 
                 // ONLY start background scanning if the user's auto-connect preference is TRUE
                 if (preferenceManager.isAutoConnectEnabled()) {
                     bleScanManager.startScan();
-                } else {
+                } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");
                 }
             }
@@ -309,8 +334,10 @@ public class BleManager {
 
                     // 2. Notify listener that the pipeline is fully ready
                     new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(listener::onServicesReady, 50);
-                } else {
+                            .postDelayed(() -> {
+                                if (listener != null) listener.onServicesReady();
+                            }, 50);
+                } else if (listener != null) {
                     listener.onLog("Error: Service UUID matching failed.");
                 }
             }
@@ -331,7 +358,7 @@ public class BleManager {
                     float finalVoltage = milliVolts / 1000.0f;
 
                     // Pass metrics back up to the main UI loop safely
-                    listener.onVoltageReceived(finalVoltage);
+                    if (listener != null) listener.onVoltageReceived(finalVoltage);
                 }
             }
         }
@@ -342,7 +369,7 @@ public class BleManager {
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null && value.length >= 2) {
                 int milliVolts = ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
                 float finalVoltage = milliVolts / 1000.0f;
-                listener.onVoltageReceived(finalVoltage);
+                if (listener != null) listener.onVoltageReceived(finalVoltage);
             }
         }
     };

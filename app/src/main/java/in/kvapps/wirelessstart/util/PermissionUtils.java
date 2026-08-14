@@ -2,16 +2,17 @@ package in.kvapps.wirelessstart.util;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
 public class PermissionUtils {
     public static final int PERMISSION_REQUEST_CODE = 101;
 
-    public static boolean hasBluetoothPermissions(Activity activity) {
+    public static boolean hasBluetoothPermissions(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            return activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
-                    activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
+            return context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+                    context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
         }
         return true;
     }

@@ -1,6 +1,6 @@
 package in.kvapps.wirelessstart.ble;
 
-import android.app.Activity;
+import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
@@ -9,9 +9,9 @@ import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 
 public class BleLifecycleObserver implements DefaultLifecycleObserver {
-    private final Activity activity;
+    private final Context context; // Changed from Activity to Context
     private final BleManager bleManager;
-    private final PreferenceManager preferenceManager; // Added PreferenceManager reference
+    private final PreferenceManager preferenceManager;
     private final LogCallback logCallback;
 
     // Tracks whether the initial activity creation lifecycle has already passed
@@ -21,9 +21,9 @@ public class BleLifecycleObserver implements DefaultLifecycleObserver {
         void onLog(String message);
     }
 
-    // Update constructor to take Activity
-    public BleLifecycleObserver(Activity activity, BleManager bleManager, PreferenceManager preferenceManager, LogCallback logCallback) {
-        this.activity = activity;
+    // Updated constructor to take Context (Application context)
+    public BleLifecycleObserver(Context context, BleManager bleManager, PreferenceManager preferenceManager, LogCallback logCallback) {
+        this.context = context.getApplicationContext();
         this.bleManager = bleManager;
         this.preferenceManager = preferenceManager;
         this.logCallback = logCallback;
@@ -42,7 +42,7 @@ public class BleLifecycleObserver implements DefaultLifecycleObserver {
 
         // From this point on, every time the user returns to the app
         // (e.g., coming back into range or switching back from another app):
-        if (PermissionUtils.hasBluetoothPermissions(activity)) {
+        if (PermissionUtils.hasBluetoothPermissions(context)) {
             if (!bleManager.isConnected()) {
                 if (logCallback != null) {
                     logCallback.onLog("App resumed. Checking BLE connection...");

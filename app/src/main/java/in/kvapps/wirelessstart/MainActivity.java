@@ -80,8 +80,18 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void initDependencies() {
         dbHelper = new VoltageDbHelper(this);
-        preferenceManager = new PreferenceManager(this);
-        bleManager = new BleManager(this, this);
+
+        // Get the shared MyApplication instance
+        MyApplication app = (MyApplication) getApplication();
+
+        preferenceManager = app.getPreferenceManager();
+        bleManager = app.getBleManager();
+
+        // IMPORTANT: Since bleManager is now a shared app-wide singleton,
+        // update its listener to point to the current MainActivity instance
+        if (bleManager != null) {
+            bleManager.setListener(this);
+        }
     }
 
     private void initUiViews() {
@@ -267,9 +277,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
         if (dbHelper != null) dbHelper.close();
+
+        // DO NOT disconnect or release bleManager here, because it's shared globally!
+        // Just clear the UI listener reference to prevent memory leaks:
         if (bleManager != null) {
-            bleManager.disconnect();
-            bleManager.release();
+            bleManager.setListener(null);
         }
     }
 

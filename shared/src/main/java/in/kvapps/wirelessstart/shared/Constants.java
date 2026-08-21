@@ -10,6 +10,7 @@ public class Constants {
     // Common Tags or Shared Extras if needed
     public static final String WEAR_DATA_LAYER_TAG = "DioWearDataLayer";
     public static final String PHONE_DATA_LAYER_TAG = "DioPhoneDataLayer";
+    public static final String PHONE_MAIN_ACTIVITY_TAG = "PhoneMainActivity";
 
     // Haptic Types
     public static final String HAPTIC_CONNECT = "CONNECT";

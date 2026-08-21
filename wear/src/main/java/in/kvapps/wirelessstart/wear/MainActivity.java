@@ -1,10 +1,16 @@
 package in.kvapps.wirelessstart.wear;
 
 import android.app.Activity;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
+import android.widget.Toast;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import in.kvapps.wirelessstart.wear.util.ActionUtil;
 
@@ -13,6 +19,7 @@ public class MainActivity extends Activity {
     private Button btnStart, btnStop;
     private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
     private static final long STARTER_COOLDOWN_MS = 4000; // 4 seconds safety cooldown
+    private static final int NOTIFICATION_PERMISSION_CODE = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,13 +31,14 @@ public class MainActivity extends Activity {
 
         btnStart.setOnClickListener(v -> handleStartAction());
         btnStop.setOnClickListener(v -> handleStopAction());
+
+        // Check and request notification permission for Android 13+
+        checkNotificationPermission();
     }
 
     private void handleStartAction() {
-        // Transmit trigger path to phone
         ActionUtil.transmitActionToPhone(this, ActionUtil.START_PATH, "Cranking Engine...");
 
-        // UI Anti-Spam Lockout
         btnStart.setEnabled(false);
         btnStart.setAlpha(0.5f);
 
@@ -50,6 +58,33 @@ public class MainActivity extends Activity {
             btnStop.setEnabled(true);
             btnStop.setAlpha(1.0f);
         }, 1500);
+    }
+
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+
+                // Request the permission
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                        NOTIFICATION_PERMISSION_CODE
+                );
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == NOTIFICATION_PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Notifications are disabled. You won't see status updates.", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     @Override

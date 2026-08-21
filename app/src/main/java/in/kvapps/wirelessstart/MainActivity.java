@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -40,6 +41,7 @@ import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
+    private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
     // UI Controls
     private View statusIndicator, panelVoltage, cardLogSection;
     private TextView txtStatus, txtLog, txtVoltageValue;
@@ -59,6 +61,19 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
+    private long connectionStartTime = 0;
+    private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                boolean bluetoothGranted = PermissionUtils.evaluatePermissionsResult(result);
+
+                if (bluetoothGranted) {
+                    onLog("Permissions approved by user.");
+                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
+                } else {
+                    onLog("CRITICAL ERROR: Required BLUETOOTH permissions denied.");
+                    onConnectionStateChanged(false, "Permissions Denied");
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -207,24 +222,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void checkPermissionsAndConnect() {
-        if (!PermissionUtils.hasBluetoothPermissions(this)) {
-            onLog("Requesting hardware system permissions...");
-            PermissionUtils.requestBluetoothPermissions(this);
+        if (!PermissionUtils.hasBluetoothPermissions(this) || !PermissionUtils.hasNotificationPermissions(this)) {
+            onLog("Requesting hardware and system permissions...");
+            requestPermissionsLauncher.launch(PermissionUtils.getRequiredPermissions());
             return;
         }
         bleManager.connect(preferenceManager.isAutoConnectEnabled());
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
-            onLog("Permissions approved by user.");
-            bleManager.connect(preferenceManager.isAutoConnectEnabled());
-        } else {
-            onLog("CRITICAL ERROR: Bluetooth permissions denied.");
-            onConnectionStateChanged(false, "Permissions Denied");
-        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -289,7 +292,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     public void onLog(String message) {
         // 1. Save to Database and Logcat via shared utility
-        AppLogger.logToDatabaseAndLogcat(this, "", message);
+        AppLogger.logToDatabaseAndLogcat(this, TAG, message);
 
         // 2. Handle UI updates on the Main Thread
         runOnUiThread(() -> {
@@ -318,11 +321,22 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             if (isConnected) {
                 statusIndicator.setBackgroundResource(R.drawable.indicator_online);
                 updateConnectionUi(true);
+                // All Connection Success code is handled inside onServicesReady
             } else {
+                Log.i(TAG, "Received onConnectionStateChanged, isConnected: FALSE");
                 statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
                 updateConnectionUi(false);
+
+                // Calculate total uptime if we have a valid start time
+                long uptimeMillis = 0;
+                if (connectionStartTime > 0) {
+                    uptimeMillis = System.currentTimeMillis() - connectionStartTime;
+                    connectionStartTime = 0; // Reset
+                }
+
                 FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 FeedbackUtils.triggerDisconnectVibrate(this);
+                FeedbackUtils.showConnectionNotification(this, false, uptimeMillis);
             }
         });
     }
@@ -338,6 +352,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     @Override
     public void onServicesReady() {
+        // Record connection uptime start
+        connectionStartTime = System.currentTimeMillis();
+
         // 1. Auto-sync current system time to ESP32
         bleManager.sendAutoTimeSync();
 
@@ -345,8 +362,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
+        // Feedback Haptics and Notifications
         FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
         FeedbackUtils.triggerDoubleVibrate(this);
+        FeedbackUtils.showConnectionNotification(this, true, 0L);
         onLog("Connection established. Ready for control operations.");
     }
 

@@ -27,6 +27,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -39,6 +43,7 @@ import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
+import in.kvapps.wirelessstart.util.WearSyncUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
@@ -317,6 +322,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             // Format with Sci-Fi prefix
             String sciFiStatus = "SYSTEMS: " + statusText.toUpperCase();
             txtStatus.setText(sciFiStatus);
+            WearSyncUtils.syncBleStatusToWatch(this, isConnected, statusText);
 
             if (isConnected) {
                 statusIndicator.setBackgroundResource(R.drawable.indicator_online);

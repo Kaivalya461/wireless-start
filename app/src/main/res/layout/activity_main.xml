@@ -121,6 +121,18 @@
                 android:letterSpacing="0.15"
                 android:fontFamily="sans-serif-medium" />
 
+            <!-- Reconnect Button -->
+            <androidx.appcompat.widget.AppCompatImageButton
+                android:id="@+id/btn_reconnect"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_refresh"
+                app:tint="#00E5FF"
+                android:tooltipText="Reconnect"
+                android:contentDescription="Reconnect to BLE" />
+
+            <!-- More Options Menu Button -->
             <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btn_menu"
                 android:layout_width="48dp"

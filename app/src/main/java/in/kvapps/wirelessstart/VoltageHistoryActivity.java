@@ -179,7 +179,8 @@ public class VoltageHistoryActivity extends Activity {
                     }
                 }
 
-                currentSegmentEntries.add(new Entry(relativeTime, data.getVoltage()));
+                float roundedVoltage = Math.round(data.getVoltage() * 100f) / 100f;
+                currentSegmentEntries.add(new Entry(relativeTime, roundedVoltage));
                 lastTimestamp = currentTimestamp;
             }
 

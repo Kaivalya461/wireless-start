@@ -7,7 +7,8 @@ App Features:
 2. Live Battery Voltage Reading
 3. Historic Voltage Readings Chart (last 4hours)
 4. System Activity Log
-5. NO BLE auto-connect
+5. BLE auto-connect Target Device (user configurable)
+6. Target Device Connected and Disconnected Notifications
 
 
 ---

@@ -1,17 +1,16 @@
 #include "BleManager.h"
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-#include <BLE2902.h>
-#include "Relay.h"   // Links commands directly to relay execution engines
-#include "Battery.h" // Links toggle states to the ADC stream engine
+#include <NimBLEDevice.h>
+#include <Preferences.h>
+#include "Relay.h"
+#include "Battery.h"
 
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
 
-BLECharacteristic *pCharacteristic;
+Preferences blePreferences;
+NimBLECharacteristic *pCharacteristic;
 bool bleConnected = false;
 
 // Eco Mode tracking variables encapsulated inside BleManager
@@ -21,8 +20,8 @@ const unsigned long ECO_MODE_DELAY_MS = 70UL * 60UL * 1000UL; // 70 minutes
 const unsigned long FAST_BLE_MIN_INTERVAL = 400; // 250ms
 const unsigned long FAST_BLE_MAX_INTERVAL = 800; // 500ms
 
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) override {
+class MyServerCallbacks: public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
         bleConnected = true;
         Serial.println(">>> App Connected! Restoring Fast BLE Advertising parameters.");
 
@@ -30,11 +29,12 @@ class MyServerCallbacks: public BLEServerCallbacks {
         isFastAdvertising = true;
 
         // Reset advertising back to fast speeds for immediate response next time
-        BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+        NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
         pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
         pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
     }
-    void onDisconnect(BLEServer* pServer) override {
+
+    void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
         bleConnected = false;
         Serial.println(">>> App Disconnected! Restarting with Fast BLE Advertising...");
 
@@ -42,17 +42,17 @@ class MyServerCallbacks: public BLEServerCallbacks {
         isFastAdvertising = true;
 
         // Ensure fast intervals are set before restarting advertising on drop
-        BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+        NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
         pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
         pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
         pAdvertising->start();
     }
 };
 
-class MyCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) override {
+class MyCallbacks: public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo& connInfo) override {
         // 1. Extract raw data as an Arduino String natively
-        String rawValue = pCharacteristic->getValue();
+        std::string rawValue = pCharacteristic->getValue();
         int valueLength = rawValue.length();
         if (valueLength == 0) return;
 
@@ -73,7 +73,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         }
 
         // 3. Fallback Route: Handle incoming plain-text action messages
-        String command = rawValue;
+        String command = String(rawValue.c_str());
         command.trim();
 
         if (command.length() == 0) return;
@@ -84,22 +84,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         // 1. Time Sync Parsing Route
         if (command.startsWith("TIME:")) {
             unsigned long epoch = command.substring(5).toInt();
-
-            setenv("TZ", "IST-5:30", 1); // Set timezone explicitly to Indian Standard Time
+            setenv("TZ", "IST-5:30", 1);
             tzset();
-
             syncTime(epoch);
-
-            time_t now = epoch;
-            struct tm timeinfo;
-            localtime_r(&now, &timeinfo);
-
-            char strftime_buf[64];
-            strftime(strftime_buf, sizeof(strftime_buf), "%Y-%m-%d %H:%M:%S (%A)", &timeinfo);
-
-            Serial.println("==========================================");
-            Serial.printf("Configured Time (IST): %s\n", strftime_buf);
-            Serial.println("==========================================");
         }
             // 2. Start Action Execution Route
         else if (command.startsWith("START")) {
@@ -113,37 +100,46 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void initBle() {
-    BLEDevice::init("Scooter Keyless Target");
-    BLEServer *pServer = BLEDevice::createServer();
+    blePreferences.begin("ble_cfg", false);
+    String savedDeviceName = blePreferences.getString("device_name", "Scooter Keyless Target");
+    blePreferences.end();
+
+    NimBLEDevice::init(savedDeviceName.c_str());
+    NimBLEDevice::setPower(9);
+
+    NimBLEServer *pServer = NimBLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallbacks());
 
-    BLEService *pService = pServer->createService(SERVICE_UUID);
+    NimBLEService *pService = pServer->createService(SERVICE_UUID);
 
     pCharacteristic = pService->createCharacteristic(
             CHARACTERISTIC_UUID,
-            BLECharacteristic::PROPERTY_WRITE  |
-            BLECharacteristic::PROPERTY_WRITE_NR |
-            BLECharacteristic::PROPERTY_READ   |
-            BLECharacteristic::PROPERTY_NOTIFY
+            NIMBLE_PROPERTY::WRITE  |
+            NIMBLE_PROPERTY::WRITE_NR |
+            NIMBLE_PROPERTY::READ   |
+            NIMBLE_PROPERTY::NOTIFY
     );
 
     pCharacteristic->setCallbacks(new MyCallbacks());
-    pCharacteristic->addDescriptor(new BLE2902());
+    pCharacteristic->createDescriptor("2902", NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
 
     pService->start();
 
     disconnectionTime = millis();
     isFastAdvertising = true;
 
-    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->setName(savedDeviceName.c_str());
     pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
+    pAdvertising->enableScanResponse(true);
+    pAdvertising->setPreferredParams(0x06, 0x12);
 
-    pAdvertising->setMinPreferred(0x06);
     pAdvertising->setMinInterval(FAST_BLE_MIN_INTERVAL);
     pAdvertising->setMaxInterval(FAST_BLE_MAX_INTERVAL);
 
-    BLEDevice::startAdvertising();
+    // Explicitly start advertising via the advertising object pointer
+    pAdvertising->start();
+    Serial.println(">>> NimBLE Initialized & Advertising Started.");
 }
 
 bool isBleClientConnected() {
@@ -154,19 +150,18 @@ unsigned long getDisconnectionTime() {
     return disconnectionTime;
 }
 
-// Background handler to drop into Eco Mode automatically if left disconnected
 void updateBleAdvertisingState() {
     if (!bleConnected) {
         if (isFastAdvertising && (millis() - disconnectionTime > ECO_MODE_DELAY_MS)) {
             Serial.println(">>> Switching BLE Advertising to Eco Mode (Slow Interval) to save battery.");
             isFastAdvertising = false;
 
-            BLEDevice::stopAdvertising();
-            BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+            NimBLEDevice::stopAdvertising();
+            NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
             // Eco Mode BLE Advert
-            pAdvertising->setMinInterval(3200); // 2000ms (2s)
-            pAdvertising->setMaxInterval(4800); // 3000ms (3s)
-            BLEDevice::startAdvertising();
+            pAdvertising->setMinInterval(3200); // 2s
+            pAdvertising->setMaxInterval(4800); // 3s
+            NimBLEDevice::startAdvertising();
         }
     }
 }
@@ -181,4 +176,13 @@ void transmitBatteryTelemetry(uint16_t mvPayload) {
 
     pCharacteristic->setValue(payloadBuffer, 2);
     pCharacteristic->notify();
+}
+
+void setDeviceName(String newName) {
+    blePreferences.begin("ble_cfg", false);
+    blePreferences.putString("device_name", newName);
+    blePreferences.end();
+
+    Serial.printf(">>> New Device Name Saved -> %s\n", newName.c_str());
+    Serial.println(">>> Please restart your ESP32 for the new BLE name to take effect.");
 }

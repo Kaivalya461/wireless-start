@@ -8,5 +8,6 @@ void transmitBatteryTelemetry(uint16_t mvPayload);
 bool isBleClientConnected();
 void updateBleAdvertisingState();
 unsigned long getDisconnectionTime();
+void setDeviceName(String newName);
 
 #endif

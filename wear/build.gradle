@@ -34,7 +34,10 @@ android {
 
 dependencies {
     implementation(libs.play.services.wearable)
+    implementation(libs.watchface.complications.data.source)
+    implementation(libs.watchface.complications.data.source.ktx)
 
     // Custom Shared Module to hold common code between PhoneApp and WearApp
     implementation project(':shared')
+
 }

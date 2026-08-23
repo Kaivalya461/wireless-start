@@ -9,5 +9,6 @@ float getBatteryVoltage();
 uint16_t getBatteryMilliVolts(); // For optimized 2-byte BLE notifications
 void setTelemetryActive(bool active);
 bool isTelemetryEnabled();
+void setCalibration(float mult, float offset);
 
 #endif

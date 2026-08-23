@@ -6,7 +6,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <!-- Required for Android 12 and above -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"/>
     <!-- Required for BLE device scanning location resolution -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
@@ -15,6 +17,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".MyApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -43,6 +46,11 @@
             tools:ignore="LockedOrientationActivity" />
 
         <activity android:name=".LogHistoryActivity" android:exported="false" />
+
+        <activity
+            android:name=".EditConfigActivity"
+            android:exported="false"
+            android:theme="@style/Theme.WirelessStart" />
 
         <!-- Background service to catch Watch commands even if phone screen is locked -->
         <service android:name=".WearMessageListenerService" android:exported="true">

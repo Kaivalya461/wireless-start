@@ -6,7 +6,7 @@
 // --- Relay Logic Configuration ---
 // Set to true if LOW turns the relay ON (common for optocoupler modules/MOSFETs)
 // Set to false if HIGH turns the relay ON
-bool RELAY_ACTIVE_LOW = true;
+bool RELAY_ACTIVE_LOW = false;
 
 // Night Sleep Window (1:30 AM to 8:30 AM)
 #define SLEEP_START_HOUR   1

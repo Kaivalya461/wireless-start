@@ -1,50 +1,44 @@
 package in.kvapps.wirelessstart.ble;
 
-import android.app.Activity;
+import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 
 public class BleLifecycleObserver implements DefaultLifecycleObserver {
-    private final Activity activity;
+    private final Context context;
     private final BleManager bleManager;
+    private final PreferenceManager preferenceManager;
     private final LogCallback logCallback;
-
-    // Tracks whether the initial activity creation lifecycle has already passed
-    private boolean hasStarted = false;
 
     public interface LogCallback {
         void onLog(String message);
     }
 
-    // Update constructor to take Activity
-    public BleLifecycleObserver(Activity activity, BleManager bleManager, LogCallback logCallback) {
-        this.activity = activity;
+    public BleLifecycleObserver(Context context, BleManager bleManager, PreferenceManager preferenceManager, LogCallback logCallback) {
+        this.context = context.getApplicationContext();
         this.bleManager = bleManager;
+        this.preferenceManager = preferenceManager;
         this.logCallback = logCallback;
     }
 
     @Override
-    public void onResume(@NonNull LifecycleOwner owner) {
-        DefaultLifecycleObserver.super.onResume(owner);
+    public void onStart(@NonNull LifecycleOwner owner) {
+        DefaultLifecycleObserver.super.onStart(owner);
 
-        // Skip the check on the very first cold-start resume,
-        // because your initial onCreate flow handles the first connection.
-        if (!hasStarted) {
-            hasStarted = true;
-            return;
-        }
-
-        // From this point on, every time the user returns to the app
-        // (e.g., coming back into range or switching back from another app):
-        if (PermissionUtils.hasBluetoothPermissions(activity)) {
+        // Using ON_START (or ON_RESUME) via ProcessLifecycleOwner fires
+        // reliably whenever the entire app transitions from background to foreground.
+        if (PermissionUtils.hasBluetoothPermissions(context)) {
             if (!bleManager.isConnected()) {
                 if (logCallback != null) {
-                    logCallback.onLog("App resumed. Checking BLE connection...");
+                    logCallback.onLog("App brought to foreground. Checking BLE connection...");
                 }
-                bleManager.connect(false);
+
+                boolean autoConnectSetting = preferenceManager != null && preferenceManager.isAutoConnectEnabled();
+                bleManager.connect(autoConnectSetting);
             }
         }
     }

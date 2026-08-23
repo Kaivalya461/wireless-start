@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -20,15 +21,20 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
+
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
@@ -37,14 +43,16 @@ import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.UiUtils;
+import in.kvapps.wirelessstart.util.WearSyncUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
+    private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
     // UI Controls
     private View statusIndicator, panelVoltage, cardLogSection;
     private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
     private Button btnStart;
-    private ImageButton btnMenu;
+    private ImageButton btnMenu, btnReconnect;
     private Spinner spinnerStart;
     private EditText inputCustomStart;
     private SwitchCompat switchVoltage;
@@ -58,6 +66,19 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
+    private long connectionStartTime = 0;
+    private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                boolean bluetoothGranted = PermissionUtils.evaluatePermissionsResult(result);
+
+                if (bluetoothGranted) {
+                    onLog("Permissions approved by user.");
+                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
+                } else {
+                    onLog("CRITICAL ERROR: Required BLUETOOTH permissions denied.");
+                    onConnectionStateChanged(false, "Permissions Denied");
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,21 +92,26 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
-        // Register the lifecycle observer for automatic BLE reconnection handling
-        getLifecycle().addObserver(new BleLifecycleObserver(this, bleManager, this::onLog));
 
         updateConnectionUi(false);
+        pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
     }
 
     private void initDependencies() {
         dbHelper = new VoltageDbHelper(this);
-        preferenceManager = new PreferenceManager(this);
-        bleManager = new BleManager(this, this);
 
-        // Load User saved Device Configuration
-        bleManager.setTargetHwName(preferenceManager.getTargetHwName());
-        bleManager.setMacAdd(preferenceManager.getTargetMacAddress());
+        // Get the shared MyApplication instance
+        MyApplication app = (MyApplication) getApplication();
+
+        preferenceManager = app.getPreferenceManager();
+        bleManager = app.getBleManager();
+
+        // IMPORTANT: Since bleManager is now a shared app-wide singleton,
+        // update its listener to point to the current MainActivity instance
+        if (bleManager != null) {
+            bleManager.setListener(this);
+        }
     }
 
     private void initUiViews() {
@@ -95,6 +121,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
         btnMenu = findViewById(R.id.btn_menu);
+        btnReconnect = findViewById(R.id.btn_reconnect);
         spinnerStart = findViewById(R.id.spinner_start);
         inputCustomStart = findViewById(R.id.input_custom_start);
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
@@ -115,6 +142,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         cardLogSection.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
             startActivity(intent);
+        });
+        btnReconnect.setOnClickListener(v -> handleReconnect());
+        btnReconnect.setOnLongClickListener(v -> {
+            v.setTooltipText("Reconnect");
+            return false;
         });
     }
 
@@ -145,18 +177,35 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
 
-        // Add menu items (ID 1 for Reconnect, ID 2 for Rename)
+        // Add menu items (ID 1 for Reconnect, ID 2 for Edit Config, ID 3 for Auto Connect checkbox)
         popup.getMenu().add(0, 1, 0, "Reconnect");
         popup.getMenu().add(0, 2, 1, "Edit Config");
+
+        // Add Auto Connect checkable menu item
+        android.view.MenuItem autoConnectItem = popup.getMenu().add(0, 3, 2, "Auto Connect");
+        autoConnectItem.setCheckable(true);
+        autoConnectItem.setChecked(preferenceManager.isAutoConnectEnabled());
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) {
-                onLog("Manual reconnect requested...");
-                checkPermissionsAndConnect();
+                handleReconnect();
                 return true;
             } else if (id == 2) {
-                showEditConfigDialog();
+                // Launch separate configuration activity
+                Intent intent = new Intent(MainActivity.this, EditConfigActivity.class);
+                editConfigLauncher.launch(intent);
+                return true;
+            } else if (id == 3) {
+                // Toggle the state
+                boolean newState = !item.isChecked();
+                item.setChecked(newState);
+                preferenceManager.setAutoConnectEnabled(newState);
+
+                onLog("Auto-Connect preference updated: " + (newState ? "ENABLED" : "DISABLED"));
+                handleReconnect();
+
+                // Keep the menu open so the user sees the checkbox change
                 return true;
             }
             return false;
@@ -178,24 +227,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void checkPermissionsAndConnect() {
-        if (!PermissionUtils.hasBluetoothPermissions(this)) {
-            onLog("Requesting hardware system permissions...");
-            PermissionUtils.requestBluetoothPermissions(this);
+        if (!PermissionUtils.hasBluetoothPermissions(this) || !PermissionUtils.hasNotificationPermissions(this)) {
+            onLog("Requesting hardware and system permissions...");
+            requestPermissionsLauncher.launch(PermissionUtils.getRequiredPermissions());
             return;
         }
-        bleManager.connect(false);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (PermissionUtils.handlePermissionsResult(requestCode, grantResults)) {
-            onLog("Permissions approved by user.");
-            bleManager.connect(false);
-        } else {
-            onLog("CRITICAL ERROR: Bluetooth permissions denied.");
-            onConnectionStateChanged(false, "Permissions Denied");
-        }
+        bleManager.connect(preferenceManager.isAutoConnectEnabled());
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -235,6 +272,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     protected void onResume() {
         super.onResume();
+        // Re-bind this activity as the active BLE listener when returning from other layouts/activities
+        if (bleManager != null) {
+            bleManager.setListener(this);
+        }
         // Refresh the log UI from the database every time the activity comes to the foreground
         loadStoredLogsForToday();
     }
@@ -244,9 +285,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
         if (dbHelper != null) dbHelper.close();
+
+        // DO NOT disconnect or release bleManager here, because it's shared globally!
+        // Just clear the UI listener reference to prevent memory leaks:
         if (bleManager != null) {
-            bleManager.disconnect();
-            bleManager.release();
+            bleManager.setListener(null);
         }
     }
 
@@ -254,7 +297,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     public void onLog(String message) {
         // 1. Save to Database and Logcat via shared utility
-        AppLogger.logToDatabaseAndLogcat(this, "", message);
+        AppLogger.logToDatabaseAndLogcat(this, TAG, message);
 
         // 2. Handle UI updates on the Main Thread
         runOnUiThread(() -> {
@@ -279,25 +322,45 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             // Format with Sci-Fi prefix
             String sciFiStatus = "SYSTEMS: " + statusText.toUpperCase();
             txtStatus.setText(sciFiStatus);
+            WearSyncUtils.syncBleStatusToWatch(this, isConnected, statusText);
 
             if (isConnected) {
                 statusIndicator.setBackgroundResource(R.drawable.indicator_online);
                 updateConnectionUi(true);
+                // All Connection Success code is handled inside onServicesReady
             } else {
+                Log.i(TAG, "Received onConnectionStateChanged, isConnected: FALSE");
                 statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
                 updateConnectionUi(false);
+
+                // Calculate total uptime if we have a valid start time
+                long uptimeMillis = 0;
+                if (connectionStartTime > 0) {
+                    uptimeMillis = System.currentTimeMillis() - connectionStartTime;
+                    connectionStartTime = 0; // Reset
+                }
+
                 FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 FeedbackUtils.triggerDisconnectVibrate(this);
+                FeedbackUtils.showConnectionNotification(this, false, uptimeMillis);
             }
         });
     }
 
     private void updateConnectionUi(boolean isConnected) {
         UiUtils.setButtonState(btnStart, isConnected, isConnected ? 1.0f : 0.5f);
+
+        // Show the reconnect button ONLY when disconnected, hide it when connected
+        if (btnReconnect != null) {
+            btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
+        }
     }
 
     @Override
     public void onServicesReady() {
+        // Record connection uptime start
+        connectionStartTime = System.currentTimeMillis();
+
         // 1. Auto-sync current system time to ESP32
         bleManager.sendAutoTimeSync();
 
@@ -305,8 +368,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         bleManager.syncTelemetryState(savedTelemetryState);
 
+        // Feedback Haptics and Notifications
         FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
         FeedbackUtils.triggerDoubleVibrate(this);
+        FeedbackUtils.showConnectionNotification(this, true, 0L);
         onLog("Connection established. Ready for control operations.");
     }
 
@@ -331,58 +396,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             // Set switch checked state without triggering listeners (if any)
             switchVoltage.setChecked(isTelemetryEnabled);
         }
-    }
-
-    private void showEditConfigDialog() {
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
-        builder.setTitle("Device Configuration");
-
-        // Create a container layout to hold multiple inputs
-        android.widget.LinearLayout container = new android.widget.LinearLayout(this);
-        container.setOrientation(android.widget.LinearLayout.VERTICAL);
-        container.setPadding(50, 40, 50, 20);
-
-        // 1. Device Name Input
-        final EditText inputName = new EditText(this);
-        inputName.setHint("Device Name (e.g. Vehicle 001)");
-        String currentName = preferenceManager.getTargetHwName();
-        inputName.setText(currentName);
-        container.addView(inputName);
-
-        // 2. MAC Address Input
-        final EditText inputMac = new EditText(this);
-        inputMac.setHint("MAC Address (e.g. AA:BB:CC:DD:EE:FF)");
-        // Fetch current saved MAC from your preferenceManager (make sure to create this method)
-        String currentMac = preferenceManager.getTargetMacAddress();
-        if (currentMac != null && !currentMac.isEmpty()) {
-            inputMac.setText(currentMac);
-        }
-        container.addView(inputMac);
-
-        builder.setView(container);
-
-        builder.setPositiveButton("Save", (dialog, which) -> {
-            String newName = inputName.getText().toString().trim();
-            String newMac = inputMac.getText().toString().trim();
-
-            if (!newName.isEmpty()) {
-                preferenceManager.saveTargetHwName(newName);
-                bleManager.setTargetHwName(newName);
-            }
-
-            // Save and update MAC address if valid format is entered
-            if (!newMac.isEmpty()) {
-                preferenceManager.saveTargetMacAddress(newMac);
-                bleManager.setMacAdd(newMac);
-            }
-
-            onConnectionStateChanged(false, "Reconnecting");
-            onLog("Configuration updated. Reconnecting...");
-            bleManager.connect(false);
-        });
-
-        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
-        builder.show();
     }
 
     private void loadStoredLogsForToday() {
@@ -436,4 +449,27 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // Reset timer
         commandStartTime = 0;
     }
+
+    private void handleReconnect() {
+        onLog("Manual reconnect requested...");
+        checkPermissionsAndConnect();
+    }
+
+    private void pruneOldDatabaseRecords() {
+        long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000);
+        if (dbHelper != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start();
+            }, 5000); // Wait 5 seconds after app launch before cleaning up
+        }
+    }
+
+    private final ActivityResultLauncher<Intent> editConfigLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    onConnectionStateChanged(false, "Reconnecting");
+                    onLog("Configuration updated. Reconnecting...");
+                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
+                }
+            });
 }

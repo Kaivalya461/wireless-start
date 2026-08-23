@@ -1,17 +1,24 @@
 package in.kvapps.wirelessstart.wear;
 
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.util.Log;
 import androidx.annotation.NonNull;
+import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester;
 
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.wear.complication.WirelessStartComplicationService;
 import in.kvapps.wirelessstart.wear.pubsub.StartEventBus;
 
 // Listener to consume messages sent by Phone App
@@ -44,6 +51,37 @@ public class PhoneMessageListenerService extends WearableListenerService {
                 StartEventBus.notifySuccess();
             } else if (Constants.START_FAILURE.equals(command)) {
                 StartEventBus.notifyFailure();
+            }
+        }
+    }
+
+    @Override
+    public void onDataChanged(@NonNull DataEventBuffer dataEvents) {
+        super.onDataChanged(dataEvents);
+        Log.i(TAG, "CONN Status update received ........ ");
+
+        for (DataEvent event : dataEvents) {
+            if (event.getType() == DataEvent.TYPE_CHANGED) {
+                String path = event.getDataItem().getUri().getPath();
+                if (Constants.TARGET_DEVICE_CONNECTION_STATUS.equals(path)) {
+
+                    DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
+                    boolean isConnected = dataMapItem.getDataMap().getBoolean("is_connected");
+                    String statusText = dataMapItem.getDataMap().getString("status_text");
+
+                    // Save state locally on the watch
+                    SharedPreferences prefs = getSharedPreferences("wear_prefs", Context.MODE_PRIVATE);
+                    prefs.edit()
+                            .putBoolean("is_connected", isConnected)
+                            .putString("status_text", statusText)
+                            .apply();
+
+                    // Force update the watch complication using requestUpdateAll()
+                    ComplicationDataSourceUpdateRequester.create(
+                            this,
+                            new ComponentName(this, WirelessStartComplicationService.class)
+                    ).requestUpdateAll();
+                }
             }
         }
     }

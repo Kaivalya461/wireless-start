@@ -74,10 +74,6 @@ public class WearMessageListenerService extends WearableListenerService implemen
         // to decouple it from short-lived service states
         bleManager = new BleManager(getApplicationContext(), this);
 
-        PreferenceManager preferenceManager = new PreferenceManager(this);
-        bleManager.setTargetHwName(preferenceManager.getTargetHwName());
-        bleManager.setMacAdd(preferenceManager.getTargetMacAddress());
-
         bleManager.connect(false);
     }
 

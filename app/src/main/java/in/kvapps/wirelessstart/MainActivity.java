@@ -325,12 +325,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             WearSyncUtils.syncBleStatusToWatch(this, isConnected, statusText);
 
             if (isConnected) {
-                statusIndicator.setBackgroundResource(R.drawable.indicator_online);
-                updateConnectionUi(true);
                 // All Connection Success code is handled inside onServicesReady
+                Log.i(TAG, "Received onConnectionStateChanged, isConnected: TRUE");
             } else {
                 Log.i(TAG, "Received onConnectionStateChanged, isConnected: FALSE");
-                statusIndicator.setBackgroundResource(R.drawable.indicator_offline);
                 updateConnectionUi(false);
 
                 // Calculate total uptime if we have a valid start time
@@ -348,6 +346,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void updateConnectionUi(boolean isConnected) {
+        // Target Device connection Status Indicator
+        int resourceId = isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline;
+        statusIndicator.setBackgroundResource(resourceId);
+
         UiUtils.setButtonState(btnStart, isConnected, isConnected ? 1.0f : 0.5f);
 
         // Show the reconnect button ONLY when disconnected, hide it when connected
@@ -360,6 +362,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     public void onServicesReady() {
         // Record connection uptime start
         connectionStartTime = System.currentTimeMillis();
+
+        // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
+        updateConnectionUi(true);
 
         // 1. Auto-sync current system time to ESP32
         bleManager.sendAutoTimeSync();
@@ -452,6 +457,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void handleReconnect() {
         onLog("Manual reconnect requested...");
+        updateConnectionUi(false);
         checkPermissionsAndConnect();
     }
 

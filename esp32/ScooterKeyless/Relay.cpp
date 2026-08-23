@@ -1,3 +1,4 @@
+// Relay.cpp
 #include "Relay.h"
 #include "BleManager.h" // Needed to check if a phone is connected before sleeping
 #include "esp_sleep.h"
@@ -6,7 +7,7 @@
 // --- Relay Logic Configuration ---
 // Set to true if LOW turns the relay ON (common for optocoupler modules/MOSFETs)
 // Set to false if HIGH turns the relay ON
-bool RELAY_ACTIVE_LOW = false;
+//bool RELAY_ACTIVE_LOW = false;
 
 // Night Sleep Window (1:30 AM to 8:30 AM)
 #define SLEEP_START_HOUR   1
@@ -25,6 +26,15 @@ const unsigned long MAX_SAFE_PULSE_MS      = 5000;
 const unsigned long DEFAULT_PULSE_MS       = 1500;
 const unsigned long STARTER_COOLDOWN_MS    = 3000;
 
+// Fail-Safe Stop Relay & Debounce Configuration Variables
+const unsigned long DISCONNECT_GRACE_PERIOD_MS = 4000; // 4-second anti-stall grace period
+unsigned long disconnectionStartTime       = 0;
+bool isDisconnectTimerActive               = false;
+bool lastBleConnectionState                = false;
+// Fail-Safe User Configuration Variable (Defaults to true)
+bool stopFailSafeEnabled = true;
+static bool hasEverConnected = false;
+
 unsigned long lastStartExecutionTime       = 0;
 bool isPulseActive                         = false;
 
@@ -33,12 +43,14 @@ unsigned long pulseStartTime               = 0;
 unsigned long activePulseDuration          = 0;
 bool timeIsSynced                          = false;
 
-// --- Helper Functions for Dynamic Relay Logic ---
+// --- Helper Functions for Mixed Active-High / Active-Low Logic ---
 void setRelayState(int pin, bool state) {
-    if (RELAY_ACTIVE_LOW) {
-        digitalWrite(pin, state ? LOW : HIGH);
-    } else {
+    if (pin == START_RELAY_PIN) {
+        // START Relay is Active-HIGH (TRUE = HIGH, FALSE = LOW)
         digitalWrite(pin, state ? HIGH : LOW);
+    } else if (pin == STOP_RELAY_PIN) {
+        // STOP Relay is Active-LOW (TRUE = LOW, FALSE = HIGH)
+        digitalWrite(pin, state ? LOW : HIGH);
     }
 }
 
@@ -47,17 +59,18 @@ bool getIsPulseActive() {
 }
 
 void initRelays() {
+    // Configure Start Relay (Active-High)
     pinMode(START_RELAY_PIN, OUTPUT);
-    setRelayState(START_RELAY_PIN, false); // Force off safely instantly
+    setRelayState(START_RELAY_PIN, false);
+    gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
 
-    // Retain states across deep sleep cycles safely
-    if (RELAY_ACTIVE_LOW) {
-        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
-    } else {
-        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
-    }
+    // Configure Stop Relay (Active-Low)
+    pinMode(STOP_RELAY_PIN, OUTPUT);
+    setRelayState(STOP_RELAY_PIN, false);
+    gpio_set_pull_mode((gpio_num_t)STOP_RELAY_PIN, GPIO_PULLUP_ONLY);
 
     gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
+    gpio_hold_dis((gpio_num_t)STOP_RELAY_PIN);
     gpio_deep_sleep_hold_dis();
 }
 
@@ -74,8 +87,11 @@ void syncTime(unsigned long epochTime) {
 void enterDeepSleep(uint64_t sleepDurationSeconds) {
     Serial.println(">>> Entering Scheduled Night Deep Sleep...");
 
-    setRelayState(START_RELAY_PIN, false); // Ensure Relay is OFF before sleeping
+    setRelayState(START_RELAY_PIN, false);
+    setRelayState(STOP_RELAY_PIN, false);
+
     gpio_hold_en((gpio_num_t)START_RELAY_PIN);
+    gpio_hold_en((gpio_num_t)STOP_RELAY_PIN);
     gpio_deep_sleep_hold_en();
 
     esp_sleep_enable_timer_wakeup(sleepDurationSeconds * 1000000ULL);
@@ -128,6 +144,11 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
         return false;
     }
 
+    if (pin != START_RELAY_PIN && pin != STOP_RELAY_PIN) {
+        Serial.println(">>> REJECTED: Invalid relay pin requested!");
+        return false;
+    }
+
     if (pin == START_RELAY_PIN && (now - lastStartExecutionTime < STARTER_COOLDOWN_MS)) {
         Serial.print(">>> REJECTED: Starter motor cooling down! Wait ");
         Serial.print((STARTER_COOLDOWN_MS - (now - lastStartExecutionTime)) / 1000.0);
@@ -161,5 +182,76 @@ void updateRelayPulses() {
             isPulseActive = false;
             activeRelayPin = -1;
         }
+    }
+}
+
+// --- Updated Fail-Safe Stop Relay Workflow with User-Configurable Check ---
+void updateStopRelayFailSafe() {
+    // Check if the user has turned off the fail-safe feature from the Android app
+    if (!stopFailSafeEnabled) {
+        // Feature is disabled: Keep the stop relay de-energized
+        setRelayState(STOP_RELAY_PIN, false);
+
+        // Reset timers so it triggers cleanly if re-enabled later
+        isDisconnectTimerActive = false;
+        lastBleConnectionState = isBleClientConnected();
+        return;
+    }
+
+    // --- Original Fail-Safe Logic (Runs only when enabled) ---
+    bool currentBleState = isBleClientConnected();
+
+    if (currentBleState) {
+        // Connected: Keep Stop Relay held closed (Active-Low -> LOW)
+        hasEverConnected = true;
+        setRelayState(STOP_RELAY_PIN, true);
+
+        if (isDisconnectTimerActive) {
+            isDisconnectTimerActive = false;
+            Serial.println(">>> Phone reconnected within grace period. Ride uninterrupted!");
+        }
+
+        if (!lastBleConnectionState) {
+            Serial.println(">>> Phone Connected: Fail-safe disarmed.");
+        }
+    } else {
+        // --- COLD START PROTECTION ---
+        // If the phone has never connected since boot, do NOT trigger a grace period.
+        // Just keep the stop relay de-energized until the user actually connects their phone.
+        if (!hasEverConnected) {
+            setRelayState(STOP_RELAY_PIN, false);
+            return;
+        }
+
+        // Disconnected: Handle grace period before cutting power
+        if (lastBleConnectionState || !isDisconnectTimerActive) {
+            disconnectionStartTime = millis();
+            isDisconnectTimerActive = true;
+            Serial.println(">>> BLE connection lost! Starting 4s grace period...");
+        }
+
+        if (isDisconnectTimerActive && (millis() - disconnectionStartTime >= DISCONNECT_GRACE_PERIOD_MS)) {
+            // Grace period expired — Kill switch active (Active-Low -> HIGH)
+            setRelayState(STOP_RELAY_PIN, false);
+//            Serial.println(">>> Grace period expired. Fail-safe ARMED (Stop relay opened).");
+        } else {
+            // Within grace period window — keep relay energized to prevent stalling
+            setRelayState(STOP_RELAY_PIN, true);
+        }
+    }
+
+    lastBleConnectionState = currentBleState;
+}
+
+void setStopFailSafeActive(bool active) {
+    stopFailSafeEnabled = active;
+
+    if (active) {
+        // Force the stop relay to stay securely closed right now!
+        setRelayState(STOP_RELAY_PIN, true);
+    } else {
+        // Re-arm tracking state so it guards against drops right away
+        lastBleConnectionState = isBleClientConnected();
+        isDisconnectTimerActive = false;
     }
 }

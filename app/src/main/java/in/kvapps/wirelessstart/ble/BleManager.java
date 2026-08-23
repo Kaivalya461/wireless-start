@@ -195,7 +195,7 @@ public class BleManager {
                 }
 
                 if (success) {
-                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
+//                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
                     if (onSuccess != null) {
                         onSuccess.run(); // Trigger the success callback
                     }
@@ -387,5 +387,27 @@ public class BleManager {
         String syncCommand = "TIME:" + currentEpochSeconds;
 //        listener.onLog("Auto-syncing system time to ESP32...");
         sendBleCommand(syncCommand, null, null);
+    }
+
+    // Send Fail-Safe state as a plain-text command string to prevent GATT queue collisions
+    public void syncFailSafeState(boolean isEnabled) {
+        String command = isEnabled ? "FAILSAFE:ON" : "FAILSAFE:OFF";
+        sendBleCommand(command, null, null);
+    }
+
+    // Executes initialization commands sequentially with built-in spacing to prevent GATT collisions
+    public void syncInitializationSequence(Runnable... tasks) {
+        if (tasks == null || tasks.length == 0) return;
+
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        for (int i = 0; i < tasks.length; i++) {
+            final Runnable task = tasks[i];
+            long delayMillis = i * 50L; // Stagger each command by 50ms
+            handler.postDelayed(() -> {
+                if (isConnected()) {
+                    task.run();
+                }
+            }, delayMillis);
+        }
     }
 }

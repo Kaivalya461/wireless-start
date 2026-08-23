@@ -153,4 +153,12 @@ public class PreferenceManager {
     public void setAutoConnectEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_TARGET_AUTO_CONNECT, enabled).apply();
     }
+
+    public boolean isFailSafeEnabled() {
+        return prefs.getBoolean("fail_safe_enabled", true); // Default to true
+    }
+
+    public void setFailSafeEnabled(boolean enabled) {
+        prefs.edit().putBoolean("fail_safe_enabled", enabled).apply();
+    }
 }

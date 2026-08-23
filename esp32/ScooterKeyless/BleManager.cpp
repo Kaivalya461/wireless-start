@@ -96,6 +96,17 @@ class MyCallbacks: public NimBLECharacteristicCallbacks {
             }
             requestRelayPulse(START_RELAY_PIN, duration);
         }
+            // 3. STOP Relay Fail-Safe toggle
+        else if (command.equals("FAILSAFE:OFF")) {
+            setStopFailSafeActive(false);
+            Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED by App.");
+            return; // Terminate execution block early
+        }
+        else if (command.equals("FAILSAFE:ON")) {
+            setStopFailSafeActive(true);
+            Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED by App.");
+            return; // Terminate execution block early
+        }
     }
 };
 

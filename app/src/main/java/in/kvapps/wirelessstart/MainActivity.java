@@ -186,6 +186,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         autoConnectItem.setCheckable(true);
         autoConnectItem.setChecked(preferenceManager.isAutoConnectEnabled());
 
+        // Fail-Safe Checkable menu item
+        android.view.MenuItem failSafeItem = popup.getMenu().add(0, 4, 3, "Fail-Safe Stop Relay");
+        failSafeItem.setCheckable(true);
+        failSafeItem.setChecked(preferenceManager.isFailSafeEnabled());
+
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) {
@@ -204,8 +209,20 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
                 onLog("Auto-Connect preference updated: " + (newState ? "ENABLED" : "DISABLED"));
                 handleReconnect();
+                return true;
+            } else if (id == 4) {
+                // Toggle Fail-Safe preference & sync immediately to ESP32
+                boolean newState = !item.isChecked();
+                item.setChecked(newState);
+                preferenceManager.setFailSafeEnabled(newState);
 
-                // Keep the menu open so the user sees the checkbox change
+                if (bleManager != null && bleManager.isConnected()) {
+                    bleManager.syncFailSafeState(newState);
+                } else {
+                    onLog("Fail-Safe preference saved (Will sync on next connect).");
+                }
+
+                // Keep menu open to reflect change
                 return true;
             }
             return false;
@@ -366,12 +383,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
         updateConnectionUi(true);
 
-        // 1. Auto-sync current system time to ESP32
-        bleManager.sendAutoTimeSync();
-
-        // 2. Force-sync the user's preferred telemetry state to the ESP32
+        // 1. Sequentially sync initialization settings without GATT collisions
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
-        bleManager.syncTelemetryState(savedTelemetryState);
+        boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
+
+        bleManager.syncInitializationSequence(
+                () -> bleManager.sendAutoTimeSync(),
+                () -> bleManager.syncTelemetryState(savedTelemetryState),
+                () -> bleManager.syncFailSafeState(savedFailSafeState)
+        );
 
         // Feedback Haptics and Notifications
         FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);

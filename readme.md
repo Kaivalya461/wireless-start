@@ -9,6 +9,8 @@ App Features:
 4. System Activity Log
 5. BLE auto-connect Target Device (user configurable)
 6. Target Device Connected and Disconnected Notifications
+7. Fail-Safe Stop Relay Workflow (Kill Switch)
+   - Normally Closed (NC) Setup: The stop relay acts as a continuous safety loop that allows the vehicle to start only when active.
 
 
 ---

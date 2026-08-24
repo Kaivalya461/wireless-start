@@ -12,6 +12,7 @@ import android.widget.Toast;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.wear.util.ActionUtil;
 
 public class MainActivity extends Activity {
@@ -37,7 +38,7 @@ public class MainActivity extends Activity {
     }
 
     private void handleStartAction() {
-        ActionUtil.transmitActionToPhone(this, ActionUtil.START_PATH, "Cranking Engine...");
+        ActionUtil.transmitActionToPhone(this, Constants.START_PATH, "Cranking Engine...");
 
         btnStart.setEnabled(false);
         btnStart.setAlpha(0.5f);

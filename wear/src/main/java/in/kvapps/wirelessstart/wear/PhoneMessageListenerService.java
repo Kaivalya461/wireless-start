@@ -44,12 +44,12 @@ public class PhoneMessageListenerService extends WearableListenerService {
             Log.d(TAG, "Start_Success message received from phone. Triggering command completion watch feedback.");
             String command = new String(messageEvent.getData());
 
-            if (Constants.START_SUCCESS.equals(command)) {
+            if (Constants.COMMAND_SUCCESS.equals(command)) {
                 triggerDoubleVibrate(this);
 
                 // Notify UI Screen
                 StartEventBus.notifySuccess();
-            } else if (Constants.START_FAILURE.equals(command)) {
+            } else if (Constants.COMMAND_FAILURE.equals(command)) {
                 StartEventBus.notifyFailure();
             }
         }

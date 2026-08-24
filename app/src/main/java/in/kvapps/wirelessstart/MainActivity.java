@@ -27,10 +27,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 
-import com.google.android.gms.wearable.PutDataMapRequest;
-import com.google.android.gms.wearable.PutDataRequest;
-import com.google.android.gms.wearable.Wearable;
-
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -158,7 +154,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         bleManager.sendBleCommand(
                 command,
-                () -> handleCommandResult(command, Constants.START_SUCCESS, false),  //onSuccess callback
+                () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),  //onSuccess callback
                 null //onFailure callback
         );
 
@@ -191,6 +187,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         failSafeItem.setCheckable(true);
         failSafeItem.setChecked(preferenceManager.isFailSafeEnabled());
 
+        // ADD THIS: New Menu option for About / Credits
+        popup.getMenu().add(0, 5, 4, "About & Credits");
+
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) {
@@ -221,8 +220,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 } else {
                     onLog("Fail-Safe preference saved (Will sync on next connect).");
                 }
-
-                // Keep menu open to reflect change
+                return true;
+            } else if (id == 5) {
+                showAboutDialog();
                 return true;
             }
             return false;
@@ -270,8 +270,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 //                    onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
                     bleManager.sendBleCommand(
                             formattedCommand,
-                            () -> handleCommandResult(formattedCommand, Constants.START_SUCCESS, true),
-                            () -> handleCommandResult(formattedCommand, Constants.START_FAILURE, true)
+                            () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS, true),
+                            () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE, true)
                     );
                     setResultCode(Activity.RESULT_OK); // Mark handled
                 }
@@ -383,21 +383,23 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
         updateConnectionUi(true);
 
-        // 1. Sequentially sync initialization settings without GATT collisions
+        // 1. Sequentially sync initialization settings AND log completion at the end
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
         bleManager.syncInitializationSequence(
                 () -> bleManager.sendAutoTimeSync(),
                 () -> bleManager.syncTelemetryState(savedTelemetryState),
-                () -> bleManager.syncFailSafeState(savedFailSafeState)
-        );
+                () -> bleManager.syncFailSafeState(savedFailSafeState),
+                () -> {
+                    // Feedback Haptics and Notifications (Immediate UX feedback)
+                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                    FeedbackUtils.triggerDoubleVibrate(this);
+                    FeedbackUtils.showConnectionNotification(this, true, 0L);
 
-        // Feedback Haptics and Notifications
-        FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
-        FeedbackUtils.triggerDoubleVibrate(this);
-        FeedbackUtils.showConnectionNotification(this, true, 0L);
-        onLog("Connection established. Ready for control operations.");
+                    onLog("Connection established. Ready for control operations.");
+                }
+        );
     }
 
     @Override
@@ -466,7 +468,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         if (isWatchRx) {
             FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
         } else {
-            if (Constants.START_SUCCESS.equals(resultPayload)) {
+            if (Constants.COMMAND_SUCCESS.equals(resultPayload)) {
                 FeedbackUtils.triggerDoubleVibrate(this);
             }
         }
@@ -498,4 +500,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     bleManager.connect(preferenceManager.isAutoConnectEnabled());
                 }
             });
+
+    private void showAboutDialog() {
+        String versionName = BuildConfig.VERSION_NAME;
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("About & Credits")
+                .setMessage("App Version: " + versionName + "\n\n" +
+                        "Launcher Icon made by 'Satawat Anukul' from www.flaticon.com/authors/satawat-anukul")
+                .setPositiveButton("OK", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
 }

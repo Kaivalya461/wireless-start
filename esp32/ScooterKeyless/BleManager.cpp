@@ -8,6 +8,7 @@
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
+const unsigned long DEFAULT_STOP_PULSE_MS = 1700;
 
 Preferences blePreferences;
 NimBLECharacteristic *pCharacteristic;
@@ -96,7 +97,15 @@ class MyCallbacks: public NimBLECharacteristicCallbacks {
             }
             requestRelayPulse(START_RELAY_PIN, duration);
         }
-            // 3. STOP Relay Fail-Safe toggle
+            // 3. Stop Action Execution Route
+        else if (command.startsWith("STOP")) {
+            unsigned long duration = DEFAULT_STOP_PULSE_MS;
+            if (command.startsWith("STOP:")) {
+                duration = getValidatedDuration(command.substring(6).toInt());
+            }
+            requestRelayPulse(STOP_RELAY_PIN, duration);
+        }
+            // 4. STOP Relay Fail-Safe toggle
         else if (command.equals("FAILSAFE:OFF")) {
             setStopFailSafeActive(false);
             Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED by App.");

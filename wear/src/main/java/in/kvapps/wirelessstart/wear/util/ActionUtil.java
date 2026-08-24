@@ -12,7 +12,6 @@ import java.util.Set;
 import in.kvapps.wirelessstart.shared.Constants;
 
 public class ActionUtil {
-    public static final String START_PATH = Constants.START_PATH;
     public static final String STOP_PATH = Constants.STOP_PATH;
 
     public static void transmitActionToPhone(Context context, String targetPath, String promptText) {

@@ -15,7 +15,7 @@ android {
         minSdk 26
         targetSdk 36
         versionCode 3
-        versionName "2.2"
+        versionName "2.3"
         // Read from local.properties using Groovy syntax
         Properties properties = new Properties()
         if (project.rootProject.file('local.properties').exists()) {

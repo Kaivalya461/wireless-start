@@ -27,7 +27,7 @@ const unsigned long DEFAULT_PULSE_MS       = 1500;
 const unsigned long STARTER_COOLDOWN_MS    = 3000;
 
 // Fail-Safe Stop Relay & Debounce Configuration Variables
-const unsigned long DISCONNECT_GRACE_PERIOD_MS = 4000; // 4-second anti-stall grace period
+const unsigned long DISCONNECT_GRACE_PERIOD_MS = 20000; // 20-second anti-stall grace period
 unsigned long disconnectionStartTime       = 0;
 bool isDisconnectTimerActive               = false;
 bool lastBleConnectionState                = false;
@@ -161,12 +161,21 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
     activePulseDuration  = durationMs;
     isPulseActive        = true;
 
-    setRelayState(pin, true); // Turn Relay ON using dynamic logic
-    Serial.print("-> Relay PIN ");
-    Serial.print(pin);
-    Serial.print(" ON for ");
-    Serial.print(durationMs);
-    Serial.println(" ms");
+    // --- PULSE BEHAVIOR SPLIT ---
+    if (pin == START_RELAY_PIN) {
+        // Start Relay: Standard pulse ON (energize)
+        setRelayState(pin, true);
+        Serial.print("-> Start Relay ON for ");
+        Serial.print(durationMs);
+        Serial.println(" ms");
+        lastStartExecutionTime = now;
+    } else if (pin == STOP_RELAY_PIN) {
+        // Stop Relay: Temporary pulse OFF (release/open circuit)
+        setRelayState(pin, false);
+        Serial.print("-> Stop Relay RELEASED (OFF) for ");
+        Serial.print(durationMs);
+        Serial.println(" ms");
+    }
 
     if (pin == START_RELAY_PIN) {
         lastStartExecutionTime = now;
@@ -177,8 +186,18 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
 void updateRelayPulses() {
     if (isPulseActive) {
         if (millis() - pulseStartTime >= activePulseDuration) {
-            setRelayState(activeRelayPin, false); // Turn Relay OFF using dynamic logic
-            Serial.println("-> Pulse complete. Relay Pin restored to OFF state.");
+            // --- RESTORE BEHAVIOR SPLIT ---
+            if (activeRelayPin == START_RELAY_PIN) {
+                setRelayState(activeRelayPin, false); // Turn Start Relay back OFF
+                Serial.println("-> Start pulse complete. Relay restored to OFF.");
+            } else if (activeRelayPin == STOP_RELAY_PIN) {
+                // Restore Stop Relay back to active fail-safe state (energized / closed) if connected, 
+                // or let the fail-safe workflow manage it.
+                bool restoreState = isBleClientConnected() && stopFailSafeEnabled;
+                setRelayState(activeRelayPin, restoreState);
+                Serial.println("-> Stop pulse complete. Relay restored to operational state.");
+            }
+
             isPulseActive = false;
             activeRelayPin = -1;
         }
@@ -187,6 +206,12 @@ void updateRelayPulses() {
 
 // --- Updated Fail-Safe Stop Relay Workflow with User-Configurable Check ---
 void updateStopRelayFailSafe() {
+    // If a hardware pulse (User Action) is actively running on the stop relay,
+    // pause fail-safe overrides so the pulse can freely control the pin.
+    if (isPulseActive && activeRelayPin == STOP_RELAY_PIN) {
+        return;
+    }
+
     // Check if the user has turned off the fail-safe feature from the Android app
     if (!stopFailSafeEnabled) {
         // Feature is disabled: Keep the stop relay de-energized

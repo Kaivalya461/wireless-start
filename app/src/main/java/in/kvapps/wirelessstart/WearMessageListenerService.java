@@ -17,9 +17,6 @@ import in.kvapps.wirelessstart.util.FeedbackUtils;
 // Listener to consume messages sent by Wear App
 public class WearMessageListenerService extends WearableListenerService implements BleManager.BleListener {
     private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
-    private static final String START_PATH = Constants.START_PATH;
-    private static final String STOP_PATH = Constants.STOP_PATH;
-
     private BleManager bleManager;
     private String pendingCommandToSend; // Store the intended command
     private long commandStartTime = 0;
@@ -30,9 +27,9 @@ public class WearMessageListenerService extends WearableListenerService implemen
         Log.d(TAG, "Received watch route path: " + path);
 
         String action = null;
-        if (START_PATH.equals(path)) {
+        if (Constants.START_PATH.equals(path)) {
             action = "START";
-        } else if (STOP_PATH.equals(path)) {
+        } else if (Constants.STOP_PATH.equals(path)) {
             action = "STOP";
         }
 
@@ -103,8 +100,8 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
                     bleManager.sendBleCommand(
                             executedCommand,
-                            () -> handleCommandResult(executedCommand, Constants.START_SUCCESS),
-                            () -> handleCommandResult(executedCommand, Constants.START_FAILURE)
+                            () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
+                            () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
                     );
                     pendingCommandToSend = null;
                 }

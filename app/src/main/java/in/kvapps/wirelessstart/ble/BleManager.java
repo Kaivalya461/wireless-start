@@ -15,6 +15,8 @@ import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.os.Build;
+import android.util.Log;
+
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -195,7 +197,7 @@ public class BleManager {
                 }
 
                 if (success) {
-//                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
+                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
                     if (onSuccess != null) {
                         onSuccess.run(); // Trigger the success callback
                     }

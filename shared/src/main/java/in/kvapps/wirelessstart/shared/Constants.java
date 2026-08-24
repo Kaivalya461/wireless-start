@@ -18,8 +18,8 @@ public class Constants {
     public static final String HAPTIC_DISCONNECT = "DISCONNECT";
 
     // Start Command Result Types
-    public static final String START_SUCCESS = "START_SUCCESS";
-    public static final String START_FAILURE = "START_FAILURE";
+    public static final String COMMAND_SUCCESS = "Command_Success";
+    public static final String COMMAND_FAILURE = "Command_Failure";
 
     // Target Device CONNECTION STATUS Types
     public static final String TARGET_DEVICE_CONNECTED = "TARGET_DEVICE_CONNECTED";

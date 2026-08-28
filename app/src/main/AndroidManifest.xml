@@ -52,6 +52,11 @@
         <activity android:name=".LogHistoryActivity" android:exported="false" />
 
         <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
             android:name=".EditConfigActivity"
             android:exported="false"
             android:theme="@style/Theme.WirelessStart" />

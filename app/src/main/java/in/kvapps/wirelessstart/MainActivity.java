@@ -81,6 +81,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 }
             });
 
+    private final ActivityResultLauncher<Intent> settingsLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                // Check if you need to refresh or reconnect based on settings changes
+                if (preferenceManager.isAutoConnectEnabled() && (bleManager != null && !bleManager.isConnected())) {
+                    onLog("Settings updated. Reconnecting...");
+                    bleManager.connect(true);
+                }
+            });
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -204,27 +213,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
 
-        // Add menu items (ID 1 for Reconnect, ID 2 for Edit Config, ID 3 for Auto Connect checkbox)
+        // Add menu items (ID 1 for Reconnect, ID 2 for Edit Config, ID 3 for Additional Settings)
         popup.getMenu().add(0, 1, 0, "Reconnect");
-        popup.getMenu().add(0, 2, 1, "Edit Config");
-
-        // Add Auto Connect checkable menu item
-        android.view.MenuItem autoConnectItem = popup.getMenu().add(0, 3, 2, "Auto Connect");
-        autoConnectItem.setCheckable(true);
-        autoConnectItem.setChecked(preferenceManager.isAutoConnectEnabled());
-
-        // Fail-Safe Checkable menu item
-        android.view.MenuItem failSafeItem = popup.getMenu().add(0, 4, 3, "Fail-Safe Stop Relay");
-        failSafeItem.setCheckable(true);
-        failSafeItem.setChecked(preferenceManager.isFailSafeEnabled());
-
-        // 24/7 Foreground Service
-        android.view.MenuItem fgServiceItem = popup.getMenu().add(0, 5, 4, "24/7 Service");
-        fgServiceItem.setCheckable(true);
-        fgServiceItem.setChecked(preferenceManager.isForegroundServiceEnabled());
-
-        // ADD THIS: New Menu option for About / Credits
-        popup.getMenu().add(0, 6, 5, "About & Credits");
+        popup.getMenu().add(0, 2, 1, "Edit Config"); // Restored Edit Config option
+        popup.getMenu().add(0, 3, 2, "Settings");    // New Settings Activity option
+        popup.getMenu().add(0, 4, 3, "About & Credits");
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
@@ -232,45 +225,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 handleReconnect();
                 return true;
             } else if (id == 2) {
-                // Launch separate configuration activity
+                // Launch the Edit Config Activity
                 Intent intent = new Intent(MainActivity.this, EditConfigActivity.class);
                 editConfigLauncher.launch(intent);
                 return true;
             } else if (id == 3) {
-                // Toggle the state
-                boolean newState = !item.isChecked();
-                item.setChecked(newState);
-                preferenceManager.setAutoConnectEnabled(newState);
-
-                onLog("Auto-Connect preference updated: " + (newState ? "ENABLED" : "DISABLED"));
-                handleReconnect();
+                // Launch the new Settings Activity
+                Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                settingsLauncher.launch(intent);
                 return true;
             } else if (id == 4) {
-                // Toggle Fail-Safe preference & sync immediately to ESP32
-                boolean newState = !item.isChecked();
-                item.setChecked(newState);
-                preferenceManager.setFailSafeEnabled(newState);
-
-                if (bleManager != null && bleManager.isConnected()) {
-                    bleManager.syncFailSafeState(newState);
-                } else {
-                    onLog("Fail-Safe preference saved (Will sync on next connect).");
-                }
-                return true;
-            } else if (id == 5) {
-                boolean newState = !item.isChecked();
-                item.setChecked(newState);
-                preferenceManager.setForegroundServiceEnabled(newState);
-
-                if (newState) {
-                    startBleForegroundService();
-                    onLog("24/7 Background Service: ENABLED");
-                } else {
-                    stopBleForegroundService();
-                    onLog("24/7 Background Service: DISABLED");
-                }
-                return true;
-            } else if (id == 6) {
                 showAboutDialog();
                 return true;
             }

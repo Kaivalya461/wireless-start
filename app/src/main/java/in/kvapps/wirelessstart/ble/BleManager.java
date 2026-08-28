@@ -29,6 +29,9 @@ public class BleManager {
         void onServicesReady();
         void onDataReceived(byte[] rawData);
     }
+    public interface RssiCallback {
+        void onRssiRead(int rssi);
+    }
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
@@ -37,6 +40,7 @@ public class BleManager {
 
     private final Context context;
     private BleListener listener; // Modified to allow updating listener dynamically across layouts/activities
+    private RssiCallback currentRssiCallback;
     private final BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic commandCharacteristic;
@@ -361,6 +365,19 @@ public class BleManager {
                 listener.onDataReceived(value);
             }
         }
+
+        @Override
+        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(rssi);
+                }
+            } else {
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(0);
+                }
+            }
+        }
     };
 
     // Force-sync telemetry state to ESP32 (0x03 = Enable, 0x02 = Disable)
@@ -412,5 +429,29 @@ public class BleManager {
         sendBleCommand("GET_ENGINE_SCHEDULE", () -> {
             Log.d("BleManager", "Requested active schedule from ESP32");
         }, null);
+    }
+
+    public void readRssi(RssiCallback callback) {
+        this.currentRssiCallback = callback;
+        if (bluetoothGatt != null) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                        bluetoothGatt.readRemoteRssi();
+                    }
+                } else {
+                    bluetoothGatt.readRemoteRssi();
+                }
+            } catch (SecurityException e) {
+                if (listener != null) listener.onLog("Security Error: Blocked reading RSSI.");
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(0);
+                }
+            }
+        } else {
+            if (currentRssiCallback != null) {
+                currentRssiCallback.onRssiRead(0);
+            }
+        }
     }
 }

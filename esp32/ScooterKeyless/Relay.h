@@ -22,5 +22,8 @@ void checkScheduledNightSleep();
 bool requestRelayPulse(int pin, unsigned long durationMs);
 unsigned long getValidatedDuration(unsigned long customMs);
 void setStopFailSafeActive(bool active);
+void checkScheduledEngineTask();
+unsigned long getScheduledTaskEpoch();
+void setScheduledTaskEpoch(unsigned long epochTime);
 
 #endif

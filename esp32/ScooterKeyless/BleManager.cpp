@@ -116,6 +116,15 @@ class MyCallbacks: public NimBLECharacteristicCallbacks {
             Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED by App.");
             return; // Terminate execution block early
         }
+            // 5. Scheduled Engine Start/Stop
+        else if (command.startsWith("SCHED_RUN:")) {
+            unsigned long epoch = command.substring(10).toInt();
+            setScheduledTaskEpoch(epoch);
+        }
+        else if (command.equals("GET_ENGINE_SCHEDULE")) {
+            // Respond back to phone with the currently active schedule
+            transmitEngineScheduleTime(getScheduledTaskEpoch());
+        }
     }
 };
 
@@ -196,6 +205,22 @@ void transmitBatteryTelemetry(uint16_t mvPayload) {
 
     pCharacteristic->setValue(payloadBuffer, 2);
     pCharacteristic->notify();
+}
+
+void transmitEngineScheduleTime(unsigned long epochPayload) {
+    if (!bleConnected) return;
+
+    // 1. Format the response string matching your parser protocol
+    String response = "SCHED_IS:" + String(epochPayload);
+
+    // 2. Set the characteristic value with the response string
+    pCharacteristic->setValue(response.c_str());
+
+    // 3. Notify the connected phone app client
+    pCharacteristic->notify();
+
+    Serial.print("Transmitted active schedule to phone: ");
+    Serial.println(response);
 }
 
 void setDeviceName(String newName) {

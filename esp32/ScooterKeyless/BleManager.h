@@ -5,6 +5,7 @@
 
 void initBle();
 void transmitBatteryTelemetry(uint16_t mvPayload);
+void transmitEngineScheduleTime(unsigned long epochPayload);
 bool isBleClientConnected();
 void updateBleAdvertisingState();
 unsigned long getDisconnectionTime();

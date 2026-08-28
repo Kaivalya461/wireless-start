@@ -3,6 +3,7 @@
 #include "BleManager.h" // Needed to check if a phone is connected before sleeping
 #include "esp_sleep.h"
 #include <sys/time.h>
+#include "Globals.h"
 
 // --- Relay Logic Configuration ---
 // Set to true if LOW turns the relay ON (common for optocoupler modules/MOSFETs)
@@ -43,6 +44,20 @@ unsigned long pulseStartTime               = 0;
 unsigned long activePulseDuration          = 0;
 bool timeIsSynced                          = false;
 
+// --- Scheduled Engine Run Task Configuration Starts ---
+unsigned long targetExecutionEpoch = 0; // 0 means no scheduled task is active
+bool scheduledTaskPending = false;
+
+const unsigned long SCHEDULED_TASK_DURATION_MS = 2UL * 60UL * 1000UL; // 2 minutes
+
+static bool isScheduledTaskActive = false;
+static unsigned long scheduledTaskStartTime = 0;
+
+// --- Logging Interval Variable ---
+unsigned long lastSchedLogTime = 0;
+const unsigned long SCHED_LOG_INTERVAL_MS = 30UL * 1000UL; // Every 1 minute
+// --- Scheduled Engine Run Task Configuration Ends ---
+
 // --- Helper Functions for Mixed Active-High / Active-Low Logic ---
 void setRelayState(int pin, bool state) {
     if (pin == START_RELAY_PIN) {
@@ -59,6 +74,9 @@ bool getIsPulseActive() {
 }
 
 void initRelays() {
+    preferences.begin("engine_prefs", false);
+    targetExecutionEpoch = preferences.getULong("sched_epoch", 0);
+
     // Configure Start Relay (Active-High)
     pinMode(START_RELAY_PIN, OUTPUT);
     setRelayState(START_RELAY_PIN, false);
@@ -278,5 +296,100 @@ void setStopFailSafeActive(bool active) {
         // Re-arm tracking state so it guards against drops right away
         lastBleConnectionState = isBleClientConnected();
         isDisconnectTimerActive = false;
+    }
+}
+
+unsigned long getScheduledTaskEpoch() {
+    return targetExecutionEpoch;
+}
+
+void setScheduledTaskEpoch(unsigned long epochTime) {
+    targetExecutionEpoch = epochTime;
+    scheduledTaskPending = (epochTime > 0);
+    lastSchedLogTime = millis(); // Reset interval timer on new schedule
+
+    preferences.putULong("sched_epoch", targetExecutionEpoch);
+
+    if (scheduledTaskPending) {
+        time_t t = (time_t)epochTime;
+        struct tm *timeinfo = localtime(&t);
+        char timeBuffer[30];
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+        Serial.print(">>> Scheduled Engine Task set for: ");
+        Serial.println(timeBuffer);
+    } else {
+        Serial.println(">>> Scheduled Engine Task cleared/disabled.");
+    }
+}
+
+void checkScheduledEngineTask() {
+    // 1. Handle the Active 2-Minute Run Window & Kill Logic (Independent of target time checks)
+    if (isScheduledTaskActive) {
+        // Force the Stop Relay to stay continuously energized during the 2-minute run window
+        if (!isPulseActive || activeRelayPin != STOP_RELAY_PIN) {
+            setRelayState(STOP_RELAY_PIN, true);
+        }
+
+        // Once 2 minutes have elapsed, kill the engine
+        if (millis() - scheduledTaskStartTime >= SCHEDULED_TASK_DURATION_MS) {
+            Serial.println(">>> Scheduled Task Duration Reached (2 mins): Executing Kill/Stop sequence.");
+
+            // Cut the Stop Relay (De-energize -> Open circuit / Kill engine)
+            setRelayState(STOP_RELAY_PIN, false);
+
+            isScheduledTaskActive = false; // Reset state
+        }
+        return; // Skip looking for new triggers while task is actively running
+    }
+
+    // 2. Check if a task is pending and system time is synced
+    if (!scheduledTaskPending || !timeIsSynced || targetExecutionEpoch == 0) return;
+
+    time_t now;
+    time(&now); // Get current epoch time from system
+
+    // Print scheduled run time and date every 2 minutes while waiting
+    if (millis() - lastSchedLogTime >= SCHED_LOG_INTERVAL_MS) {
+        lastSchedLogTime = millis();
+
+        time_t t = (time_t)targetExecutionEpoch;
+        struct tm *timeinfo = localtime(&t);
+        char timeBuffer[30];
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+        Serial.print("[STATUS] Next Scheduled Task Target: ");
+        Serial.println(timeBuffer);
+    }
+
+    // 3. Check if we haven't reached the target time yet
+    if ((unsigned long)now < targetExecutionEpoch) {
+        return; // Too early, wait until target time
+    }
+
+    // 4. Enforce Constraints at the moment of trigger:
+    // - Bluetooth must NOT be connected.
+    // - If disconnected, it must be disconnected for MORE than 15 minutes.
+    if (isBleClientConnected()) {
+        return;
+    }
+
+    unsigned long timeSinceDisconnection = millis() - getDisconnectionTime();
+    if (timeSinceDisconnection < (10UL * 1000UL)) {
+        return; // Not disconnected long enough yet
+    }
+
+    // 5. All conditions met! Execute the Scheduled Start Task
+    Serial.println(">>> Scheduled Task Triggered for Future Date/Time under isolated conditions.");
+
+    // A. ACTUALLY Energize Stop Relay so the ignition/run circuit is closed (Active-Low -> LOW)
+    setRelayState(STOP_RELAY_PIN, true);
+    Serial.println("-> Stop Relay Energized (Ignition ON).");
+
+    // B. Pulse the Starter Motor for exactly 1 second to crank the engine
+    if (requestRelayPulse(START_RELAY_PIN, DEFAULT_PULSE_MS)) {
+        scheduledTaskPending = false;   // Mark task as handled so it doesn't loop
+        isScheduledTaskActive = true;   // Enables the 2-minute timer block above
+        scheduledTaskStartTime = millis();
     }
 }

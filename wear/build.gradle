@@ -14,8 +14,8 @@ android {
         applicationId = "in.kvapps.wirelessstart"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.3.0"
 
     }
 
@@ -33,6 +33,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.appcompat)
     implementation(libs.play.services.wearable)
     implementation(libs.watchface.complications.data.source)
     implementation(libs.watchface.complications.data.source.ktx)

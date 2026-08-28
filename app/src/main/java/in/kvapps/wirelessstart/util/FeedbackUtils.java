@@ -100,7 +100,15 @@ public class FeedbackUtils {
         });
     }
 
-    public static void showConnectionNotification(Context context, boolean isConnected, long uptimeMillis) {
+    public static void showConnectionNotification(Context context, boolean isConnected, long uptimeMillis,
+                                                  boolean isAppInForeground) {
+        // Skip Notification in case of,
+        // 1. App is in foreground
+        // 2. Disconnect event and connection time was 0 sec (i.e. Failed Connection Attempts)
+        if (isAppInForeground || (!isConnected && uptimeMillis == 0)) {
+            return;
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
                     != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -110,7 +118,7 @@ public class FeedbackUtils {
 
         String channelId = "connection_status_channel";
         String groupKey = "wireless_status_group";
-        int summaryNotificationId = 999;
+        int summaryNotificationId = Constants.SUMMARY_NOTIFICATION_ID;
 
         NotificationManager notificationManager =
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -119,7 +127,7 @@ public class FeedbackUtils {
             NotificationChannel channel = new NotificationChannel(
                     channelId,
                     "Connection Status Alerts",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_LOW
             );
             channel.setDescription("Notifies when wireless starter connects or disconnects");
             notificationManager.createNotificationChannel(channel);

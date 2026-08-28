@@ -27,7 +27,7 @@ public class BleManager {
         void onLog(String message);
         void onConnectionStateChanged(boolean isConnected, String statusText);
         void onServicesReady();
-        void onVoltageReceived(float voltage); // NEW: Dispatches updated voltage string
+        void onDataReceived(byte[] rawData);
     }
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
@@ -197,7 +197,7 @@ public class BleManager {
                 }
 
                 if (success) {
-                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
+//                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
                     if (onSuccess != null) {
                         onSuccess.run(); // Trigger the success callback
                     }
@@ -350,18 +350,7 @@ public class BleManager {
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
-                if (data != null && data.length >= 2) {
-                    // Extract byte structures and shift bits to rebuild the 16-bit payload
-                    int highByte = data[0] & 0xFF;
-                    int lowByte = data[1] & 0xFF;
-                    int milliVolts = (highByte << 8) | lowByte;
-
-                    // Convert raw millivolt integer back into a decimal reading
-                    float finalVoltage = milliVolts / 1000.0f;
-
-                    // Pass metrics back up to the main UI loop safely
-                    if (listener != null) listener.onVoltageReceived(finalVoltage);
-                }
+                listener.onDataReceived(data);
             }
         }
 
@@ -369,9 +358,7 @@ public class BleManager {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null && value.length >= 2) {
-                int milliVolts = ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
-                float finalVoltage = milliVolts / 1000.0f;
-                if (listener != null) listener.onVoltageReceived(finalVoltage);
+                listener.onDataReceived(value);
             }
         }
     };
@@ -411,5 +398,19 @@ public class BleManager {
                 }
             }, delayMillis);
         }
+    }
+
+    public void sendScheduledEpoch(long epochSeconds) {
+        String command = "SCHED_RUN:" + epochSeconds;
+        sendBleCommand(command,
+                () -> Log.d("BleManager", "Scheduled Epoch transmitted successfully -> " + epochSeconds),
+                () -> Log.e("BleManager", "Failed to transmit Scheduled Epoch command.")
+        );
+    }
+
+    public void requestScheduleFromEsp32() {
+        sendBleCommand("GET_ENGINE_SCHEDULE", () -> {
+            Log.d("BleManager", "Requested active schedule from ESP32");
+        }, null);
     }
 }

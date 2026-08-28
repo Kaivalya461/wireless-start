@@ -1,6 +1,8 @@
 package in.kvapps.wirelessstart.wear;
 
 import android.app.Activity;
+import android.app.TimePickerDialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -12,12 +14,14 @@ import android.widget.Toast;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.util.Calendar;
+
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.wear.util.ActionUtil;
 
 public class MainActivity extends Activity {
 
-    private Button btnStart, btnStop;
+    private Button btnStart, btnStop, btnOpenScheduler;
     private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
     private static final long STARTER_COOLDOWN_MS = 4000; // 4 seconds safety cooldown
     private static final int NOTIFICATION_PERMISSION_CODE = 101;
@@ -29,9 +33,13 @@ public class MainActivity extends Activity {
 
         btnStart = findViewById(R.id.btn_wear_start);
         btnStop = findViewById(R.id.btn_wear_stop);
+        btnOpenScheduler = findViewById(R.id.btn_open_scheduler);
 
         btnStart.setOnClickListener(v -> handleStartAction());
         btnStop.setOnClickListener(v -> handleStopAction());
+        btnOpenScheduler.setOnClickListener(v -> {
+            startActivity(new Intent(MainActivity.this, WearScheduleActivity.class));
+        });
 
         // Check and request notification permission for Android 13+
         checkNotificationPermission();

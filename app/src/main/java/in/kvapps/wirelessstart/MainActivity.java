@@ -34,6 +34,7 @@ import java.util.Locale;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
+import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
@@ -56,6 +57,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     // Architecture & Helpers
     private VoltageDbHelper dbHelper;
     private BleManager bleManager;
+    private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
     private BroadcastReceiver watchCommandReceiver;
     private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
@@ -63,6 +65,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
     private long connectionStartTime = 0;
+    private static boolean isAppInForeground = false;
+
+    private BroadcastReceiver scheduleReceiver; // For Scheduled Engine Run/Stop
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
                 boolean bluetoothGranted = PermissionUtils.evaluatePermissionsResult(result);
@@ -88,6 +93,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
+        registerScheduleReceiver();
 
         updateConnectionUi(false);
         pruneOldDatabaseRecords();
@@ -107,6 +113,31 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // update its listener to point to the current MainActivity instance
         if (bleManager != null) {
             bleManager.setListener(this);
+        }
+
+        protocolHandler = new DeviceProtocolHandler(this, new DeviceProtocolHandler.ProtocolListener() {
+            @Override
+            public void onVoltageReady(float voltage) {
+                // This handles your voltage business logic cleanly on the UI thread
+                runOnUiThread(() -> {
+                    if (isTelemetryEnabled) {
+                        long now = System.currentTimeMillis();
+                        if (dbHelper != null) dbHelper.insertReading(now, voltage);
+                        if (txtVoltageValue != null) {
+                            txtVoltageValue.setText(String.format(Locale.getDefault(), "%.2fV", voltage));
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onProtocolLog(String message) {
+                onLog(message);
+            }
+        });
+
+        if (preferenceManager.isForegroundServiceEnabled()) {
+            startBleForegroundService();
         }
     }
 
@@ -187,8 +218,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         failSafeItem.setCheckable(true);
         failSafeItem.setChecked(preferenceManager.isFailSafeEnabled());
 
+        // 24/7 Foreground Service
+        android.view.MenuItem fgServiceItem = popup.getMenu().add(0, 5, 4, "24/7 Service");
+        fgServiceItem.setCheckable(true);
+        fgServiceItem.setChecked(preferenceManager.isForegroundServiceEnabled());
+
         // ADD THIS: New Menu option for About / Credits
-        popup.getMenu().add(0, 5, 4, "About & Credits");
+        popup.getMenu().add(0, 6, 5, "About & Credits");
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
@@ -222,6 +258,19 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 }
                 return true;
             } else if (id == 5) {
+                boolean newState = !item.isChecked();
+                item.setChecked(newState);
+                preferenceManager.setForegroundServiceEnabled(newState);
+
+                if (newState) {
+                    startBleForegroundService();
+                    onLog("24/7 Background Service: ENABLED");
+                } else {
+                    stopBleForegroundService();
+                    onLog("24/7 Background Service: DISABLED");
+                }
+                return true;
+            } else if (id == 6) {
                 showAboutDialog();
                 return true;
             }
@@ -289,6 +338,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     protected void onResume() {
         super.onResume();
+        isAppInForeground = true;
+
         // Re-bind this activity as the active BLE listener when returning from other layouts/activities
         if (bleManager != null) {
             bleManager.setListener(this);
@@ -298,9 +349,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        isAppInForeground = false;
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
+        if (scheduleReceiver != null) unregisterReceiver(scheduleReceiver);
         if (dbHelper != null) dbHelper.close();
 
         // DO NOT disconnect or release bleManager here, because it's shared globally!
@@ -357,7 +415,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
                 FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 FeedbackUtils.triggerDisconnectVibrate(this);
-                FeedbackUtils.showConnectionNotification(this, false, uptimeMillis);
+                FeedbackUtils.showConnectionNotification(this, false, uptimeMillis, isAppInForeground);
             }
         });
     }
@@ -391,11 +449,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 () -> bleManager.sendAutoTimeSync(),
                 () -> bleManager.syncTelemetryState(savedTelemetryState),
                 () -> bleManager.syncFailSafeState(savedFailSafeState),
+                () -> bleManager.requestScheduleFromEsp32(),
                 () -> {
                     // Feedback Haptics and Notifications (Immediate UX feedback)
                     FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
                     FeedbackUtils.triggerDoubleVibrate(this);
-                    FeedbackUtils.showConnectionNotification(this, true, 0L);
+                    FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
 
                     onLog("Connection established. Ready for control operations.");
                 }
@@ -403,16 +462,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     @Override
-    public void onVoltageReceived(float voltage) {
-        runOnUiThread(() -> {
-            if (isTelemetryEnabled) {
-                long now = System.currentTimeMillis();
-                if (dbHelper != null) dbHelper.insertReading(now, voltage);
-                if (txtVoltageValue != null) {
-                    txtVoltageValue.setText(String.format(Locale.getDefault(), "%.2fV", voltage));
-                }
-            }
-        });
+    public void onDataReceived(byte[] rawData) {
+        // Hand raw bytes over to our dedicated protocol handler domain layer
+        if (protocolHandler != null) {
+            protocolHandler.parseIncomingData(rawData);
+        }
     }
 
     // Load saved telemetry state into local variable
@@ -510,5 +564,47 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                         "Launcher Icon made by 'Satawat Anukul' from www.flaticon.com/authors/satawat-anukul")
                 .setPositiveButton("OK", (dialog, which) -> dialog.dismiss())
                 .show();
+    }
+
+    private void startBleForegroundService() {
+        startForegroundService(new Intent(this, in.kvapps.wirelessstart.ble.BleForegroundService.class));
+    }
+
+    private void stopBleForegroundService() {
+        stopService(new Intent(this, in.kvapps.wirelessstart.ble.BleForegroundService.class));
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerScheduleReceiver() {
+        scheduleReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                long targetEpoch = intent.getLongExtra("EPOCH", -1);
+                if (targetEpoch >= 0) {
+                    if (bleManager != null && bleManager.isConnected()) {
+//                        onLog("[WATCH RX] Syncing engine-run schedule to hardware: " + targetEpoch);
+                        bleManager.sendScheduledEpoch(targetEpoch);
+
+                        // Request for updated schedule from ESP32 after some delay
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            if (bleManager != null && bleManager.isConnected()) {
+                                bleManager.requestScheduleFromEsp32();
+                            }
+                        }, 500); // 0.5 sec delay
+
+                        setResultCode(Activity.RESULT_OK); // Mark as handled by foreground UI
+                    }
+                } else {
+                    Log.i(TAG, "Received Invalid Epoch Time for Engine-Schedule-Run");
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter("DIO_SCHEDULE_TRIGGER");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(scheduleReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(scheduleReceiver, filter);
+        }
     }
 }

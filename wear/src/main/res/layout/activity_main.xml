@@ -19,7 +19,7 @@
     <Button
         android:id="@+id/btn_wear_start"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="50dp"
         android:text="START"
         android:textSize="15sp"
         android:textStyle="bold"
@@ -30,11 +30,20 @@
     <Button
         android:id="@+id/btn_wear_stop"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="50dp"
         android:text="STOP"
         android:textSize="15sp"
         android:textStyle="bold"
         android:textColor="#FFFFFF"
         android:backgroundTint="#E53935" />
+
+    <!-- Inside your wear app activity_main.xml -->
+    <Button
+        android:id="@+id/btn_open_scheduler"
+        android:layout_width="80dp"
+        android:layout_height="28dp"
+        android:text="Engine Schedule"
+        android:textSize="11sp"
+        android:layout_marginTop="6dp"/>
 
 </LinearLayout>

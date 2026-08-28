@@ -5,6 +5,12 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
+
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataItem;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
@@ -54,6 +60,41 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     }
                 }
             }, null, Activity.RESULT_CANCELED, null, null);
+        }
+    }
+
+    // --- Handle Data Layer Synchronization for Engine-Run Schedules ---
+    @Override
+    public void onDataChanged(DataEventBuffer dataEvents) {
+        super.onDataChanged(dataEvents);
+
+        for (DataEvent event : dataEvents) {
+            if (event.getType() == DataEvent.TYPE_CHANGED) {
+                DataItem item = event.getDataItem();
+                if (Constants.ENGINE_SCHEDULE_PATH.equals(item.getUri().getPath())) {
+                    DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+                    long targetEpoch = dataMap.getLong(Constants.KEY_SCHEDULE_EPOCH, -1);
+
+                    if (targetEpoch >= 0) {
+                        AppLogger.logToDatabaseAndLogcat(this, TAG, "Received Schedule Epoch from Wear: " + targetEpoch);
+
+                        // Broadcast to foreground MainActivity if open, else execute background write
+                        Intent broadcastIntent = new Intent("DIO_SCHEDULE_TRIGGER");
+                        broadcastIntent.putExtra("EPOCH", targetEpoch);
+
+                        sendOrderedBroadcast(broadcastIntent, null, new BroadcastReceiver() {
+                            @Override
+                            public void onReceive(Context context, Intent intent) {
+                                boolean wasHandled = (getResultCode() == Activity.RESULT_OK);
+                                if (!wasHandled) {
+                                    // MainActivity is closed; add an error entry in System Activity Monitor
+                                    onLog("Error - Failed to configured Engine-Run Schedule, MainActivity was closed. Try Again!");
+                                }
+                            }
+                        }, null, Activity.RESULT_CANCELED, null, null);
+                    }
+                }
+            }
         }
     }
 
@@ -122,17 +163,17 @@ public class WearMessageListenerService extends WearableListenerService implemen
         cleanup();
     }
 
-    @Override
-    public void onVoltageReceived(float voltage) {
-        // Leave this empty if your wearable listener doesn't need
-        // to actively process or update the voltage UI on its own.
-    }
-
     private void cleanup() {
         if (bleManager != null) {
             bleManager.release();
             bleManager = null;
         }
         pendingCommandToSend = null;
+    }
+
+    @Override
+    public void onDataReceived(byte[] rawData) {
+        // Leave this empty as wearable listener doesn't need
+        // to actively process or update the incoming message from BLE GATT
     }
 }

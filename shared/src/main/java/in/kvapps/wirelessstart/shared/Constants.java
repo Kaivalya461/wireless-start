@@ -7,6 +7,8 @@ public class Constants {
     public static final String VIBRATE_PATH = "/dio/trigger_vibrate"; // Phone and ESP32 connection completion
     public static final String START_COMMAND_RESULT_PATH = "/dio/start_command_result";
     public static final String TARGET_DEVICE_CONNECTION_STATUS = "/dio/target_device_connection_status";
+    public static final String ENGINE_SCHEDULE_PATH = "/dio/schedule_engine_path";
+    public static final String SYNC_ENGINE_SCHEDULE_PATH = "/dio/sync_schedule_engine_path";
 
     // Common Tags or Shared Extras if needed
     public static final String WEAR_DATA_LAYER_TAG = "DioWearDataLayer";
@@ -24,4 +26,12 @@ public class Constants {
     // Target Device CONNECTION STATUS Types
     public static final String TARGET_DEVICE_CONNECTED = "TARGET_DEVICE_CONNECTED";
     public static final String TARGET_DEVICE_DISCONNECTED = "TARGET_DEVICE_DISCONNECTED";
+
+    // Notification Ids (Phone)
+    public static final int SUMMARY_NOTIFICATION_ID = 999;
+    public static final int FOREGROUND_SERVICE_NOTIFICATION_ID = 998;
+
+    // Keys for DataMap
+    public static final String KEY_SCHEDULE_EPOCH = "key_schedule_epoch";
+    public static final String KEY_SAVED_SCHEDULE_EPOCH = "key_saved_schedule_epoch";
 }

@@ -16,6 +16,10 @@
     <!--  Required for sending Vibrate Feedback on Wear App  -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Required for Persistent Foreground Service to maintain 24/7 connectivity -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <application
         android:name=".MyApplication"
         android:allowBackup="true"
@@ -58,7 +62,19 @@
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/dio" />
             </intent-filter>
+
+            <intent-filter>
+                <!-- Catch Wearable Data Client API triggers (Schedule Time Sync) -->
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/dio" />
+            </intent-filter>
         </service>
+
+        <service
+            android:name=".ble.BleForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 
 </manifest>

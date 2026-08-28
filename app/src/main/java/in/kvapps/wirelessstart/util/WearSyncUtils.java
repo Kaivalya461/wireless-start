@@ -21,4 +21,17 @@ public class WearSyncUtils {
 
         Wearable.getDataClient(context).putDataItem(request);
     }
+
+    // Sync Engine Run Schedule Time, Phone to Wear
+    public static void syncScheduleToWear(Context context, long epochSeconds) {
+        PutDataMapRequest dataMap = PutDataMapRequest.create(Constants.SYNC_ENGINE_SCHEDULE_PATH);
+
+        // Put the long value into the DataMap (this call returns void)
+        dataMap.getDataMap().putLong(Constants.KEY_SAVED_SCHEDULE_EPOCH, epochSeconds);
+
+        PutDataRequest request = dataMap.asPutDataRequest();
+        request.setUrgent();
+
+        Wearable.getDataClient(context).putDataItem(request);
+    }
 }

@@ -367,15 +367,25 @@ void checkScheduledEngineTask() {
         return; // Too early, wait until target time
     }
 
+    // --- FIX: Expiration Window Check ---
+    // If conditions (like BLE disconnection) aren't met within 2 minutes of the target time,
+    // consider the schedule missed and clear it.
+    const unsigned long TASK_EXPIRATION_WINDOW_SEC = 2UL * 60UL; // 2 minutes tolerance
+    if ((unsigned long)now > (targetExecutionEpoch + TASK_EXPIRATION_WINDOW_SEC)) {
+        Serial.println(">>> Scheduled Task Expired: Target time passed and conditions were not met in time.");
+        setScheduledTaskEpoch(0); // Clears the task and updates preferences
+        return;
+    }
+
     // 4. Enforce Constraints at the moment of trigger:
     // - Bluetooth must NOT be connected.
-    // - If disconnected, it must be disconnected for MORE than 15 minutes.
+    // - If disconnected, it must be disconnected for MORE than 2 minutes.
     if (isBleClientConnected()) {
         return;
     }
 
     unsigned long timeSinceDisconnection = millis() - getDisconnectionTime();
-    if (timeSinceDisconnection < (10UL * 1000UL)) {
+    if (timeSinceDisconnection < (2L * 60UL * 1000UL)) {
         return; // Not disconnected long enough yet
     }
 

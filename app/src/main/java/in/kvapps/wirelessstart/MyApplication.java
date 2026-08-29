@@ -1,47 +1,69 @@
 package in.kvapps.wirelessstart;
 
-import android.app.Application;
+import android.content.Intent;
+import androidx.annotation.NonNull;
+import androidx.lifecycle.DefaultLifecycleObserver;
+import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ProcessLifecycleOwner;
 
-import in.kvapps.wirelessstart.ble.BleLifecycleObserver;
+import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
-import in.kvapps.wirelessstart.util.AppLogger;
 
-public class MyApplication extends Application {
+public class MyApplication extends android.app.Application {
 
-    private BleManager bleManager;
+    private BleManager bleManager; // Fallback singleton when BLE Foreground Service is disabled
     private PreferenceManager preferenceManager;
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        // 1. Initialize core managers
         preferenceManager = new PreferenceManager(this);
 
-        // Note: Pass a null listener initially since the UI/MainActivity
-        // will dynamically attach/re-bind its listener on resume.
-        bleManager = new BleManager(this, null);
+        // Start Foreground Service if enabled, otherwise initialize standalone BleManager
+        if (preferenceManager.isForegroundServiceEnabled()) {
+            startBleForegroundService();
+        } else {
+            bleManager = new BleManager(this, null);
+        }
 
-        // 2. Register globally via ProcessLifecycleOwner.
-        // This ensures it ONLY triggers when the entire app goes to background / comes back,
-        // completely ignoring navigation between activities inside your app.
-        ProcessLifecycleOwner.get().getLifecycle().addObserver(
-                new BleLifecycleObserver(
-                        this,
-                        bleManager,
-                        preferenceManager,
-                        message -> AppLogger.logToDatabaseAndLogcat(this, "", message)
-                )
-        );
+        // Observe when the app comes to the foreground (opened from memory/recent apps)
+        ProcessLifecycleOwner.get().getLifecycle().addObserver(new DefaultLifecycleObserver() {
+            @Override
+            public void onStart(@NonNull LifecycleOwner owner) {
+                DefaultLifecycleObserver.super.onStart(owner);
+
+                // When app comes to the foreground, check connection and force connect
+                BleManager manager = getBleManager();
+                if (manager != null && !manager.isConnected()) {
+                    // Force an instant connection attempt regardless of background auto-connect setting
+                    manager.connect(false);
+                }
+            }
+        });
     }
 
     public BleManager getBleManager() {
+        // 1. If Foreground Service is running, fetch its active manager instance
+        BleForegroundService serviceInstance = BleForegroundService.getInstance();
+        if (serviceInstance != null) {
+            return serviceInstance.getBleManager();
+        }
+
+        // 2. Fallback: If service is disabled/not running, return the application-level instance
+        if (bleManager == null) {
+            bleManager = new BleManager(this, null);
+        }
         return bleManager;
     }
 
     public PreferenceManager getPreferenceManager() {
         return preferenceManager;
+    }
+
+    private void startBleForegroundService() {
+        Intent serviceIntent = new Intent(this, BleForegroundService.class);
+        startForegroundService(serviceIntent);
     }
 }

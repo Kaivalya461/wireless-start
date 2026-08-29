@@ -15,24 +15,65 @@ import in.kvapps.wirelessstart.MainActivity;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.shared.Constants;
 
-public class BleForegroundService extends Service {
+public class BleForegroundService extends Service implements BleManager.BleListener {
 
     private static final String CHANNEL_ID = "ble_foreground_channel";
+    private BleManager bleManager;
+    private static BleForegroundService instance;
+
+    public static BleForegroundService getInstance() {
+        return instance;
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         createNotificationChannel();
+
+        // Initialize BleManager centrally inside the Foreground Service
+        // Pass 'this' as the initial listener; activities can override/hook into this later
+        bleManager = new BleManager(getApplicationContext(), this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Start the service in the foreground with an active notification
-        Notification notification = createNotification("Maintaining 24/7 Background Service to avoid Connection Drops.");
+        Notification notification = createNotification("Background BLE Service Active.");
         startForeground(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification);
 
-        // START_STICKY ensures Android restarts the service if it gets terminated under memory pressure
-        return START_STICKY;
+        // Ensure we try connecting if not already connected
+        if (bleManager != null && !bleManager.isConnected()) {
+            bleManager.connect(true);
+        }
+
+        return START_STICKY; // Restarts service if Android kills it under memory pressure
+    }
+
+    public BleManager getBleManager() {
+        return bleManager;
+    }
+
+    @Override
+    public void onLog(String message) {
+        // Log locally or broadcast if MainActivity is open
+        android.util.Log.d("BleForegroundService", message);
+    }
+
+    @Override
+    public void onConnectionStateChanged(boolean isConnected, String statusText) {
+        // Update notification text dynamically based on connection status so you know if it dropped in your pocket
+        String msg = isConnected ? "Connected to ESP32" : "Disconnected. Searching...";
+        updateNotification(msg);
+    }
+
+    @Override
+    public void onServicesReady() {
+        android.util.Log.d("BleForegroundService", "GATT Services ready in background.");
+    }
+
+    @Override
+    public void onDataReceived(byte[] rawData) {
+        // Forward data if needed (or handle watch command triggers)
     }
 
     private Notification createNotification(String message) {
@@ -43,7 +84,7 @@ public class BleForegroundService extends Service {
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Wireless Start Active")
+                .setContentTitle("Wireless Start Service")
                 .setContentText(message)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(pendingIntent)
@@ -51,11 +92,18 @@ public class BleForegroundService extends Service {
                 .build();
     }
 
+    private void updateNotification(String message) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, createNotification(message));
+        }
+    }
+
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
                 "BLE Foreground Service Channel",
-                NotificationManager.IMPORTANCE_LOW // Low importance to avoid annoying sound/vibration
+                NotificationManager.IMPORTANCE_LOW
         );
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
@@ -64,7 +112,16 @@ public class BleForegroundService extends Service {
     }
 
     @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (bleManager != null) {
+            bleManager.release();
+        }
+        instance = null;
+    }
+
+    @Override
     public IBinder onBind(Intent intent) {
-        return null; // Not a bound service
+        return null;
     }
 }

@@ -37,6 +37,14 @@ public class DeviceProtocolHandler {
 
         // 1. Handle Text / Command Protocol Responses (e.g. Schedule sync from ESP32)
         if (payloadString.startsWith("SCHED_IS:")) {
+            // Only process schedule updates if the toggle is enabled in preferences
+            if (!preferenceManager.isEngineScheduleEnabled()) {
+                if (listener != null) {
+//                    listener.onProtocolLog("[ESP32 RX] Ignored schedule sync: Scheduled Engine-Run is disabled.");
+                }
+                return;
+            }
+
             try {
                 long serverEpoch = Long.parseLong(payloadString.substring(9).trim());
                 if (listener == null) {

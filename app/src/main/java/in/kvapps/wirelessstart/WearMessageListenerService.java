@@ -76,7 +76,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     long targetEpoch = dataMap.getLong(Constants.KEY_SCHEDULE_EPOCH, -1);
 
                     if (targetEpoch >= 0) {
-                        AppLogger.logToDatabaseAndLogcat(this, TAG, "Received Schedule Epoch from Wear: " + targetEpoch);
+//                        AppLogger.logToDatabaseAndLogcat(this, TAG, "Received Schedule Epoch from Wear: " + targetEpoch);
 
                         // Broadcast to foreground MainActivity if open, else execute background write
                         Intent broadcastIntent = new Intent("DIO_SCHEDULE_TRIGGER");

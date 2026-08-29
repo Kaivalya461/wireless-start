@@ -17,6 +17,7 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchAutoConnect;
     private SwitchCompat switchFailSafe;
     private SwitchCompat switchForegroundService;
+    private SwitchCompat switchEngineSchedule;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +40,7 @@ public class SettingsActivity extends AppCompatActivity {
         switchAutoConnect = findViewById(R.id.switch_auto_connect);
         switchFailSafe = findViewById(R.id.switch_fail_safe);
         switchForegroundService = findViewById(R.id.switch_foreground_service);
+        switchEngineSchedule = findViewById(R.id.switch_engine_schedule);
     }
 
     private void loadStoredPreferences() {
@@ -46,6 +48,7 @@ public class SettingsActivity extends AppCompatActivity {
             switchAutoConnect.setChecked(preferenceManager.isAutoConnectEnabled());
             switchFailSafe.setChecked(preferenceManager.isFailSafeEnabled());
             switchForegroundService.setChecked(preferenceManager.isForegroundServiceEnabled());
+            switchEngineSchedule.setChecked(preferenceManager.isEngineScheduleEnabled());
         }
     }
 
@@ -81,11 +84,39 @@ public class SettingsActivity extends AppCompatActivity {
                 }
             }
         });
+
+        // Scheduled Engine-Run
+        setupScheduledEngineRunListener();
     }
 
     @Override
     public boolean onSupportNavigateUp() {
         finish();
         return true;
+    }
+
+    private void setupScheduledEngineRunListener() {
+        switchEngineSchedule.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (preferenceManager != null) {
+                // First clean up the Engine-Run Schedule in case of disable
+                if (isChecked) {
+                    // Do nothing when enabled. Schedule can be set using Date/Time picker from the Wear App.
+                } else {
+                    bleManager.sendScheduledEpoch(0);
+
+                    // Request for updated schedule from ESP32 after some delay
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        if (bleManager != null && bleManager.isConnected()) {
+                            bleManager.requestScheduleFromEsp32();
+                        }
+                    }, 500); // 0.5 sec delay
+                }
+
+                // Lastly update the Preferences
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    preferenceManager.setEngineScheduleEnabled(isChecked);
+                }, 2000); // 2 delay
+            }
+        });
     }
 }

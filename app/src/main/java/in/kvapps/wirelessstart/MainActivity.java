@@ -195,7 +195,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         bleManager.sendBleCommand(
                 command,
                 () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),  //onSuccess callback
-                null //onFailure callback
+                () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)    //onFailure callback
         );
 
         long pulseMs = preferenceManager.getSelectedStartPulseDuration();
@@ -543,6 +543,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         scheduleReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
+                if (!preferenceManager.isEngineScheduleEnabled()) {
+                    onLog("[WATCH RX] Scheduled Engine-Run feature is disabled");
+                    return;
+                }
+
                 long targetEpoch = intent.getLongExtra("EPOCH", -1);
                 if (targetEpoch >= 0) {
                     if (bleManager != null && bleManager.isConnected()) {

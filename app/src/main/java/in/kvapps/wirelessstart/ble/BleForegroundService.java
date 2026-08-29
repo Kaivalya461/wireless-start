@@ -62,7 +62,7 @@ public class BleForegroundService extends Service implements BleManager.BleListe
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         // Update notification text dynamically based on connection status so you know if it dropped in your pocket
-        String msg = isConnected ? "Connected to ESP32" : "Disconnected. Searching...";
+        String msg = isConnected ? "Connected. All Systems healthy." : "Disconnected. Searching...";
         updateNotification(msg);
     }
 

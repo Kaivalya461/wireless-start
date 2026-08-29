@@ -158,7 +158,7 @@ public class PreferenceManager {
     }
 
     public boolean isFailSafeEnabled() {
-        return prefs.getBoolean("fail_safe_enabled", true); // Default to true
+        return prefs.getBoolean("fail_safe_enabled", false); // Default to true
     }
 
     public void setFailSafeEnabled(boolean enabled) {

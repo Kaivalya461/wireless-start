@@ -13,11 +13,13 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -29,21 +31,30 @@ import com.google.android.material.textfield.TextInputEditText;
 import java.util.ArrayList;
 import java.util.List;
 
+import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 
 public class EditConfigActivity extends AppCompatActivity {
 
     private TextInputEditText inputName, inputMac;
     private MaterialButton btnScan, btnSave;
+    private LinearLayout layoutSignalStrength;
+    private TextView tvSignalStrength;
 
     private BluetoothLeScanner bluetoothLeScanner;
     private boolean isScanning = false;
-    private final Handler handler = new Handler();
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     private final ArrayList<BluetoothDevice> scannedDevices = new ArrayList<>();
     private AlertDialog scanDialog;
     private PreferenceManager preferenceManager;
+    private BleManager bleManager;
     private ScannedDeviceAdapter scanAdapter;
+
+    // RSSI Polling Handler & Runnable
+    private final Handler rssiHandler = new Handler(Looper.getMainLooper());
+    private Runnable rssiRunnable;
+    private static final long RSSI_UPDATE_INTERVAL_MS = 2000; // Check every 2 seconds
 
     private static final int REQUEST_CODE_PERMISSIONS = 101;
 
@@ -52,13 +63,18 @@ public class EditConfigActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit_config);
 
-        // Initialize PreferenceManager
-        preferenceManager = new PreferenceManager(this);
+        // Initialize Managers from Application
+        MyApplication app = (MyApplication) getApplication();
+        preferenceManager = app.getPreferenceManager();
+        bleManager = app.getBleManager();
 
+        // Initialize views
         inputName = findViewById(R.id.input_edit_name);
         inputMac = findViewById(R.id.input_edit_mac);
         btnScan = findViewById(R.id.btn_scan_ble);
         btnSave = findViewById(R.id.btn_save_config);
+        layoutSignalStrength = findViewById(R.id.layout_signal_strength);
+        tvSignalStrength = findViewById(R.id.tv_signal_strength);
 
         // Pre-populate fields with currently saved values
         inputName.setText(preferenceManager.getTargetHwName());
@@ -89,13 +105,57 @@ public class EditConfigActivity extends AppCompatActivity {
                 Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
             }
         });
+
+        setupRssiPolling();
+    }
+
+    private void setupRssiPolling() {
+        rssiRunnable = new Runnable() {
+            @Override
+            public void run() {
+                updateSignalStrengthUI();
+                rssiHandler.postDelayed(this, RSSI_UPDATE_INTERVAL_MS);
+            }
+        };
+    }
+
+    private void updateSignalStrengthUI() {
+        if (bleManager != null && bleManager.isConnected()) {
+            layoutSignalStrength.setVisibility(View.VISIBLE);
+
+            bleManager.readRssi(rssi -> {
+                runOnUiThread(() -> {
+                    if (rssi != 0) {
+                        tvSignalStrength.setText("Signal Strength: " + rssi + " dBm");
+                    } else {
+                        tvSignalStrength.setText("Signal Strength: -- dBm");
+                    }
+                });
+            });
+        } else {
+            layoutSignalStrength.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Start polling the RSSI value periodically when active
+        rssiHandler.post(rssiRunnable);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopBleScan();
+        // Stop polling RSSI when leaving the activity to prevent resource waste
+        rssiHandler.removeCallbacks(rssiRunnable);
     }
 
     private void checkPermissionsAndScan() {
         ArrayList<String> permissionsNeeded = new ArrayList<>();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12 (API 31) and higher: Only need BLUETOOTH_SCAN and BLUETOOTH_CONNECT
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(Manifest.permission.BLUETOOTH_SCAN);
             }
@@ -103,7 +163,6 @@ public class EditConfigActivity extends AppCompatActivity {
                 permissionsNeeded.add(Manifest.permission.BLUETOOTH_CONNECT);
             }
         } else {
-            // Android 11 (API 30) and lower: Still require Fine Location to perform BLE scans
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
             }
@@ -139,14 +198,9 @@ public class EditConfigActivity extends AppCompatActivity {
         }
 
         scannedDevices.clear();
-
-        // Initialize custom adapter
         scanAdapter = new ScannedDeviceAdapter(this, scannedDevices);
 
-        // Build using MaterialAlertDialogBuilder for native Material styling
-        MaterialAlertDialogBuilder builder =
-                new MaterialAlertDialogBuilder(this);
-
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle("Select Device");
         builder.setAdapter(scanAdapter, (dialog, which) -> {
             BluetoothDevice selectedDevice = scannedDevices.get(which);
@@ -189,12 +243,6 @@ public class EditConfigActivity extends AppCompatActivity {
                 Log.e("BLE_SCAN", "Security exception stopping scan", e);
             }
         }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        stopBleScan();
     }
 
     public class ScannedDeviceAdapter extends BaseAdapter {

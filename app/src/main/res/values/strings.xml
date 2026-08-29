@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">Wireless Start</string>
+    <!-- Settings UI Strings -->
+    <string name="settings_title">APPLICATION SETTINGS</string>
+    <string name="setting_auto_connect_title">Auto Connect</string>
+    <string name="setting_auto_connect_desc">Automatically reconnect to target device. Note: App constantly tries to find and connect.</string>
+    <string name="setting_foreground_service_title">24/7 Background Service</string>
+    <string name="setting_foreground_service_desc">Keep a persistent notification running in background to ensure Android OS does not put Wireless Start app in battery optimization mode. Recommended if Auto Connect is enabled.</string>
+    <string name="setting_fail_safe_title">Fail-Safe Ignition (Requires Stop Relay)</string>
+    <string name="setting_fail_safe_desc">The stop relay acts as a safety loop, allowing the vehicle to start only when energized. Disabling this tells the ESP32 controller not to energize the stop relay during boot.</string>
+    <string name="setting_engine_schedule_title">Scheduled Engine-Run</string>
+    <string name="setting_engine_schedule_desc">Automatically start the engine based on your configured time. Note: Currently this is only available on Watch App.</string>
 </resources>

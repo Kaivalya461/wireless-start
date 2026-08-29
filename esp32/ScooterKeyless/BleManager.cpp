@@ -8,6 +8,7 @@
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
+const unsigned long DEFAULT_STOP_PULSE_MS = 1700;
 
 Preferences blePreferences;
 NimBLECharacteristic *pCharacteristic;
@@ -96,6 +97,34 @@ class MyCallbacks: public NimBLECharacteristicCallbacks {
             }
             requestRelayPulse(START_RELAY_PIN, duration);
         }
+            // 3. Stop Action Execution Route
+        else if (command.startsWith("STOP")) {
+            unsigned long duration = DEFAULT_STOP_PULSE_MS;
+            if (command.startsWith("STOP:")) {
+                duration = getValidatedDuration(command.substring(6).toInt());
+            }
+            requestRelayPulse(STOP_RELAY_PIN, duration);
+        }
+            // 4. STOP Relay Fail-Safe toggle
+        else if (command.equals("FAILSAFE:OFF")) {
+            setStopFailSafeActive(false);
+            Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED by App.");
+            return; // Terminate execution block early
+        }
+        else if (command.equals("FAILSAFE:ON")) {
+            setStopFailSafeActive(true);
+            Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED by App.");
+            return; // Terminate execution block early
+        }
+            // 5. Scheduled Engine Start/Stop
+        else if (command.startsWith("SCHED_RUN:")) {
+            unsigned long epoch = command.substring(10).toInt();
+            setScheduledTaskEpoch(epoch);
+        }
+        else if (command.equals("GET_ENGINE_SCHEDULE")) {
+            // Respond back to phone with the currently active schedule
+            transmitEngineScheduleTime(getScheduledTaskEpoch());
+        }
     }
 };
 
@@ -176,6 +205,22 @@ void transmitBatteryTelemetry(uint16_t mvPayload) {
 
     pCharacteristic->setValue(payloadBuffer, 2);
     pCharacteristic->notify();
+}
+
+void transmitEngineScheduleTime(unsigned long epochPayload) {
+    if (!bleConnected) return;
+
+    // 1. Format the response string matching your parser protocol
+    String response = "SCHED_IS:" + String(epochPayload);
+
+    // 2. Set the characteristic value with the response string
+    pCharacteristic->setValue(response.c_str());
+
+    // 3. Notify the connected phone app client
+    pCharacteristic->notify();
+
+    Serial.print("Transmitted active schedule to phone: ");
+    Serial.println(response);
 }
 
 void setDeviceName(String newName) {

@@ -15,6 +15,8 @@ import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.os.Build;
+import android.util.Log;
+
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -25,7 +27,10 @@ public class BleManager {
         void onLog(String message);
         void onConnectionStateChanged(boolean isConnected, String statusText);
         void onServicesReady();
-        void onVoltageReceived(float voltage); // NEW: Dispatches updated voltage string
+        void onDataReceived(byte[] rawData);
+    }
+    public interface RssiCallback {
+        void onRssiRead(int rssi);
     }
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
@@ -35,6 +40,7 @@ public class BleManager {
 
     private final Context context;
     private BleListener listener; // Modified to allow updating listener dynamically across layouts/activities
+    private RssiCallback currentRssiCallback;
     private final BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic commandCharacteristic;
@@ -195,7 +201,7 @@ public class BleManager {
                 }
 
                 if (success) {
-                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
+//                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
                     if (onSuccess != null) {
                         onSuccess.run(); // Trigger the success callback
                     }
@@ -348,18 +354,7 @@ public class BleManager {
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
-                if (data != null && data.length >= 2) {
-                    // Extract byte structures and shift bits to rebuild the 16-bit payload
-                    int highByte = data[0] & 0xFF;
-                    int lowByte = data[1] & 0xFF;
-                    int milliVolts = (highByte << 8) | lowByte;
-
-                    // Convert raw millivolt integer back into a decimal reading
-                    float finalVoltage = milliVolts / 1000.0f;
-
-                    // Pass metrics back up to the main UI loop safely
-                    if (listener != null) listener.onVoltageReceived(finalVoltage);
-                }
+                listener.onDataReceived(data);
             }
         }
 
@@ -367,9 +362,20 @@ public class BleManager {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null && value.length >= 2) {
-                int milliVolts = ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
-                float finalVoltage = milliVolts / 1000.0f;
-                if (listener != null) listener.onVoltageReceived(finalVoltage);
+                listener.onDataReceived(value);
+            }
+        }
+
+        @Override
+        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(rssi);
+                }
+            } else {
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(0);
+                }
             }
         }
     };
@@ -387,5 +393,65 @@ public class BleManager {
         String syncCommand = "TIME:" + currentEpochSeconds;
 //        listener.onLog("Auto-syncing system time to ESP32...");
         sendBleCommand(syncCommand, null, null);
+    }
+
+    // Send Fail-Safe state as a plain-text command string to prevent GATT queue collisions
+    public void syncFailSafeState(boolean isEnabled) {
+        String command = isEnabled ? "FAILSAFE:ON" : "FAILSAFE:OFF";
+        sendBleCommand(command, null, null);
+    }
+
+    // Executes initialization commands sequentially with built-in spacing to prevent GATT collisions
+    public void syncInitializationSequence(Runnable... tasks) {
+        if (tasks == null || tasks.length == 0) return;
+
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        for (int i = 0; i < tasks.length; i++) {
+            final Runnable task = tasks[i];
+            long delayMillis = i * 50L; // Stagger each command by 50ms
+            handler.postDelayed(() -> {
+                if (isConnected()) {
+                    task.run();
+                }
+            }, delayMillis);
+        }
+    }
+
+    public void sendScheduledEpoch(long epochSeconds) {
+        String command = "SCHED_RUN:" + epochSeconds;
+        sendBleCommand(command,
+                () -> Log.d("BleManager", "Scheduled Epoch transmitted successfully -> " + epochSeconds),
+                () -> Log.e("BleManager", "Failed to transmit Scheduled Epoch command.")
+        );
+    }
+
+    public void requestScheduleFromEsp32() {
+        sendBleCommand("GET_ENGINE_SCHEDULE", () -> {
+            Log.d("BleManager", "Requested active schedule from ESP32");
+        }, null);
+    }
+
+    public void readRssi(RssiCallback callback) {
+        this.currentRssiCallback = callback;
+        if (bluetoothGatt != null) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                        bluetoothGatt.readRemoteRssi();
+                    }
+                } else {
+                    bluetoothGatt.readRemoteRssi();
+                }
+            } catch (SecurityException e) {
+                if (listener != null) listener.onLog("Security Error: Blocked reading RSSI.");
+                if (currentRssiCallback != null) {
+                    currentRssiCallback.onRssiRead(0);
+                }
+            }
+        } else {
+            if (currentRssiCallback != null) {
+                currentRssiCallback.onRssiRead(0);
+            }
+        }
     }
 }

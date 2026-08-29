@@ -1,7 +1,5 @@
 #include "Battery.h"
-#include <Preferences.h>
-
-Preferences preferences;
+#include "Globals.h"
 
 const float DIVIDER_RATIO = 5.7;
 const float FILTER_ALPHA = 0.222; //1.0: No smoothing at all (passes raw instant voltage straight through)

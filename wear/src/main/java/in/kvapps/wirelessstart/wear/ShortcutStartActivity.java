@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 
+import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.wear.pubsub.StartEventBus;
 import in.kvapps.wirelessstart.wear.util.ActionUtil;
 import in.kvapps.wirelessstart.wear.util.EdgeAnimationView;
@@ -22,7 +23,7 @@ public class ShortcutStartActivity extends Activity {
         setContentView(R.layout.activity_shortcut_start);
 
         // Command - Fire the start request path to phone
-        ActionUtil.transmitActionToPhone(this, ActionUtil.START_PATH, "Cranking Engine...");
+        ActionUtil.transmitActionToPhone(this, Constants.START_PATH, "Cranking Engine...");
 
         // Animation - Start creeping slowly toward the finish line while waiting
         edgeView = findViewById(R.id.edgeAnimationView);

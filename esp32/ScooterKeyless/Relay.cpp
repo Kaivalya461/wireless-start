@@ -1,12 +1,14 @@
+// Relay.cpp
 #include "Relay.h"
 #include "BleManager.h" // Needed to check if a phone is connected before sleeping
 #include "esp_sleep.h"
 #include <sys/time.h>
+#include "Globals.h"
 
 // --- Relay Logic Configuration ---
 // Set to true if LOW turns the relay ON (common for optocoupler modules/MOSFETs)
 // Set to false if HIGH turns the relay ON
-bool RELAY_ACTIVE_LOW = false;
+//bool RELAY_ACTIVE_LOW = false;
 
 // Night Sleep Window (1:30 AM to 8:30 AM)
 #define SLEEP_START_HOUR   1
@@ -25,6 +27,15 @@ const unsigned long MAX_SAFE_PULSE_MS      = 5000;
 const unsigned long DEFAULT_PULSE_MS       = 1500;
 const unsigned long STARTER_COOLDOWN_MS    = 3000;
 
+// Fail-Safe Stop Relay & Debounce Configuration Variables
+const unsigned long DISCONNECT_GRACE_PERIOD_MS = 20000; // 20-second anti-stall grace period
+unsigned long disconnectionStartTime       = 0;
+bool isDisconnectTimerActive               = false;
+bool lastBleConnectionState                = false;
+// Fail-Safe User Configuration Variable (Defaults to true)
+bool stopFailSafeEnabled = true;
+static bool hasEverConnected = false;
+
 unsigned long lastStartExecutionTime       = 0;
 bool isPulseActive                         = false;
 
@@ -33,12 +44,28 @@ unsigned long pulseStartTime               = 0;
 unsigned long activePulseDuration          = 0;
 bool timeIsSynced                          = false;
 
-// --- Helper Functions for Dynamic Relay Logic ---
+// --- Scheduled Engine Run Task Configuration Starts ---
+unsigned long targetExecutionEpoch = 0; // 0 means no scheduled task is active
+bool scheduledTaskPending = false;
+
+const unsigned long SCHEDULED_TASK_DURATION_MS = 2UL * 60UL * 1000UL; // 2 minutes
+
+static bool isScheduledTaskActive = false;
+static unsigned long scheduledTaskStartTime = 0;
+
+// --- Logging Interval Variable ---
+unsigned long lastSchedLogTime = 0;
+const unsigned long SCHED_LOG_INTERVAL_MS = 30UL * 1000UL; // Every 1 minute
+// --- Scheduled Engine Run Task Configuration Ends ---
+
+// --- Helper Functions for Mixed Active-High / Active-Low Logic ---
 void setRelayState(int pin, bool state) {
-    if (RELAY_ACTIVE_LOW) {
-        digitalWrite(pin, state ? LOW : HIGH);
-    } else {
+    if (pin == START_RELAY_PIN) {
+        // START Relay is Active-HIGH (TRUE = HIGH, FALSE = LOW)
         digitalWrite(pin, state ? HIGH : LOW);
+    } else if (pin == STOP_RELAY_PIN) {
+        // STOP Relay is Active-LOW (TRUE = LOW, FALSE = HIGH)
+        digitalWrite(pin, state ? LOW : HIGH);
     }
 }
 
@@ -47,17 +74,21 @@ bool getIsPulseActive() {
 }
 
 void initRelays() {
-    pinMode(START_RELAY_PIN, OUTPUT);
-    setRelayState(START_RELAY_PIN, false); // Force off safely instantly
+    preferences.begin("engine_prefs", false);
+    targetExecutionEpoch = preferences.getULong("sched_epoch", 0);
 
-    // Retain states across deep sleep cycles safely
-    if (RELAY_ACTIVE_LOW) {
-        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLUP_ONLY);
-    } else {
-        gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
-    }
+    // Configure Start Relay (Active-High)
+    pinMode(START_RELAY_PIN, OUTPUT);
+    setRelayState(START_RELAY_PIN, false);
+    gpio_set_pull_mode((gpio_num_t)START_RELAY_PIN, GPIO_PULLDOWN_ONLY);
+
+    // Configure Stop Relay (Active-Low)
+    pinMode(STOP_RELAY_PIN, OUTPUT);
+    setRelayState(STOP_RELAY_PIN, false);
+    gpio_set_pull_mode((gpio_num_t)STOP_RELAY_PIN, GPIO_PULLUP_ONLY);
 
     gpio_hold_dis((gpio_num_t)START_RELAY_PIN);
+    gpio_hold_dis((gpio_num_t)STOP_RELAY_PIN);
     gpio_deep_sleep_hold_dis();
 }
 
@@ -74,8 +105,11 @@ void syncTime(unsigned long epochTime) {
 void enterDeepSleep(uint64_t sleepDurationSeconds) {
     Serial.println(">>> Entering Scheduled Night Deep Sleep...");
 
-    setRelayState(START_RELAY_PIN, false); // Ensure Relay is OFF before sleeping
+    setRelayState(START_RELAY_PIN, false);
+    setRelayState(STOP_RELAY_PIN, false);
+
     gpio_hold_en((gpio_num_t)START_RELAY_PIN);
+    gpio_hold_en((gpio_num_t)STOP_RELAY_PIN);
     gpio_deep_sleep_hold_en();
 
     esp_sleep_enable_timer_wakeup(sleepDurationSeconds * 1000000ULL);
@@ -128,6 +162,11 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
         return false;
     }
 
+    if (pin != START_RELAY_PIN && pin != STOP_RELAY_PIN) {
+        Serial.println(">>> REJECTED: Invalid relay pin requested!");
+        return false;
+    }
+
     if (pin == START_RELAY_PIN && (now - lastStartExecutionTime < STARTER_COOLDOWN_MS)) {
         Serial.print(">>> REJECTED: Starter motor cooling down! Wait ");
         Serial.print((STARTER_COOLDOWN_MS - (now - lastStartExecutionTime)) / 1000.0);
@@ -140,12 +179,21 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
     activePulseDuration  = durationMs;
     isPulseActive        = true;
 
-    setRelayState(pin, true); // Turn Relay ON using dynamic logic
-    Serial.print("-> Relay PIN ");
-    Serial.print(pin);
-    Serial.print(" ON for ");
-    Serial.print(durationMs);
-    Serial.println(" ms");
+    // --- PULSE BEHAVIOR SPLIT ---
+    if (pin == START_RELAY_PIN) {
+        // Start Relay: Standard pulse ON (energize)
+        setRelayState(pin, true);
+        Serial.print("-> Start Relay ON for ");
+        Serial.print(durationMs);
+        Serial.println(" ms");
+        lastStartExecutionTime = now;
+    } else if (pin == STOP_RELAY_PIN) {
+        // Stop Relay: Temporary pulse OFF (release/open circuit)
+        setRelayState(pin, false);
+        Serial.print("-> Stop Relay RELEASED (OFF) for ");
+        Serial.print(durationMs);
+        Serial.println(" ms");
+    }
 
     if (pin == START_RELAY_PIN) {
         lastStartExecutionTime = now;
@@ -156,10 +204,202 @@ bool requestRelayPulse(int pin, unsigned long durationMs) {
 void updateRelayPulses() {
     if (isPulseActive) {
         if (millis() - pulseStartTime >= activePulseDuration) {
-            setRelayState(activeRelayPin, false); // Turn Relay OFF using dynamic logic
-            Serial.println("-> Pulse complete. Relay Pin restored to OFF state.");
+            // --- RESTORE BEHAVIOR SPLIT ---
+            if (activeRelayPin == START_RELAY_PIN) {
+                setRelayState(activeRelayPin, false); // Turn Start Relay back OFF
+                Serial.println("-> Start pulse complete. Relay restored to OFF.");
+            } else if (activeRelayPin == STOP_RELAY_PIN) {
+                // Restore Stop Relay back to active fail-safe state (energized / closed) if connected, 
+                // or let the fail-safe workflow manage it.
+                bool restoreState = isBleClientConnected() && stopFailSafeEnabled;
+                setRelayState(activeRelayPin, restoreState);
+                Serial.println("-> Stop pulse complete. Relay restored to operational state.");
+            }
+
             isPulseActive = false;
             activeRelayPin = -1;
         }
+    }
+}
+
+// --- Updated Fail-Safe Stop Relay Workflow with User-Configurable Check ---
+void updateStopRelayFailSafe() {
+    // If a hardware pulse (User Action) is actively running on the stop relay,
+    // pause fail-safe overrides so the pulse can freely control the pin.
+    if (isPulseActive && activeRelayPin == STOP_RELAY_PIN) {
+        return;
+    }
+
+    // Check if the user has turned off the fail-safe feature from the Android app
+    if (!stopFailSafeEnabled) {
+        // Feature is disabled: Keep the stop relay de-energized
+        setRelayState(STOP_RELAY_PIN, false);
+
+        // Reset timers so it triggers cleanly if re-enabled later
+        isDisconnectTimerActive = false;
+        lastBleConnectionState = isBleClientConnected();
+        return;
+    }
+
+    // --- Original Fail-Safe Logic (Runs only when enabled) ---
+    bool currentBleState = isBleClientConnected();
+
+    if (currentBleState) {
+        // Connected: Keep Stop Relay held closed (Active-Low -> LOW)
+        hasEverConnected = true;
+        setRelayState(STOP_RELAY_PIN, true);
+
+        if (isDisconnectTimerActive) {
+            isDisconnectTimerActive = false;
+            Serial.println(">>> Phone reconnected within grace period. Ride uninterrupted!");
+        }
+
+        if (!lastBleConnectionState) {
+            Serial.println(">>> Phone Connected: Fail-safe disarmed.");
+        }
+    } else {
+        // --- COLD START PROTECTION ---
+        // If the phone has never connected since boot, do NOT trigger a grace period.
+        // Just keep the stop relay de-energized until the user actually connects their phone.
+        if (!hasEverConnected) {
+            setRelayState(STOP_RELAY_PIN, false);
+            return;
+        }
+
+        // Disconnected: Handle grace period before cutting power
+        if (lastBleConnectionState || !isDisconnectTimerActive) {
+            disconnectionStartTime = millis();
+            isDisconnectTimerActive = true;
+            Serial.println(">>> BLE connection lost! Starting 4s grace period...");
+        }
+
+        if (isDisconnectTimerActive && (millis() - disconnectionStartTime >= DISCONNECT_GRACE_PERIOD_MS)) {
+            // Grace period expired — Kill switch active (Active-Low -> HIGH)
+            setRelayState(STOP_RELAY_PIN, false);
+//            Serial.println(">>> Grace period expired. Fail-safe ARMED (Stop relay opened).");
+        } else {
+            // Within grace period window — keep relay energized to prevent stalling
+            setRelayState(STOP_RELAY_PIN, true);
+        }
+    }
+
+    lastBleConnectionState = currentBleState;
+}
+
+void setStopFailSafeActive(bool active) {
+    stopFailSafeEnabled = active;
+
+    if (active) {
+        // Force the stop relay to stay securely closed right now!
+        setRelayState(STOP_RELAY_PIN, true);
+    } else {
+        // Re-arm tracking state so it guards against drops right away
+        lastBleConnectionState = isBleClientConnected();
+        isDisconnectTimerActive = false;
+    }
+}
+
+unsigned long getScheduledTaskEpoch() {
+    return targetExecutionEpoch;
+}
+
+void setScheduledTaskEpoch(unsigned long epochTime) {
+    targetExecutionEpoch = epochTime;
+    scheduledTaskPending = (epochTime > 0);
+    lastSchedLogTime = millis(); // Reset interval timer on new schedule
+
+    preferences.putULong("sched_epoch", targetExecutionEpoch);
+
+    if (scheduledTaskPending) {
+        time_t t = (time_t)epochTime;
+        struct tm *timeinfo = localtime(&t);
+        char timeBuffer[30];
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+        Serial.print(">>> Scheduled Engine Task set for: ");
+        Serial.println(timeBuffer);
+    } else {
+        Serial.println(">>> Scheduled Engine Task cleared/disabled.");
+    }
+}
+
+void checkScheduledEngineTask() {
+    // 1. Handle the Active 2-Minute Run Window & Kill Logic (Independent of target time checks)
+    if (isScheduledTaskActive) {
+        // Force the Stop Relay to stay continuously energized during the 2-minute run window
+        if (!isPulseActive || activeRelayPin != STOP_RELAY_PIN) {
+            setRelayState(STOP_RELAY_PIN, true);
+        }
+
+        // Once 2 minutes have elapsed, kill the engine
+        if (millis() - scheduledTaskStartTime >= SCHEDULED_TASK_DURATION_MS) {
+            Serial.println(">>> Scheduled Task Duration Reached (2 mins): Executing Kill/Stop sequence.");
+
+            // Cut the Stop Relay (De-energize -> Open circuit / Kill engine)
+            setRelayState(STOP_RELAY_PIN, false);
+
+            isScheduledTaskActive = false; // Reset state
+        }
+        return; // Skip looking for new triggers while task is actively running
+    }
+
+    // 2. Check if a task is pending and system time is synced
+    if (!scheduledTaskPending || !timeIsSynced || targetExecutionEpoch == 0) return;
+
+    time_t now;
+    time(&now); // Get current epoch time from system
+
+    // Print scheduled run time and date every 2 minutes while waiting
+    if (millis() - lastSchedLogTime >= SCHED_LOG_INTERVAL_MS) {
+        lastSchedLogTime = millis();
+
+        time_t t = (time_t)targetExecutionEpoch;
+        struct tm *timeinfo = localtime(&t);
+        char timeBuffer[30];
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+        Serial.print("[STATUS] Next Scheduled Task Target: ");
+        Serial.println(timeBuffer);
+    }
+
+    // 3. Check if we haven't reached the target time yet
+    if ((unsigned long)now < targetExecutionEpoch) {
+        return; // Too early, wait until target time
+    }
+
+    // --- FIX: Expiration Window Check ---
+    // If conditions (like BLE disconnection) aren't met within 2 minutes of the target time,
+    // consider the schedule missed and clear it.
+    const unsigned long TASK_EXPIRATION_WINDOW_SEC = 2UL * 60UL; // 2 minutes tolerance
+    if ((unsigned long)now > (targetExecutionEpoch + TASK_EXPIRATION_WINDOW_SEC)) {
+        Serial.println(">>> Scheduled Task Expired: Target time passed and conditions were not met in time.");
+        setScheduledTaskEpoch(0); // Clears the task and updates preferences
+        return;
+    }
+
+    // 4. Enforce Constraints at the moment of trigger:
+    // - Bluetooth must NOT be connected.
+    // - If disconnected, it must be disconnected for MORE than 2 minutes.
+    if (isBleClientConnected()) {
+        return;
+    }
+
+    unsigned long timeSinceDisconnection = millis() - getDisconnectionTime();
+    if (timeSinceDisconnection < (2L * 60UL * 1000UL)) {
+        return; // Not disconnected long enough yet
+    }
+
+    // 5. All conditions met! Execute the Scheduled Start Task
+    Serial.println(">>> Scheduled Task Triggered for Future Date/Time under isolated conditions.");
+
+    // A. ACTUALLY Energize Stop Relay so the ignition/run circuit is closed (Active-Low -> LOW)
+    setRelayState(STOP_RELAY_PIN, true);
+    Serial.println("-> Stop Relay Energized (Ignition ON).");
+
+    // B. Pulse the Starter Motor for exactly 1 second to crank the engine
+    if (requestRelayPulse(START_RELAY_PIN, DEFAULT_PULSE_MS)) {
+        scheduledTaskPending = false;   // Mark task as handled so it doesn't loop
+        isScheduledTaskActive = true;   // Enables the 2-minute timer block above
+        scheduledTaskStartTime = millis();
     }
 }

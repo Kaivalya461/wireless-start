@@ -42,6 +42,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".WearScheduleActivity"
+            android:exported="false"
+            android:taskAffinity="" />
+
         <service
             android:name=".PhoneMessageListenerService"
             android:exported="true">

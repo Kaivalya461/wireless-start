@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:padding="12px">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <!-- Title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Engine Schedule"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Previously Scheduled Time Status Label -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="8dp"
+            android:background="#1E1E1E"
+            android:layout_marginBottom="10dp"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Active Run Time:"
+                android:textSize="10sp"
+                android:textColor="#AAAAAA"/>
+
+            <TextView
+                android:id="@+id/txt_wear_scheduled_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="None Set"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#00FFCC"
+                android:layout_marginTop="2dp"/>
+        </LinearLayout>
+
+        <!-- Pick Time Button -->
+        <Button
+            android:id="@+id/btn_wear_pick_time"
+            android:layout_width="120dp"
+            android:layout_height="36dp"
+            android:text="Set Time"
+            android:textSize="11sp"
+            android:layout_marginBottom="6dp"/>
+
+        <!-- Cancel Schedule Button -->
+        <Button
+            android:id="@+id/btn_wear_cancel_schedule"
+            android:layout_width="120dp"
+            android:layout_height="36dp"
+            android:text="Cancel"
+            android:textSize="11sp"
+            android:backgroundTint="#882222"
+            android:textColor="#FFFFFF"/>
+
+    </LinearLayout>
+</ScrollView>

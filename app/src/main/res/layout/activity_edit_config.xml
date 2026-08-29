@@ -37,6 +37,36 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="20dp" />
 
+            <!-- Signal Strength Indicator Row -->
+            <LinearLayout
+                android:id="@+id/layout_signal_strength"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="20dp"
+                android:background="#161616"
+                android:padding="12dp"
+                android:visibility="visible"> <!-- Change to "gone" if not connected initially -->
+
+                <ImageView
+                    android:id="@+id/iv_signal_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_signal_cellular_alt"
+                    app:tint="#4A90E2"
+                    android:layout_marginEnd="10dp"
+                    android:contentDescription="Signal Strength" />
+
+                <TextView
+                    android:id="@+id/tv_signal_strength"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Signal Strength: -- dBm"
+                    android:textColor="#AAAAAA"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
             <!-- 1. Device Name Input Layout -->
             <com.google.android.material.textfield.TextInputLayout
                 style="?attr/textInputOutlinedStyle"

@@ -28,6 +28,14 @@ public class WearMessageListenerService extends WearableListenerService implemen
     private long commandStartTime = 0;
 
     @Override
+    public void onCreate() {
+        super.onCreate();
+        // Grab the app-wide singleton BleManager from MyApplication
+        MyApplication app = (MyApplication) getApplication();
+        bleManager = app.getBleManager();
+    }
+
+    @Override
     public void onMessageReceived(MessageEvent messageEvent) {
         String path = messageEvent.getPath();
         Log.d(TAG, "Received watch route path: " + path);
@@ -102,17 +110,23 @@ public class WearMessageListenerService extends WearableListenerService implemen
         this.pendingCommandToSend = command;
         this.commandStartTime = System.currentTimeMillis();
 
-        // Clean up any stale manager instance first
         if (bleManager != null) {
-            bleManager.release();
-            bleManager = null;
+            // Attach this service as the active listener for the background operation
+            bleManager.setListener(this);
+
+            if (bleManager.isConnected()) {
+                // Already connected (e.g., foreground service kept it alive)
+                sendPendingCommandNow();
+            } else {
+                // Not connected, initiate connection using the shared manager
+                bleManager.connect(false);
+            }
         }
+    }
 
-        // Pass application context instead of service context if possible
-        // to decouple it from short-lived service states
-        bleManager = new BleManager(getApplicationContext(), this);
-
-        bleManager.connect(false);
+    @Override
+    public void onServicesReady() {
+        sendPendingCommandNow();
     }
 
     @Override
@@ -124,29 +138,9 @@ public class WearMessageListenerService extends WearableListenerService implemen
     @Override
     public void onConnectionStateChanged(boolean isConnected, String statusText) {
         Log.d(TAG, "[BLE STATE] " + statusText);
-        if (!isConnected) {
-            // Clean up if connection drops or fails
-            cleanup();
-        }
-    }
-
-    @Override
-    public void onServicesReady() {
-        if (pendingCommandToSend != null) {
-            final String executedCommand = pendingCommandToSend; // capture for lambda scope
-
-            new android.os.Handler(getMainLooper()).postDelayed(() -> {
-                if (bleManager != null && pendingCommandToSend != null) {
-                    onLog("Transmitting pending action command: " + executedCommand);
-
-                    bleManager.sendBleCommand(
-                            executedCommand,
-                            () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
-                            () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
-                    );
-                    pendingCommandToSend = null;
-                }
-            }, 50);
+        if (!isConnected && pendingCommandToSend != null) {
+            onLog("Connection failed while trying to execute background command.");
+            handleCommandResult(pendingCommandToSend, Constants.COMMAND_FAILURE);
         }
     }
 
@@ -159,15 +153,6 @@ public class WearMessageListenerService extends WearableListenerService implemen
 
         // Reset timer
         commandStartTime = 0;
-
-        cleanup();
-    }
-
-    private void cleanup() {
-        if (bleManager != null) {
-            bleManager.release();
-            bleManager = null;
-        }
         pendingCommandToSend = null;
     }
 
@@ -175,5 +160,19 @@ public class WearMessageListenerService extends WearableListenerService implemen
     public void onDataReceived(byte[] rawData) {
         // Leave this empty as wearable listener doesn't need
         // to actively process or update the incoming message from BLE GATT
+    }
+
+    private void sendPendingCommandNow() {
+        if (pendingCommandToSend != null && bleManager != null && bleManager.isConnected()) {
+            final String executedCommand = pendingCommandToSend;
+            onLog("Transmitting background action command: " + executedCommand);
+
+            bleManager.sendBleCommand(
+                    executedCommand,
+                    () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
+                    () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
+            );
+            pendingCommandToSend = null;
+        }
     }
 }

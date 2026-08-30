@@ -352,7 +352,7 @@ public class BleManager {
         // NEW: Triggers every time the ESP32 calls pCharacteristic->notify()
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            if (CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
+            if (listener != null && CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
                 listener.onDataReceived(data);
             }

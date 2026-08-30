@@ -12,7 +12,7 @@ import in.kvapps.wirelessstart.data.PreferenceManager;
 
 public class MyApplication extends android.app.Application {
 
-    private BleManager bleManager; // Fallback singleton when BLE Foreground Service is disabled
+    private BleManager bleManager;
     private PreferenceManager preferenceManager;
 
     @Override
@@ -21,40 +21,28 @@ public class MyApplication extends android.app.Application {
 
         preferenceManager = new PreferenceManager(this);
 
-        // Start Foreground Service if enabled, otherwise initialize standalone BleManager
+        // Centralize BleManager initialization here once at application startup
+        bleManager = new BleManager(this, null);
+
+        // Start Foreground Service if enabled in preferences
         if (preferenceManager.isForegroundServiceEnabled()) {
             startBleForegroundService();
-        } else {
-            bleManager = new BleManager(this, null);
         }
 
-        // Observe when the app comes to the foreground (opened from memory/recent apps)
+        // Observe when the app comes to the foreground
         ProcessLifecycleOwner.get().getLifecycle().addObserver(new DefaultLifecycleObserver() {
             @Override
             public void onStart(@NonNull LifecycleOwner owner) {
                 DefaultLifecycleObserver.super.onStart(owner);
 
-                // When app comes to the foreground, check connection and force connect
-                BleManager manager = getBleManager();
-                if (manager != null && !manager.isConnected()) {
-                    // Force an instant connection attempt regardless of background auto-connect setting
-                    manager.connect(false);
+                if (bleManager != null && !bleManager.isConnected()) {
+                    bleManager.connect(false);
                 }
             }
         });
     }
 
     public BleManager getBleManager() {
-        // 1. If Foreground Service is running, fetch its active manager instance
-        BleForegroundService serviceInstance = BleForegroundService.getInstance();
-        if (serviceInstance != null) {
-            return serviceInstance.getBleManager();
-        }
-
-        // 2. Fallback: If service is disabled/not running, return the application-level instance
-        if (bleManager == null) {
-            bleManager = new BleManager(this, null);
-        }
         return bleManager;
     }
 

@@ -15,22 +15,15 @@ import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.shared.Constants;
 
-public class BleForegroundService extends Service implements BleManager.BleListener {
+public class BleForegroundService extends Service {
 
     private static final String CHANNEL_ID = "ble_foreground_channel";
     private static final String ACTION_FORCE_STOP = "in.kvapps.wirelessstart.ACTION_FORCE_STOP";
-    private static BleForegroundService instance;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        instance = this;
         createNotificationChannel();
-
-        BleManager manager = getBleManager();
-        if (manager != null) {
-            manager.setListener(this);
-        }
     }
 
     @Override
@@ -46,7 +39,7 @@ public class BleForegroundService extends Service implements BleManager.BleListe
 
         BleManager manager = getBleManager();
         if (manager != null && !manager.isConnected()) {
-            manager.connect(true);
+            manager.connect(false); // This parameter doesn't control the autoConnect behavior.
         }
 
         return START_STICKY;
@@ -63,7 +56,6 @@ public class BleForegroundService extends Service implements BleManager.BleListe
         // 2. Stop foreground notification and service
         stopForeground(true);
         stopSelf();
-        instance = null;
 
         // 3. Completely terminate the app process
         android.os.Process.killProcess(android.os.Process.myPid());
@@ -75,25 +67,6 @@ public class BleForegroundService extends Service implements BleManager.BleListe
         return app != null ? app.getBleManager() : null;
     }
 
-    @Override
-    public void onLog(String message) {
-        android.util.Log.d("BleForegroundService", message);
-    }
-
-    @Override
-    public void onConnectionStateChanged(boolean isConnected, String statusText) {
-        updateNotification(statusText);
-    }
-
-    @Override
-    public void onServicesReady() {
-        android.util.Log.d("BleForegroundService", "GATT Services ready in background.");
-    }
-
-    @Override
-    public void onDataReceived(byte[] rawData) {
-        // Forward data if needed (or handle watch command triggers)
-    }
 
     private Notification createNotification(String message) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
@@ -120,13 +93,6 @@ public class BleForegroundService extends Service implements BleManager.BleListe
                 .build();
     }
 
-    private void updateNotification(String message) {
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.notify(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, createNotification(message));
-        }
-    }
-
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
@@ -146,7 +112,6 @@ public class BleForegroundService extends Service implements BleManager.BleListe
         if (manager != null) {
             manager.setListener(null);
         }
-        instance = null;
     }
 
     @Override

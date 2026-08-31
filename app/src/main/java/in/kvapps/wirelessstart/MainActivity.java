@@ -262,7 +262,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             requestPermissionsLauncher.launch(PermissionUtils.getRequiredPermissions());
             return;
         }
-        bleManager.connect(preferenceManager.isAutoConnectEnabled());
+
+        if (bleManager.isBluetoothEnabled() && bleManager.isConnected()) {
+            onLog("Already Connected. Skipping on startup connect workflow.");
+            this.onServicesReady();
+        } else {
+            bleManager.connect(preferenceManager.isAutoConnectEnabled());
+        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -498,7 +504,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private void handleReconnect() {
         onLog("Manual reconnect requested...");
         updateConnectionUi(false);
-        checkPermissionsAndConnect();
+        bleManager.connect(preferenceManager.isAutoConnectEnabled());
     }
 
     private void pruneOldDatabaseRecords() {

@@ -17,6 +17,7 @@ import android.bluetooth.BluetoothProfile;
 import android.os.Build;
 import android.util.Log;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -408,7 +409,7 @@ public class BleManager {
         android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         for (int i = 0; i < tasks.length; i++) {
             final Runnable task = tasks[i];
-            long delayMillis = i * 50L; // Stagger each command by 50ms
+            long delayMillis = i * 100L; // Stagger each command by 100ms
             handler.postDelayed(() -> {
                 if (isConnected()) {
                     task.run();

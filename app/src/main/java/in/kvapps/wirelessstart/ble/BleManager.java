@@ -322,7 +322,10 @@ public class BleManager {
 
                 // ONLY start background scanning if the user's auto-connect preference is TRUE
                 if (preferenceManager.isAutoConnectEnabled()) {
-                    bleScanManager.startScan();
+                    // 3. Delay restarting the background scan to let BluetoothGatt unregister cleanly
+                    // Now start the scan safely after the system bluetooth stack settles
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(bleScanManager::startScan, 500);
                 } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");
                 }

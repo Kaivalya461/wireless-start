@@ -14,6 +14,7 @@ import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
+import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.shared.Constants;
@@ -68,6 +69,11 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     }
                 }
             }, null, Activity.RESULT_CANCELED, null, null);
+
+            if (prefManager.isForegroundServiceEnabled()) {
+                Intent serviceIntent = new Intent(this, BleForegroundService.class);
+                startForegroundService(serviceIntent);
+            }
         }
     }
 

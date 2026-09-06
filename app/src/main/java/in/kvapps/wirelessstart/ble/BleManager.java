@@ -17,7 +17,6 @@ import android.bluetooth.BluetoothProfile;
 import android.os.Build;
 import android.util.Log;
 
-import java.util.Optional;
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -217,7 +216,6 @@ public class BleManager {
         }
     }
 
-    // NEW: Subscribes Android engine to listen to incoming battery data pushes
     private void enableNotifications(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
         try {
             gatt.setCharacteristicNotification(characteristic, true);
@@ -263,8 +261,11 @@ public class BleManager {
                 bluetoothGatt.close();
             } catch (SecurityException e) {
                 if (listener != null) listener.onLog("Security Error while disconnecting GATT.");
+            } catch (Exception e) {
+                if (listener != null) listener.onLog("Error closing BluetoothGatt.");
+            } finally {
+                bluetoothGatt = null;
             }
-            bluetoothGatt = null;
         }
         commandCharacteristic = null;
     }
@@ -318,9 +319,10 @@ public class BleManager {
                     listener.onLog("System Alert: " + statusText);
                     listener.onConnectionStateChanged(false, statusText);
                 }
-                release();
 
-                // ONLY start background scanning if the user's auto-connect preference is TRUE
+                // Clear GATT state without permanently unregistering the system state listener
+                disconnect();
+
                 if (preferenceManager.isAutoConnectEnabled()) {
                     // 3. Delay restarting the background scan to let BluetoothGatt unregister cleanly
                     // Now start the scan safely after the system bluetooth stack settles
@@ -456,6 +458,13 @@ public class BleManager {
             if (currentRssiCallback != null) {
                 currentRssiCallback.onRssiRead(0);
             }
+        }
+    }
+
+    public void refreshConfiguration() {
+        String latestMac = preferenceManager.getTargetMacAddress();
+        if (bleScanManager != null) {
+            bleScanManager.updateTargetMac(latestMac);
         }
     }
 }

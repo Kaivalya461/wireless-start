@@ -1,12 +1,10 @@
 package in.kvapps.wirelessstart;
 
-import android.content.Intent;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ProcessLifecycleOwner;
 
-import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 
@@ -23,11 +21,6 @@ public class MyApplication extends android.app.Application {
 
         // Centralize BleManager initialization here once at application startup
         bleManager = new BleManager(this, null);
-
-        // Start Foreground Service if enabled in preferences
-        if (preferenceManager.isForegroundServiceEnabled()) {
-            startBleForegroundService();
-        }
 
         // Observe when the app comes to the foreground
         ProcessLifecycleOwner.get().getLifecycle().addObserver(new DefaultLifecycleObserver() {
@@ -48,10 +41,5 @@ public class MyApplication extends android.app.Application {
 
     public PreferenceManager getPreferenceManager() {
         return preferenceManager;
-    }
-
-    private void startBleForegroundService() {
-        Intent serviceIntent = new Intent(this, BleForegroundService.class);
-        startForegroundService(serviceIntent);
     }
 }

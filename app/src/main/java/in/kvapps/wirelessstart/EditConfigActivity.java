@@ -86,27 +86,37 @@ public class EditConfigActivity extends AppCompatActivity {
         }
 
         btnScan.setOnClickListener(v -> checkPermissionsAndScan());
-
-        btnSave.setOnClickListener(v -> {
-            String name = inputName.getText() != null ? inputName.getText().toString().trim() : "";
-            String mac = inputMac.getText() != null ? inputMac.getText().toString().trim() : "";
-
-            if (!name.isEmpty() && !mac.isEmpty()) {
-                // Save directly using PreferenceManager
-                preferenceManager.saveTargetHwName(name);
-                preferenceManager.saveTargetMacAddress(mac);
-
-                // EXPLICITLY set RESULT_OK so the launcher callback triggers
-                setResult(RESULT_OK);
-
-                Toast.makeText(this, "Configuration Saved!", Toast.LENGTH_SHORT).show();
-                finish();
-            } else {
-                Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
-            }
-        });
+        btnSave.setOnClickListener(v -> saveConfiguration());
 
         setupRssiPolling();
+    }
+
+    private void saveConfiguration() {
+        String name = inputName.getText() != null ? inputName.getText().toString().trim() : "";
+        String mac = inputMac.getText() != null ? inputMac.getText().toString().trim() : "";
+
+        if (!name.isEmpty() && !mac.isEmpty()) {
+            // Save directly using PreferenceManager
+            preferenceManager.saveTargetHwName(name);
+            preferenceManager.saveTargetMacAddress(mac);
+
+            // Refresh active singleton BleManager and BleScanManager instances instantly
+            if (bleManager != null) {
+                bleManager.refreshConfiguration();
+                if (bleManager.isConnected()) {
+                    bleManager.disconnect(); // Disconnect old connection so it targets the new MAC
+                }
+                bleManager.connect(preferenceManager.isAutoConnectEnabled()); // Trigger immediate scan/connect with new parameters
+            }
+
+            // EXPLICITLY set RESULT_OK so the launcher callback triggers
+            setResult(RESULT_OK);
+
+            Toast.makeText(this, "Configuration Saved & Applied!", Toast.LENGTH_SHORT).show();
+            finish();
+        } else {
+            Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void setupRssiPolling() {

@@ -216,7 +216,6 @@ public class BleManager {
         }
     }
 
-    // NEW: Subscribes Android engine to listen to incoming battery data pushes
     private void enableNotifications(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
         try {
             gatt.setCharacteristicNotification(characteristic, true);
@@ -262,8 +261,11 @@ public class BleManager {
                 bluetoothGatt.close();
             } catch (SecurityException e) {
                 if (listener != null) listener.onLog("Security Error while disconnecting GATT.");
+            } catch (Exception e) {
+                if (listener != null) listener.onLog("Error closing BluetoothGatt.");
+            } finally {
+                bluetoothGatt = null;
             }
-            bluetoothGatt = null;
         }
         commandCharacteristic = null;
     }
@@ -317,11 +319,15 @@ public class BleManager {
                     listener.onLog("System Alert: " + statusText);
                     listener.onConnectionStateChanged(false, statusText);
                 }
-                release();
 
-                // ONLY start background scanning if the user's auto-connect preference is TRUE
+                // Clear GATT state without permanently unregistering the system state listener
+                disconnect();
+
                 if (preferenceManager.isAutoConnectEnabled()) {
-                    bleScanManager.startScan();
+                    // 3. Delay restarting the background scan to let BluetoothGatt unregister cleanly
+                    // Now start the scan safely after the system bluetooth stack settles
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(bleScanManager::startScan, 500);
                 } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");
                 }
@@ -352,7 +358,7 @@ public class BleManager {
         // NEW: Triggers every time the ESP32 calls pCharacteristic->notify()
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            if (CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
+            if (listener != null && CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
                 listener.onDataReceived(data);
             }
@@ -408,7 +414,7 @@ public class BleManager {
         android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         for (int i = 0; i < tasks.length; i++) {
             final Runnable task = tasks[i];
-            long delayMillis = i * 50L; // Stagger each command by 50ms
+            long delayMillis = i * 100L; // Stagger each command by 100ms
             handler.postDelayed(() -> {
                 if (isConnected()) {
                     task.run();
@@ -452,6 +458,13 @@ public class BleManager {
             if (currentRssiCallback != null) {
                 currentRssiCallback.onRssiRead(0);
             }
+        }
+    }
+
+    public void refreshConfiguration() {
+        String latestMac = preferenceManager.getTargetMacAddress();
+        if (bleScanManager != null) {
+            bleScanManager.updateTargetMac(latestMac);
         }
     }
 }

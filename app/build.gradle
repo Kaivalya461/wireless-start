@@ -14,8 +14,8 @@ android {
         applicationId "in.kvapps.wirelessstart"
         minSdk 26
         targetSdk 36
-        versionCode 3
-        versionName "2.3"
+        versionCode 4
+        versionName "2.4"
         // Read from local.properties using Groovy syntax
         Properties properties = new Properties()
         if (project.rootProject.file('local.properties').exists()) {

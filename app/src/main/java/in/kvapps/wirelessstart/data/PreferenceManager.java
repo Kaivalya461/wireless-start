@@ -14,6 +14,8 @@ public class PreferenceManager {
     private static final String PREFS_NAME = "WirelessStartPrefs";
     private static final String KEY_START_SPINNER_POS = "start_spinner_pos";
     private static final String KEY_START_CUSTOM_MS = "start_custom_ms";
+    private static final String KEY_STOP_SPINNER_POS = "stop_spinner_pos";
+    private static final String KEY_STOP_CUSTOM_MS = "stop_custom_ms";
     private static final String KEY_TELEMETRY_ENABLED = "telemetry_enabled";
     private static final String KEY_TARGET_HW_NAME = "target_hw_name";
     private static final String DEFAULT_HW_NAME = "Vehicle 001";
@@ -23,6 +25,7 @@ public class PreferenceManager {
     private static final String KEY_ENGINE_SCHEDULE_RUN_TIME = "pref_engine_scheduled_run_time";
     private static final String KEY_ENGINE_SCHEDULE_ENABLED = "pref_engine_schedule_enabled";
     private static final long DEFAULT_START_MS = 1500;
+    private static final long DEFAULT_STOP_MS = 2500;
 
     private final SharedPreferences prefs;
     private final Context context;
@@ -48,6 +51,24 @@ public class PreferenceManager {
 
     public String getStartCustomMs() {
         return prefs.getString(KEY_START_CUSTOM_MS, "");
+    }
+
+    public void saveStopSpinnerPosition(int pos) {
+        prefs.edit().putInt(KEY_STOP_SPINNER_POS, pos).apply();
+        syncToWearables();
+    }
+
+    public int getStopSpinnerPosition() {
+        return prefs.getInt(KEY_STOP_SPINNER_POS, 0);
+    }
+
+    public void saveStopCustomMs(String customMs) {
+        prefs.edit().putString(KEY_STOP_CUSTOM_MS, customMs).apply();
+        syncToWearables();
+    }
+
+    public String getStopCustomMs() {
+        return prefs.getString(KEY_STOP_CUSTOM_MS, "");
     }
 
     public void setTelemetryEnabled(boolean enabled) {
@@ -81,7 +102,8 @@ public class PreferenceManager {
      * Resolves active pulse duration string for a given action.
      */
     public String getFormattedCommand(String action) {
-        int selectedPosition = getStartSpinnerPosition();
+        boolean isStart = "START".equalsIgnoreCase(action);
+        int selectedPosition = isStart ? getStartSpinnerPosition() : getStopSpinnerPosition();
 
         // Safeguard against out-of-bounds index
         if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
@@ -98,7 +120,7 @@ public class PreferenceManager {
                 return action + ":" + selectedOption.getValueMs();
 
             case CUSTOM:
-                String customVal = getStartCustomMs();
+                String customVal = isStart ? getStartCustomMs() : getStopCustomMs();
                 String trimmed = customVal != null ? customVal.trim() : "";
                 return !trimmed.isEmpty() ? action + ":" + trimmed : action;
 
@@ -107,8 +129,9 @@ public class PreferenceManager {
         }
     }
 
-    public long getSelectedStartPulseDuration() {
-        int selectedPosition = getStartSpinnerPosition();
+    public long getSelectedPulseDuration(String action) {
+        boolean isStart = "START".equalsIgnoreCase(action);
+        int selectedPosition = isStart ? getStartSpinnerPosition() : getStopSpinnerPosition();
 
         // Safeguard against out-of-bounds index
         if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
@@ -125,16 +148,24 @@ public class PreferenceManager {
                 return selectedOption.getValueMs();
 
             case CUSTOM:
-                String customInput = getStartCustomMs();
+                String customInput = isStart ? getStartCustomMs() : getStopCustomMs();
                 try {
                     return Long.parseLong(customInput);
                 } catch (NumberFormatException e) {
-                    return DEFAULT_START_MS;
+                    return isStart ? DEFAULT_START_MS : DEFAULT_STOP_MS;
                 }
 
             default:
-                return DEFAULT_START_MS;
+                return isStart ? DEFAULT_START_MS : DEFAULT_STOP_MS;
         }
+    }
+
+    public long getSelectedStartPulseDuration() {
+        return getSelectedPulseDuration("START");
+    }
+
+    public long getSelectedStopPulseDuration() {
+        return getSelectedPulseDuration("STOP");
     }
 
     /**
@@ -143,6 +174,7 @@ public class PreferenceManager {
     public void syncToWearables() {
         PutDataMapRequest dataMap = PutDataMapRequest.create("/config_durations");
         dataMap.getDataMap().putString("START_CMD", getFormattedCommand("START"));
+        dataMap.getDataMap().putString("STOP_CMD", getFormattedCommand("STOP"));
 
         PutDataRequest request = dataMap.asPutDataRequest();
         request.setUrgent();
@@ -158,7 +190,7 @@ public class PreferenceManager {
     }
 
     public boolean isFailSafeEnabled() {
-        return prefs.getBoolean("fail_safe_enabled", false); // Default to true
+        return prefs.getBoolean("fail_safe_enabled", false); // Default to false
     }
 
     public void setFailSafeEnabled(boolean enabled) {

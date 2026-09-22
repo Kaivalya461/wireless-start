@@ -145,7 +145,7 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Grouped Card for Voltage & Start Section -->
+    <!-- Grouped Card for Voltage, Start & Stop Section -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/card_grouped_section"
         android:layout_width="match_parent"
@@ -221,7 +221,7 @@
                     app:trackTint="@color/switch_track_colors"/>
             </LinearLayout>
 
-            <!-- Divider line between Voltage and Start section -->
+            <!-- Divider line between Voltage and Start/Stop section -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
@@ -235,7 +235,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:padding="12dp">
+                android:padding="8dp">
 
                 <Button
                     android:id="@+id/btn_start"
@@ -258,6 +258,49 @@
 
                 <EditText
                     android:id="@+id/input_custom_start"
+                    android:layout_width="80dp"
+                    android:layout_height="64dp"
+                    android:layout_marginStart="8dp"
+                    android:hint="ms"
+                    android:textColorHint="#666666"
+                    android:inputType="number"
+                    android:textColor="#FFFFFF"
+                    android:background="#222222"
+                    android:padding="8dp"
+                    android:gravity="center"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- STOP Section -->
+            <LinearLayout
+                android:id="@+id/layout_stop_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="8dp">
+
+                <Button
+                    android:id="@+id/btn_stop"
+                    android:layout_width="0dp"
+                    android:layout_height="64dp"
+                    android:layout_weight="1"
+                    android:text="STOP"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#E53935" />
+
+                <Spinner
+                    android:id="@+id/spinner_stop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="64dp"
+                    android:layout_marginStart="8dp"
+                    android:background="#222222"
+                    android:padding="8dp" />
+
+                <EditText
+                    android:id="@+id/input_custom_stop"
                     android:layout_width="80dp"
                     android:layout_height="64dp"
                     android:layout_marginStart="8dp"

@@ -48,10 +48,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private View statusIndicator, panelVoltage, cardLogSection;
     private TextView txtStatus, txtLog, txtVoltageValue;
     private ScrollView scrollLog;
-    private Button btnStart;
+    private Button btnStart, btnStop;
     private ImageButton btnMenu, btnReconnect;
-    private Spinner spinnerStart;
-    private EditText inputCustomStart;
+    private Spinner spinnerStart, spinnerStop;
+    private EditText inputCustomStart, inputCustomStop;
     private SwitchCompat switchVoltage;
 
     // Architecture & Helpers
@@ -156,10 +156,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         txtLog = findViewById(R.id.txt_log);
         scrollLog = findViewById(R.id.scroll_log);
         btnStart = findViewById(R.id.btn_start);
+        btnStop = findViewById(R.id.btn_stop);
         btnMenu = findViewById(R.id.btn_menu);
         btnReconnect = findViewById(R.id.btn_reconnect);
         spinnerStart = findViewById(R.id.spinner_start);
+        spinnerStop = findViewById(R.id.spinner_stop);
         inputCustomStart = findViewById(R.id.input_custom_start);
+        inputCustomStop = findViewById(R.id.input_custom_stop);
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
         switchVoltage = findViewById(R.id.switch_voltage);
         panelVoltage = findViewById(R.id.panel_voltage);
@@ -167,11 +170,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void setupSpinnersAndPersistence() {
-        UiUtils.setupDurationSpinner(this, spinnerStart, inputCustomStart, preferenceManager);
+        UiUtils.setupStartDurationSpinner(this, spinnerStart, inputCustomStart, preferenceManager);
+        UiUtils.setupStopDurationSpinner(this, spinnerStop, inputCustomStop, preferenceManager);
     }
 
     private void setupClickListeners() {
         btnStart.setOnClickListener(v -> handleStartAction());
+        btnStop.setOnClickListener(v -> handleStopAction());
         btnMenu.setOnClickListener(this::showPopupMenu);
         panelVoltage.setOnClickListener(v -> startActivity(new Intent(this, VoltageHistoryActivity.class)));
         switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> handleTelemetryToggle(isChecked));
@@ -208,6 +213,27 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             UiUtils.setButtonState(btnStart, true, 1.0f);
             onLog("[SAFETY] Start Engine button is re-enabled");
         }, totalCooldownMs);
+    }
+
+    private void handleStopAction() {
+        String command = preferenceManager.getFormattedCommand("STOP");
+
+        // Record start time before sending
+        this.commandStartTime = System.currentTimeMillis();
+
+        bleManager.sendBleCommand(
+                command,
+                () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),  //onSuccess callback
+                () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)    //onFailure callback
+        );
+
+        UiUtils.setButtonState(btnStop, false, 0.5f);
+        onLog("[SAFETY] Processing STOP command...");
+
+        cooldownHandler.postDelayed(() -> {
+            UiUtils.setButtonState(btnStop, true, 1.0f);
+            onLog("[SAFETY] Stop Engine button is re-enabled");
+        }, 2000); // 2s cooldown for safety
     }
 
     private void showPopupMenu(View v) {
@@ -396,6 +422,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         statusIndicator.setBackgroundResource(resourceId);
 
         UiUtils.setButtonState(btnStart, isConnected, isConnected ? 1.0f : 0.5f);
+        UiUtils.setButtonState(btnStop, isConnected, isConnected ? 1.0f : 0.5f);
 
         // Show the reconnect button ONLY when disconnected, hide it when connected
         if (btnReconnect != null) {

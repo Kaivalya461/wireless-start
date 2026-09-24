@@ -15,10 +15,8 @@ import android.text.SpannableStringBuilder;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -50,8 +48,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private ScrollView scrollLog;
     private Button btnStart, btnStop;
     private ImageButton btnMenu, btnReconnect;
-    private Spinner spinnerStart, spinnerStop;
-    private EditText inputCustomStart, inputCustomStop;
     private SwitchCompat switchVoltage;
 
     // Architecture & Helpers
@@ -99,7 +95,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         initUiViews();
         loadStoredLogsForToday();
         loadTelemetryPreference();
-        setupSpinnersAndPersistence();
         setupClickListeners();
         registerWatchReceiver();
         registerScheduleReceiver();
@@ -159,19 +154,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         btnStop = findViewById(R.id.btn_stop);
         btnMenu = findViewById(R.id.btn_menu);
         btnReconnect = findViewById(R.id.btn_reconnect);
-        spinnerStart = findViewById(R.id.spinner_start);
-        spinnerStop = findViewById(R.id.spinner_stop);
-        inputCustomStart = findViewById(R.id.input_custom_start);
-        inputCustomStop = findViewById(R.id.input_custom_stop);
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
         switchVoltage = findViewById(R.id.switch_voltage);
         panelVoltage = findViewById(R.id.panel_voltage);
         cardLogSection = findViewById(R.id.card_log_section);
-    }
-
-    private void setupSpinnersAndPersistence() {
-        UiUtils.setupStartDurationSpinner(this, spinnerStart, inputCustomStart, preferenceManager);
-        UiUtils.setupStopDurationSpinner(this, spinnerStop, inputCustomStop, preferenceManager);
     }
 
     private void setupClickListeners() {

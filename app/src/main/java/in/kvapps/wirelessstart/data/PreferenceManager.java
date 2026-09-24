@@ -8,14 +8,11 @@ import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import in.kvapps.wirelessstart.BuildConfig;
-import in.kvapps.wirelessstart.enums.DurationOption;
 
 public class PreferenceManager {
     private static final String PREFS_NAME = "WirelessStartPrefs";
-    private static final String KEY_START_SPINNER_POS = "start_spinner_pos";
-    private static final String KEY_START_CUSTOM_MS = "start_custom_ms";
-    private static final String KEY_STOP_SPINNER_POS = "stop_spinner_pos";
-    private static final String KEY_STOP_CUSTOM_MS = "stop_custom_ms";
+    private static final String KEY_START_PULSE_DURATION = "start_pulse_duration_ms";
+    private static final String KEY_STOP_PULSE_DURATION = "stop_pulse_duration_ms";
     private static final String KEY_TELEMETRY_ENABLED = "telemetry_enabled";
     private static final String KEY_TARGET_HW_NAME = "target_hw_name";
     private static final String DEFAULT_HW_NAME = "Vehicle 001";
@@ -35,40 +32,22 @@ public class PreferenceManager {
         this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    public void saveStartSpinnerPosition(int pos) {
-        prefs.edit().putInt(KEY_START_SPINNER_POS, pos).apply();
+    public void saveStartPulseDuration(long durationMs) {
+        prefs.edit().putLong(KEY_START_PULSE_DURATION, durationMs).apply();
         syncToWearables();
     }
 
-    public int getStartSpinnerPosition() {
-        return prefs.getInt(KEY_START_SPINNER_POS, 0);
+    public long getStartPulseDuration() {
+        return prefs.getLong(KEY_START_PULSE_DURATION, DEFAULT_START_MS);
     }
 
-    public void saveStartCustomMs(String customMs) {
-        prefs.edit().putString(KEY_START_CUSTOM_MS, customMs).apply();
+    public void saveStopPulseDuration(long durationMs) {
+        prefs.edit().putLong(KEY_STOP_PULSE_DURATION, durationMs).apply();
         syncToWearables();
     }
 
-    public String getStartCustomMs() {
-        return prefs.getString(KEY_START_CUSTOM_MS, "");
-    }
-
-    public void saveStopSpinnerPosition(int pos) {
-        prefs.edit().putInt(KEY_STOP_SPINNER_POS, pos).apply();
-        syncToWearables();
-    }
-
-    public int getStopSpinnerPosition() {
-        return prefs.getInt(KEY_STOP_SPINNER_POS, 0);
-    }
-
-    public void saveStopCustomMs(String customMs) {
-        prefs.edit().putString(KEY_STOP_CUSTOM_MS, customMs).apply();
-        syncToWearables();
-    }
-
-    public String getStopCustomMs() {
-        return prefs.getString(KEY_STOP_CUSTOM_MS, "");
+    public long getStopPulseDuration() {
+        return prefs.getLong(KEY_STOP_PULSE_DURATION, DEFAULT_STOP_MS);
     }
 
     public void setTelemetryEnabled(boolean enabled) {
@@ -103,61 +82,13 @@ public class PreferenceManager {
      */
     public String getFormattedCommand(String action) {
         boolean isStart = "START".equalsIgnoreCase(action);
-        int selectedPosition = isStart ? getStartSpinnerPosition() : getStopSpinnerPosition();
-
-        // Safeguard against out-of-bounds index
-        if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
-            return action;
-        }
-
-        DurationOption selectedOption = DurationOption.values()[selectedPosition];
-
-        switch (selectedOption) {
-            case MS_800:
-            case MS_1700:
-            case MS_2200:
-                // Dynamically uses whatever millisecond value is mapped in the enum
-                return action + ":" + selectedOption.getValueMs();
-
-            case CUSTOM:
-                String customVal = isStart ? getStartCustomMs() : getStopCustomMs();
-                String trimmed = customVal != null ? customVal.trim() : "";
-                return !trimmed.isEmpty() ? action + ":" + trimmed : action;
-
-            default:
-                return action;
-        }
+        long duration = isStart ? getStartPulseDuration() : getStopPulseDuration();
+        return action + ":" + duration;
     }
 
     public long getSelectedPulseDuration(String action) {
         boolean isStart = "START".equalsIgnoreCase(action);
-        int selectedPosition = isStart ? getStartSpinnerPosition() : getStopSpinnerPosition();
-
-        // Safeguard against out-of-bounds index
-        if (selectedPosition < 0 || selectedPosition >= DurationOption.values().length) {
-            return -1;
-        }
-
-        DurationOption selectedOption = DurationOption.values()[selectedPosition];
-
-        switch (selectedOption) {
-            case MS_800:
-            case MS_1700:
-            case MS_2200:
-                // Dynamically uses whatever millisecond value is mapped in the enum
-                return selectedOption.getValueMs();
-
-            case CUSTOM:
-                String customInput = isStart ? getStartCustomMs() : getStopCustomMs();
-                try {
-                    return Long.parseLong(customInput);
-                } catch (NumberFormatException e) {
-                    return isStart ? DEFAULT_START_MS : DEFAULT_STOP_MS;
-                }
-
-            default:
-                return isStart ? DEFAULT_START_MS : DEFAULT_STOP_MS;
-        }
+        return isStart ? getStartPulseDuration() : getStopPulseDuration();
     }
 
     public long getSelectedStartPulseDuration() {

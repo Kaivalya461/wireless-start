@@ -101,7 +101,7 @@ class MyCallbacks: public NimBLECharacteristicCallbacks {
         else if (command.startsWith("STOP")) {
             unsigned long duration = DEFAULT_STOP_PULSE_MS;
             if (command.startsWith("STOP:")) {
-                duration = getValidatedDuration(command.substring(6).toInt());
+                duration = getValidatedDuration(command.substring(5).toInt());
             }
             requestRelayPulse(STOP_RELAY_PIN, duration);
         }

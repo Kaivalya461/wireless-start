@@ -12,4 +12,5 @@
     <string name="setting_engine_schedule_desc">Automatically start the engine based on your configured time. Note: Currently this is only available on Watch App.</string>
     <string name="setting_start_pulse_duration_desc">Configure START engine pulse duration. Default is 1 second.</string>
     <string name="setting_stop_pulse_duration_desc">Configure STOP engine pulse duration. Default is 4 second.</string>
+    <string name="setting_telemetry_desc">Toggle Live Battery Voltage ON and OFF. This feature may not be available. </string>
 </resources>

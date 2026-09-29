@@ -23,7 +23,7 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchFailSafe;
     private SwitchCompat switchForegroundService;
     private SwitchCompat switchEngineSchedule;
-
+    private SwitchCompat switchVoltage;
     private Slider sliderStart, sliderStop;
     private TextView txtStartDurationValue, txtStopDurationValue;
     private float startSliderMin, stopSliderMin;
@@ -51,7 +51,7 @@ public class SettingsActivity extends AppCompatActivity {
         switchFailSafe = findViewById(R.id.switch_fail_safe);
         switchForegroundService = findViewById(R.id.switch_foreground_service);
         switchEngineSchedule = findViewById(R.id.switch_engine_schedule);
-
+        switchVoltage = findViewById(R.id.switch_voltage);
         sliderStart = findViewById(R.id.slider_start);
         sliderStop = findViewById(R.id.slider_stop);
         txtStartDurationValue = findViewById(R.id.txt_start_duration_value);
@@ -64,6 +64,7 @@ public class SettingsActivity extends AppCompatActivity {
             switchFailSafe.setChecked(preferenceManager.isFailSafeEnabled());
             switchForegroundService.setChecked(preferenceManager.isForegroundServiceEnabled());
             switchEngineSchedule.setChecked(preferenceManager.isEngineScheduleEnabled());
+            switchVoltage.setChecked(preferenceManager.isTelemetryEnabled());
 
             setupResourcesData();
             // Load saved millisecond values (defaulting to 1.0s if not set)
@@ -114,6 +115,13 @@ public class SettingsActivity extends AppCompatActivity {
                 } else {
                     stopService(new Intent(SettingsActivity.this, BleForegroundService.class));
                 }
+            }
+        });
+
+        // Voltage / Telemetry Toggle listener
+        switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (preferenceManager != null) {
+                preferenceManager.setTelemetryEnabled(isChecked);
             }
         });
 

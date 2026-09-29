@@ -48,7 +48,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private ScrollView scrollLog;
     private Button btnStart, btnStop;
     private ImageButton btnMenu, btnReconnect;
-    private SwitchCompat switchVoltage;
 
     // Architecture & Helpers
     private VoltageDbHelper dbHelper;
@@ -94,7 +93,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         initDependencies();
         initUiViews();
         loadStoredLogsForToday();
-        loadTelemetryPreference();
         setupClickListeners();
         registerWatchReceiver();
         registerScheduleReceiver();
@@ -112,6 +110,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
+        isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
 
         // IMPORTANT: Since bleManager is now a shared app-wide singleton,
         // update its listener to point to the current MainActivity instance
@@ -155,7 +154,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         btnMenu = findViewById(R.id.btn_menu);
         btnReconnect = findViewById(R.id.btn_reconnect);
         txtVoltageValue = findViewById(R.id.txt_voltage_value);
-        switchVoltage = findViewById(R.id.switch_voltage);
         panelVoltage = findViewById(R.id.panel_voltage);
         cardLogSection = findViewById(R.id.card_log_section);
     }
@@ -165,7 +163,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         btnStop.setOnClickListener(v -> handleStopAction());
         btnMenu.setOnClickListener(this::showPopupMenu);
         panelVoltage.setOnClickListener(v -> startActivity(new Intent(this, VoltageHistoryActivity.class)));
-        switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> handleTelemetryToggle(isChecked));
         cardLogSection.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
             startActivity(intent);
@@ -328,6 +325,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
         // Refresh the log UI from the database every time the activity comes to the foreground
         loadStoredLogsForToday();
+
+        // Only check for preference changes if BLE is connected and services are initialized,
+        // or rely on your explicit sync sequence in onServicesReady().
+        if (preferenceManager != null && bleManager != null && bleManager.isConnected()) {
+            boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
+            if (newTelemetryState != isTelemetryEnabled) {
+                handleTelemetryToggle(newTelemetryState);
+            }
+        }
     }
 
     @Override
@@ -449,16 +455,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // Hand raw bytes over to our dedicated protocol handler domain layer
         if (protocolHandler != null) {
             protocolHandler.parseIncomingData(rawData);
-        }
-    }
-
-    // Load saved telemetry state into local variable
-    private void loadTelemetryPreference() {
-        isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
-
-        if (switchVoltage != null) {
-            // Set switch checked state without triggering listeners (if any)
-            switchVoltage.setChecked(isTelemetryEnabled);
         }
     }
 

@@ -5,17 +5,31 @@ import android.bluetooth.le.ScanResult;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.util.Log;
 
 import java.util.List;
+
+import in.kvapps.wirelessstart.data.PreferenceManager;
 
 public class BleScanReceiver extends BroadcastReceiver {
 
     public static String targetMacAddress = null;
     public static ScanEventCallback callback = null;
 
+    private static SignalState lastSignalState = null;
+
+    public enum SignalState {
+        SUPER_STRONG,      // >= -50 dBm (Triggers Connect)
+        MEDIUM_HIGH,       // -51 dBm to -75 dBm (Triggers Connect)
+        LOW_WAITING,       // < -75 dBm & Avoid Poor Connection = TRUE (Waiting)
+        LOW_TRIGGER        // < -75 dBm & Avoid Poor Connection = FALSE (Triggers Connect)
+    }
+
     public interface ScanEventCallback {
-        void onDeviceMatched(String macAddress);
+        void onSignalStateChanged(String macAddress, SignalState state, int rssi);
+    }
+
+    public static void resetState() {
+        lastSignalState = null;
     }
 
     @Override
@@ -27,10 +41,35 @@ public class BleScanReceiver extends BroadcastReceiver {
             for (ScanResult result : results) {
                 if (result.getDevice() != null) {
                     String foundMac = result.getDevice().getAddress();
-//                    Log.i("BleScanReceiver", "foundMac -> " + foundMac);
+                    int rssi = result.getRssi();
+
                     if (foundMac.equalsIgnoreCase(targetMacAddress)) {
-                        if (callback != null) {
-                            callback.onDeviceMatched(targetMacAddress);
+                        SignalState currentState;
+
+                        if (rssi >= -50) {
+                            currentState = SignalState.SUPER_STRONG;
+                        } else if (rssi >= -75) {
+                            currentState = SignalState.MEDIUM_HIGH;
+                        } else {
+                            // RSSI is < -75 (Low)
+                            // Initialize PreferenceManager using the broadcast context
+                            PreferenceManager preferenceManager = new PreferenceManager(context);
+                            boolean avoidPoorConnection = preferenceManager.isAvoidPoorConnectionEnabled();
+                            if (avoidPoorConnection) {
+                                currentState = SignalState.LOW_WAITING;
+                            } else {
+                                currentState = SignalState.LOW_TRIGGER;
+                            }
+                        }
+
+                        // Trigger callback only if state changes
+                        if (currentState != lastSignalState) {
+                            lastSignalState = currentState;
+//                            Log.i("BleScanReceiver", "State changed to: " + currentState + " (RSSI: " + rssi + ")");
+
+                            if (callback != null) {
+                                callback.onSignalStateChanged(targetMacAddress, currentState, rssi);
+                            }
                         }
                         break;
                     }

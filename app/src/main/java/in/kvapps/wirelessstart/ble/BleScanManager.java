@@ -5,7 +5,6 @@ import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanFilter;
-import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.Intent;
@@ -48,11 +47,37 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
     }
 
     @Override
-    public void onDeviceMatched(String macAddress) {
-        stopScan();
-        if (listener != null) {
-            listener.onScanLog("Target device spotted in range! Triggering connection...");
-            listener.onDeviceFound(targetMac);
+    public void onSignalStateChanged(String macAddress, BleScanReceiver.SignalState state, int rssi) {
+        switch (state) {
+            case SUPER_STRONG:
+                stopScan();
+                if (listener != null) {
+                    listener.onScanLog("🔥 SuperStrong signal! (" + rssi + " dBm)");
+                    listener.onDeviceFound(targetMac);
+                }
+                break;
+
+            case MEDIUM_HIGH:
+                stopScan();
+                if (listener != null) {
+                    listener.onScanLog("⚡ Medium-High signal (" + rssi + " dBm)");
+                    listener.onDeviceFound(targetMac);
+                }
+                break;
+
+            case LOW_TRIGGER:
+                stopScan();
+                if (listener != null) {
+                    listener.onScanLog("⚠️ Low signal (" + rssi + " dBm), but 'Avoid Poor Connection' setting is disabled. Connecting anyway...");
+                    listener.onDeviceFound(targetMac);
+                }
+                break;
+
+            case LOW_WAITING:
+                if (listener != null) {
+                    listener.onScanLog("⏳ Low signal (" + rssi + " dBm). Waiting for signal to improve...");
+                }
+                break;
         }
     }
 
@@ -66,7 +91,8 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             }
         }
 
-        // Bind latest target configuration to the static BroadcastReceiver bridge
+        // Reset the receiver's state memory when starting a brand new scan
+        BleScanReceiver.resetState();
         BleScanReceiver.targetMacAddress = targetMac;
         BleScanReceiver.callback = this;
 
@@ -119,7 +145,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         isScanning = false;
         scanPendingIntent = null;
         BleScanReceiver.callback = null;
-//        if (listener != null) listener.onScanLog("Background scan terminated.");
+        BleScanReceiver.resetState();
     }
 
     public boolean isScanning() {

@@ -28,6 +28,7 @@ public class SettingsActivity extends AppCompatActivity {
     private TextView txtStartDurationValue, txtStopDurationValue;
     private float startSliderMin, stopSliderMin;
     private float startSliderDefault, stopSliderDefault;
+    private SwitchCompat switchAvoidPoorConnection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,6 +57,7 @@ public class SettingsActivity extends AppCompatActivity {
         sliderStop = findViewById(R.id.slider_stop);
         txtStartDurationValue = findViewById(R.id.txt_start_duration_value);
         txtStopDurationValue = findViewById(R.id.txt_stop_duration_value);
+        switchAvoidPoorConnection = findViewById(R.id.switch_avoid_poor_connection);
     }
 
     private void loadStoredPreferences() {
@@ -65,6 +67,7 @@ public class SettingsActivity extends AppCompatActivity {
             switchForegroundService.setChecked(preferenceManager.isForegroundServiceEnabled());
             switchEngineSchedule.setChecked(preferenceManager.isEngineScheduleEnabled());
             switchVoltage.setChecked(preferenceManager.isTelemetryEnabled());
+            switchAvoidPoorConnection.setChecked(preferenceManager.isAvoidPoorConnectionEnabled());
 
             setupResourcesData();
             // Load saved millisecond values (defaulting to 1.0s if not set)
@@ -143,6 +146,13 @@ public class SettingsActivity extends AppCompatActivity {
 
         // Scheduled Engine-Run
         setupScheduledEngineRunListener();
+
+        // Avoid Poor Connection
+        switchAvoidPoorConnection.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (preferenceManager != null) {
+                preferenceManager.setAvoidPoorConnectionEnabled(isChecked);
+            }
+        });
     }
 
     @Override

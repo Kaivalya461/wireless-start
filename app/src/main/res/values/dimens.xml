@@ -1,0 +1,9 @@
+<resources>
+    <dimen name="start_slider_min_value">600f</dimen>
+    <dimen name="start_slider_max_value">3000f</dimen>
+    <dimen name="stop_slider_min_value">2000f</dimen>
+    <dimen name="stop_slider_max_value">5000f</dimen>
+    <dimen name="start_slider_default_value">1000f</dimen>
+    <dimen name="stop_slider_default_value">4000f</dimen>
+    <dimen name="slider_step_size">200f</dimen>
+</resources>

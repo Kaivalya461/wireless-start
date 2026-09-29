@@ -12,7 +12,7 @@ App Features:
 7. Fail-Safe Stop Relay Workflow (Kill Switch)
    - Normally Closed (NC) Setup: The stop relay acts as a continuous safety loop that allows the vehicle to start only when active.
 8. Scheduled Engine-Run (Note: Currently only configurable through Watch App and not the Phone App)
-9. Wireless STOP functionality supported by Fail-Safe Stop Relay (trigger button is restricted to the Wear app)
+9. Wireless STOP functionality supported by Fail-Safe Stop Relay
 
 
 ---

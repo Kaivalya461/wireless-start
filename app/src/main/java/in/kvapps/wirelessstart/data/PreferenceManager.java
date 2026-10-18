@@ -21,6 +21,7 @@ public class PreferenceManager {
     private static final String KEY_FOREGROUND_SERVICE = "pref_foreground_service";
     private static final String KEY_ENGINE_SCHEDULE_RUN_TIME = "pref_engine_scheduled_run_time";
     private static final String KEY_ENGINE_SCHEDULE_ENABLED = "pref_engine_schedule_enabled";
+    private static final String KEY_AVOID_POOR_CONN = "key_avoid_poor_connection";
     private static final long DEFAULT_START_MS = 1500;
     private static final long DEFAULT_STOP_MS = 2500;
 
@@ -151,5 +152,13 @@ public class PreferenceManager {
 
     public void setEngineScheduleEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_ENGINE_SCHEDULE_ENABLED, enabled).apply();
+    }
+
+    public boolean isAvoidPoorConnectionEnabled() {
+        return prefs.getBoolean(KEY_AVOID_POOR_CONN, false);
+    }
+
+    public void setAvoidPoorConnectionEnabled(boolean enabled) {
+        prefs.edit().putBoolean(KEY_AVOID_POOR_CONN, enabled).apply();
     }
 }

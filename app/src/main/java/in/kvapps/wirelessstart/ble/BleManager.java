@@ -15,9 +15,13 @@ import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.os.Build;
-import android.util.Log;
+import android.os.Handler;
+import android.os.Looper;
 
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
 
@@ -25,13 +29,15 @@ public class BleManager {
 
     public interface BleListener {
         void onLog(String message);
-        void onConnectionStateChanged(boolean isConnected, String statusText);
-        void onServicesReady();
-        void onDataReceived(byte[] rawData);
+        void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText);
+        void onServicesReady(String macAddress);
+        void onDataReceived(String macAddress, byte[] rawData);
     }
+
     public interface RssiCallback {
-        void onRssiRead(int rssi);
+        void onRssiRead(String macAddress, int rssi);
     }
+
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
@@ -39,22 +45,25 @@ public class BleManager {
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     private final Context context;
-    private BleListener listener; // Modified to allow updating listener dynamically across layouts/activities
-    private RssiCallback currentRssiCallback;
+    private BleListener listener;
     private final BluetoothAdapter bluetoothAdapter;
-    private BluetoothGatt bluetoothGatt;
-    private BluetoothGattCharacteristic commandCharacteristic;
-    private boolean isReceiverRegistered = false;
     private final PreferenceManager preferenceManager;
     private final BleScanManager bleScanManager;
+    private boolean isReceiverRegistered = false;
+
+    // Track multiple active device sessions simultaneously keyed by MAC Address
+    private final Map<String, BleDeviceSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<String, RssiCallback> rssiCallbacks = new ConcurrentHashMap<>();
+
+    // Track MAC addresses currently undergoing connection to prevent duplicate connectGatt() calls
+    private final Set<String> connectingMacs = ConcurrentHashMap.newKeySet();
 
     public BleManager(Context context, BleListener listener) {
-        this.context = context.getApplicationContext(); // Use application context to prevent memory leaks across Activity navigations
+        this.context = context.getApplicationContext();
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.preferenceManager = new PreferenceManager(this.context);
 
-        // Initialize the dedicated Custom Scan Manager
         this.bleScanManager = new BleScanManager(
                 this.context,
                 SERVICE_UUID,
@@ -62,8 +71,8 @@ public class BleManager {
                 new BleScanManager.ScanListener() {
                     @Override
                     public void onDeviceFound(String macAddress) {
-                        // When device is detected via scan, connect instantly (autoConnect = false)
-                        connect(false);
+                        // Connect instantly when a target device is found via scan
+                        connect(macAddress, false);
                     }
 
                     @Override
@@ -78,9 +87,13 @@ public class BleManager {
         registerBluetoothStateReceiver();
     }
 
-    // Allows updating the UI listener when navigating between activities
     public void setListener(BleListener listener) {
         this.listener = listener;
+    }
+
+    // Helper to fetch session for a given device
+    public BleDeviceSession getSession(String macAddress) {
+        return activeSessions.get(macAddress);
     }
 
     private void registerBluetoothStateReceiver() {
@@ -98,17 +111,13 @@ public class BleManager {
     private final BroadcastReceiver bluetoothStateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
+            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-
-                // Only trigger once when Bluetooth is completely off
                 if (state == BluetoothAdapter.STATE_OFF) {
                     if (listener != null) {
                         listener.onLog("System Alert: Phone Bluetooth was turned off.");
-                        listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
                     }
-                    disconnect();
+                    disconnectAll();
                 }
             }
         }
@@ -118,101 +127,52 @@ public class BleManager {
         return bluetoothAdapter != null && bluetoothAdapter.isEnabled();
     }
 
-    public boolean isConnected() {
-        return bluetoothGatt != null;
+    public boolean isConnected(String macAddress) {
+        BleDeviceSession session = activeSessions.get(macAddress);
+        return session != null && session.isConnected();
     }
 
-    // Pass true for background auto-reconnect, false for fast watch shortcuts
-    public void connect(boolean autoConnect) {
+    public void connect(String macAddress, boolean autoConnect) {
         if (!isBluetoothEnabled()) {
             if (listener != null) {
                 listener.onLog("System Alert: Please turn on phone Bluetooth.");
-                listener.onConnectionStateChanged(false, "Phone Bluetooth Off");
             }
             return;
         }
 
-        disconnect();
-
-        // Retrieve the latest saved values directly from the class-level PreferenceManager
-        String currentMac = preferenceManager.getTargetMacAddress();
-        String currentHwName = preferenceManager.getTargetHwName();
-
-        if (currentMac == null || currentMac.trim().isEmpty()) {
+        if (macAddress == null || macAddress.trim().isEmpty()) {
             if (listener != null) {
-                listener.onLog("Configuration Error: No MAC address configured.");
-                listener.onConnectionStateChanged(false, "Invalid MAC");
+                listener.onLog("Configuration Error: Invalid MAC address.");
             }
             return;
         }
 
-        String maskedMac = currentMac.length() >= 5 ? "..." + currentMac.substring(currentMac.length() - 5) : "......";
+        if (activeSessions.containsKey(macAddress) || connectingMacs.contains(macAddress)) {
+            return;
+        }
 
-        if (listener != null) {
-            listener.onLog("Searching for " + currentHwName + " [" + maskedMac + "]...");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                if (listener != null) {
+                    listener.onLog("Error: Missing runtime Bluetooth connection permission.");
+                }
+                return;
+            }
         }
 
         try {
-            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(currentMac);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    if (listener != null) {
-                        listener.onLog("Error: Missing runtime Bluetooth connection permission.");
-                        listener.onConnectionStateChanged(false, "Permission Missing");
-                    }
-                    return;
-                }
+            connectingMacs.add(macAddress); // Mark as in-flight immediately
+            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(macAddress);
+            if (listener != null) {
+                listener.onLog("Connecting to target [" + macAddress + "]...");
             }
-
-            // Always pass 'false' to connectGatt for instant connection.
-            // The "auto-connect" behavior is intelligently handled by Custom BleScanManager instead of Android's lazy stack.
-            bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
-
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
         } catch (IllegalArgumentException e) {
-            if (listener != null) {
-                listener.onLog("Configuration Error: Invalid MAC address provided.");
-                listener.onConnectionStateChanged(false, "Invalid MAC");
-            }
+            connectingMacs.remove(macAddress);
+            if (listener != null) listener.onLog("Configuration Error: Invalid MAC address format.");
         } catch (SecurityException e) {
-            if (listener != null) {
-                listener.onLog("Security Error: Operating system blocked connection profile.");
-                listener.onConnectionStateChanged(false, "Security Exception");
-            }
-        }
-    }
-
-    public void sendBleCommand(String command, Runnable onSuccess, Runnable onFailure) {
-        if (commandCharacteristic != null && bluetoothGatt != null) {
-            try {
-                boolean success = false;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    int status = bluetoothGatt.writeCharacteristic(
-                            commandCharacteristic,
-                            command.getBytes(),
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    );
-                    // Note: writeCharacteristic returns a status code in newer APIs,
-                    // but if it initiates successfully without throwing:
-                    success = (status == BluetoothGatt.GATT_SUCCESS); // Or check API specific return
-                } else {
-                    commandCharacteristic.setValue(command.getBytes());
-                    success = bluetoothGatt.writeCharacteristic(commandCharacteristic);
-                }
-
-                if (success) {
-//                    if (listener != null) listener.onLog("Command Transmitted -> " + command);
-                    if (onSuccess != null) {
-                        onSuccess.run(); // Trigger the success callback
-                    }
-                }
-            } catch (SecurityException e) {
-                if (listener != null) listener.onLog("Security Exception: Missing OS permission mapping.");
-                if (onFailure != null) onFailure.run();
-            }
-        } else {
-            if (listener != null) listener.onLog("Action Blocked: Hardware connection is offline.");
-            if (onFailure != null) onFailure.run();
+            connectingMacs.remove(macAddress);
+            if (listener != null) listener.onLog("Security Error: Blocked from connecting.");
         }
     }
 
@@ -233,101 +193,74 @@ public class BleManager {
         }
     }
 
-    public void sendRawByteCommand(byte controlByte) {
-        if (commandCharacteristic != null && bluetoothGatt != null) {
+    public void disconnect(String macAddress) {
+        connectingMacs.remove(macAddress);
+        BleDeviceSession session = activeSessions.remove(macAddress);
+        rssiCallbacks.remove(macAddress);
+
+        if (session != null && session.getGatt() != null) {
             try {
-                byte[] payload = new byte[]{ controlByte };
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    bluetoothGatt.writeCharacteristic(
-                            commandCharacteristic,
-                            payload,
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    );
-                } else {
-                    commandCharacteristic.setValue(payload);
-                    bluetoothGatt.writeCharacteristic(commandCharacteristic);
-                }
-//                listener.onLog("Byte Packet Transmitted -> 0x" + String.format("%02X", controlByte));
+                session.getGatt().disconnect();
+                session.getGatt().close();
             } catch (SecurityException e) {
-                if (listener != null) listener.onLog("Security Error passing raw bytes.");
+                if (listener != null) listener.onLog("Security Error disconnecting GATT.");
             }
         }
     }
 
-    public void disconnect() {
-        if (bluetoothGatt != null) {
-            try {
-                bluetoothGatt.disconnect();
-                bluetoothGatt.close();
-            } catch (SecurityException e) {
-                if (listener != null) listener.onLog("Security Error while disconnecting GATT.");
-            } catch (Exception e) {
-                if (listener != null) listener.onLog("Error closing BluetoothGatt.");
-            } finally {
-                bluetoothGatt = null;
-            }
+    public void disconnectAll() {
+        for (String macAddress : activeSessions.keySet()) {
+            disconnect(macAddress);
         }
-        commandCharacteristic = null;
     }
 
-    // Call this if your app destroys the manager instance to prevent memory leaks
     public void release() {
         bleScanManager.stopScan();
         if (isReceiverRegistered) {
             try {
                 context.unregisterReceiver(bluetoothStateReceiver);
-            } catch (IllegalArgumentException e) {
-                // Receiver was already unregistered
-            }
+            } catch (IllegalArgumentException ignored) {}
             isReceiverRegistered = false;
         }
-        disconnect();
+        disconnectAll();
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            String macAddress = gatt.getDevice().getAddress();
+            connectingMacs.remove(macAddress); // Clear connecting lock
+
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                // Stop scanning once connection is established to save resources
                 bleScanManager.stopScan();
+
                 if (listener != null) {
-                    listener.onConnectionStateChanged(true, preferenceManager.getTargetHwName() + " Connected");
+                    listener.onConnectionStateChanged(macAddress, true, "Connected");
                 }
 
-                // REQUEST HIGH PRIORITY
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                             gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-                        } else if (listener != null) {
-                            listener.onLog("Security Warning: Missing BLUETOOTH_CONNECT permission for priority request.");
                         }
                     } else {
                         gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
                     }
-                } catch (SecurityException e) {
-                    if (listener != null) listener.onLog("Security Exception: Blocked from setting connection priority.");
-                }
-
-                try {
                     gatt.discoverServices();
                 } catch (SecurityException e) {
-                    if (listener != null) listener.onLog("Security Error: Failed to discover services.");
+                    if (listener != null) listener.onLog("Security Exception on post-connection setup.");
                 }
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                String statusText = preferenceManager.getTargetHwName() + " Offline";
+                disconnect(macAddress);
                 if (listener != null) {
-                    listener.onLog("System Alert: " + statusText);
-                    listener.onConnectionStateChanged(false, statusText);
+                    listener.onConnectionStateChanged(macAddress, false, "Offline");
                 }
 
-                // Clear GATT state without permanently unregistering the system state listener
-                disconnect();
-
+                // If auto-connect is enabled, restart background scan after a short delay
                 if (preferenceManager.isAutoConnectEnabled()) {
-                    // 3. Delay restarting the background scan to let BluetoothGatt unregister cleanly
-                    // Now start the scan safely after the system bluetooth stack settles
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(bleScanManager::startScan, 500);
+                    new Handler(Looper.getMainLooper()).postDelayed(bleScanManager::startScan, 500);
                 } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");
                 }
@@ -336,128 +269,70 @@ public class BleManager {
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            String macAddress = gatt.getDevice().getAddress();
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 BluetoothGattService service = gatt.getService(SERVICE_UUID);
                 if (service != null) {
-                    commandCharacteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
+                    BluetoothGattCharacteristic characteristic = service.getCharacteristic(CHARACTERISTIC_UUID);
+                    if (characteristic != null) {
+                        enableNotifications(gatt, characteristic);
 
-                    // 1. Enable to BLE Push Communications between Phone and ESP32
-                    enableNotifications(gatt, commandCharacteristic);
+                        // Instantiate and register the dedicated device session
+                        BleDeviceSession session = new BleDeviceSession(context, gatt, characteristic);
+                        activeSessions.put(macAddress, session);
 
-                    // 2. Notify listener that the pipeline is fully ready
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(() -> {
-                                if (listener != null) listener.onServicesReady();
-                            }, 50);
-                } else if (listener != null) {
-                    listener.onLog("Error: Service UUID matching failed.");
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (listener != null) listener.onServicesReady(macAddress);
+                        }, 50);
+                    }
                 }
             }
         }
 
-        // NEW: Triggers every time the ESP32 calls pCharacteristic->notify()
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            String macAddress = gatt.getDevice().getAddress();
             if (listener != null && CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
-                byte[] data = characteristic.getValue();
-                listener.onDataReceived(data);
+                listener.onDataReceived(macAddress, characteristic.getValue());
             }
         }
 
-        // Android 13+ Callback compatibility variant for newer compilation structures
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
-            if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null && value.length >= 2) {
-                listener.onDataReceived(value);
+            String macAddress = gatt.getDevice().getAddress();
+            if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null) {
+                listener.onDataReceived(macAddress, value);
             }
         }
 
         @Override
         public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                if (currentRssiCallback != null) {
-                    currentRssiCallback.onRssiRead(rssi);
-                }
-            } else {
-                if (currentRssiCallback != null) {
-                    currentRssiCallback.onRssiRead(0);
-                }
+            String macAddress = gatt.getDevice().getAddress();
+            RssiCallback callback = rssiCallbacks.remove(macAddress);
+            if (callback != null) {
+                callback.onRssiRead(macAddress, (status == BluetoothGatt.GATT_SUCCESS) ? rssi : 0);
             }
         }
     };
 
-    // Force-sync telemetry state to ESP32 (0x03 = Enable, 0x02 = Disable)
-    public void syncTelemetryState(boolean isEnabled) {
-        byte commandByte = (byte) (isEnabled ? 0x03 : 0x02);
-        sendRawByteCommand(commandByte);
-//        listener.onLog("Syncing telemetry state -> " + (isEnabled ? "ENABLED" : "DISABLED"));
-    }
-
-    // Automatically sync current Unix timestamp to ESP32 for scheduled night sleep
-    public void sendAutoTimeSync() {
-        long currentEpochSeconds = System.currentTimeMillis() / 1000;
-        String syncCommand = "TIME:" + currentEpochSeconds;
-//        listener.onLog("Auto-syncing system time to ESP32...");
-        sendBleCommand(syncCommand, null, null);
-    }
-
-    // Send Fail-Safe state as a plain-text command string to prevent GATT queue collisions
-    public void syncFailSafeState(boolean isEnabled) {
-        String command = isEnabled ? "FAILSAFE:ON" : "FAILSAFE:OFF";
-        sendBleCommand(command, null, null);
-    }
-
-    // Executes initialization commands sequentially with built-in spacing to prevent GATT collisions
-    public void syncInitializationSequence(Runnable... tasks) {
-        if (tasks == null || tasks.length == 0) return;
-
-        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-        for (int i = 0; i < tasks.length; i++) {
-            final Runnable task = tasks[i];
-            long delayMillis = i * 100L; // Stagger each command by 100ms
-            handler.postDelayed(() -> {
-                if (isConnected()) {
-                    task.run();
-                }
-            }, delayMillis);
-        }
-    }
-
-    public void sendScheduledEpoch(long epochSeconds) {
-        String command = "SCHED_RUN:" + epochSeconds;
-        sendBleCommand(command,
-                () -> Log.d("BleManager", "Scheduled Epoch transmitted successfully -> " + epochSeconds),
-                () -> Log.e("BleManager", "Failed to transmit Scheduled Epoch command.")
-        );
-    }
-
-    public void requestScheduleFromEsp32() {
-        sendBleCommand("GET_ENGINE_SCHEDULE", () -> {
-            Log.d("BleManager", "Requested active schedule from ESP32");
-        }, null);
-    }
-
-    public void readRssi(RssiCallback callback) {
-        this.currentRssiCallback = callback;
-        if (bluetoothGatt != null) {
+    public void readRssi(String macAddress, RssiCallback callback) {
+        BleDeviceSession session = activeSessions.get(macAddress);
+        if (session != null && session.getGatt() != null) {
+            rssiCallbacks.put(macAddress, callback);
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                        bluetoothGatt.readRemoteRssi();
+                        session.getGatt().readRemoteRssi();
                     }
                 } else {
-                    bluetoothGatt.readRemoteRssi();
+                    session.getGatt().readRemoteRssi();
                 }
             } catch (SecurityException e) {
-                if (listener != null) listener.onLog("Security Error: Blocked reading RSSI.");
-                if (currentRssiCallback != null) {
-                    currentRssiCallback.onRssiRead(0);
-                }
+                rssiCallbacks.remove(macAddress);
+                callback.onRssiRead(macAddress, 0);
             }
         } else {
-            if (currentRssiCallback != null) {
-                currentRssiCallback.onRssiRead(0);
-            }
+            callback.onRssiRead(macAddress, 0);
         }
     }
 

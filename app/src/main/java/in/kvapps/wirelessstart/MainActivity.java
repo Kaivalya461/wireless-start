@@ -14,7 +14,6 @@ import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -23,31 +22,39 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
-import androidx.appcompat.widget.SwitchCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
+import in.kvapps.wirelessstart.adapter.VehicleAdapter;
+import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
+import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
-import in.kvapps.wirelessstart.util.UiUtils;
 import in.kvapps.wirelessstart.util.WearSyncUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
+
     // UI Controls
-    private View statusIndicator, panelVoltage, cardLogSection;
-    private TextView txtStatus, txtLog, txtVoltageValue;
+    private View cardLogSection;
+    private TextView txtLog;
     private ScrollView scrollLog;
-    private Button btnStart, btnStop;
-    private ImageButton btnMenu, btnReconnect;
+    private ImageButton btnMenu;
+    private RecyclerView recyclerVehicles;
+    private VehicleAdapter vehicleAdapter;
+    private List<Vehicle> vehicleList;
 
     // Architecture & Helpers
     private VoltageDbHelper dbHelper;
@@ -55,12 +62,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
     private BroadcastReceiver watchCommandReceiver;
-    private final Handler cooldownHandler = new Handler(Looper.getMainLooper());
 
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
     private long connectionStartTime = 0;
     private static boolean isAppInForeground = false;
+    private Vehicle selectedVehicle;
 
     private BroadcastReceiver scheduleReceiver; // For Scheduled Engine Run/Stop
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
@@ -69,19 +76,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
                 if (bluetoothGranted) {
                     onLog("Permissions approved by user.");
-                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
                 } else {
                     onLog("CRITICAL ERROR: Required BLUETOOTH permissions denied.");
-                    onConnectionStateChanged(false, "Permissions Denied");
                 }
             });
 
     private final ActivityResultLauncher<Intent> settingsLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                // Check if you need to refresh or reconnect based on settings changes
-                if (preferenceManager.isAutoConnectEnabled() && (bleManager != null && !bleManager.isConnected())) {
+                if (preferenceManager.isAutoConnectEnabled() && (bleManager != null && !bleManager.isConnected(selectedVehicle.getMacAddress()))) {
                     onLog("Settings updated. Reconnecting...");
-                    bleManager.connect(true);
+                    bleManager.connect(selectedVehicle.getMacAddress(), true);
                 }
             });
 
@@ -126,8 +130,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     if (isTelemetryEnabled) {
                         long now = System.currentTimeMillis();
                         if (dbHelper != null) dbHelper.insertReading(now, voltage);
-                        if (txtVoltageValue != null) {
-                            txtVoltageValue.setText(String.format(Locale.getDefault(), "%.2fV", voltage));
+                        if (!vehicleList.isEmpty()) {
+                            vehicleList.get(0).setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
+                            vehicleAdapter.notifyItemChanged(0);
                         }
                     }
                 });
@@ -145,105 +150,132 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void initUiViews() {
-        statusIndicator = findViewById(R.id.status_indicator);
-        txtStatus = findViewById(R.id.txt_status);
         txtLog = findViewById(R.id.txt_log);
         scrollLog = findViewById(R.id.scroll_log);
-        btnStart = findViewById(R.id.btn_start);
-        btnStop = findViewById(R.id.btn_stop);
         btnMenu = findViewById(R.id.btn_menu);
-        btnReconnect = findViewById(R.id.btn_reconnect);
-        txtVoltageValue = findViewById(R.id.txt_voltage_value);
-        panelVoltage = findViewById(R.id.panel_voltage);
         cardLogSection = findViewById(R.id.card_log_section);
+        recyclerVehicles = findViewById(R.id.recycler_vehicles);
+
+        vehicleList = new ArrayList<>();
+
+        vehicleAdapter = new VehicleAdapter(vehicleList, new VehicleAdapter.VehicleActionListener() {
+            @Override
+            public void onStartClick(Vehicle vehicle, int position) {
+                handleStartAction(vehicle);
+            }
+
+            @Override
+            public void onStopClick(Vehicle vehicle, int position) {
+                handleStopAction(vehicle);
+            }
+
+            @Override
+            public void onReconnectClick(Vehicle vehicle, int position) {
+                handleReconnect(vehicle);
+            }
+
+            @Override
+            public void onVoltageClick(Vehicle vehicle, int position) {
+                startActivity(new Intent(MainActivity.this, VoltageHistoryActivity.class));
+            }
+        });
+
+        recyclerVehicles.setLayoutManager(new LinearLayoutManager(this));
+        recyclerVehicles.setAdapter(vehicleAdapter);
+
+        if (recyclerVehicles.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) recyclerVehicles.getItemAnimator()).setSupportsChangeAnimations(false);
+        }
+
+        loadVehicles();
+        selectedVehicle = preferenceManager.getSelectedVehicle();
+    }
+
+    private void loadVehicles() {
+        new Thread(() -> {
+            List<Vehicle> savedVehicles = preferenceManager.getVehicles();
+
+            runOnUiThread(() -> {
+                vehicleList.clear();
+                if (savedVehicles != null) {
+                    vehicleList.addAll(savedVehicles);
+                }
+                vehicleAdapter.notifyDataSetChanged();
+            });
+        }).start();
     }
 
     private void setupClickListeners() {
-        btnStart.setOnClickListener(v -> handleStartAction());
-        btnStop.setOnClickListener(v -> handleStopAction());
         btnMenu.setOnClickListener(this::showPopupMenu);
-        panelVoltage.setOnClickListener(v -> startActivity(new Intent(this, VoltageHistoryActivity.class)));
         cardLogSection.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
             startActivity(intent);
         });
-        btnReconnect.setOnClickListener(v -> handleReconnect());
-        btnReconnect.setOnLongClickListener(v -> {
-            v.setTooltipText("Reconnect");
-            return false;
-        });
     }
 
-    private void handleStartAction() {
+    private void handleStartAction(Vehicle vehicle) {
+        if (vehicleList.isEmpty()) return;
+
+        long pulseMs = preferenceManager.getSelectedStartPulseDuration();
+        long totalCooldownMs = pulseMs + 3000;
+
+        vehicleAdapter.triggerCooldown(vehicle, totalCooldownMs);
+
         String command = preferenceManager.getFormattedCommand("START");
 
         // Record start time before sending
         this.commandStartTime = System.currentTimeMillis();
 
-        bleManager.sendBleCommand(
-                command,
-                () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),  //onSuccess callback
-                () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)    //onFailure callback
-        );
-
-        long pulseMs = preferenceManager.getSelectedStartPulseDuration();
-        long totalCooldownMs = pulseMs + 3000; // Pulse time + 3s starter motor resting cooldown
-
-        UiUtils.setButtonState(btnStart, false, 0.5f);
-        onLog("[SAFETY] Cooling down for " + (totalCooldownMs / 1000) + "s...");
-
-        cooldownHandler.postDelayed(() -> {
-            UiUtils.setButtonState(btnStart, true, 1.0f);
-            onLog("[SAFETY] Start Engine button is re-enabled");
-        }, totalCooldownMs);
+        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+        if (session != null && session.isConnected()) {
+            session.sendBleCommand(
+                    command,
+                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),
+                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)
+            );
+        } else {
+            handleCommandResult(command, Constants.COMMAND_FAILURE, false);
+        }
     }
 
-    private void handleStopAction() {
-        String command = preferenceManager.getFormattedCommand("STOP");
+    private void handleStopAction(Vehicle vehicle) {
+        if (vehicleList.isEmpty()) return;
+        long totalCooldownMs = 2000;
 
-        // Record start time before sending
+        vehicleAdapter.triggerCooldown(vehicle, totalCooldownMs);
+
+        String command = preferenceManager.getFormattedCommand("STOP");
         this.commandStartTime = System.currentTimeMillis();
 
-        bleManager.sendBleCommand(
-                command,
-                () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),  //onSuccess callback
-                () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)    //onFailure callback
-        );
-
-        UiUtils.setButtonState(btnStop, false, 0.5f);
-        onLog("[SAFETY] Processing STOP command...");
-
-        cooldownHandler.postDelayed(() -> {
-            UiUtils.setButtonState(btnStop, true, 1.0f);
-            onLog("[SAFETY] Stop Engine button is re-enabled");
-        }, 2000); // 2s cooldown for safety
+        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+        if (session != null && session.isConnected()) {
+            session.sendBleCommand(
+                    command,
+                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),
+                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)
+            );
+        } else {
+            handleCommandResult(command, Constants.COMMAND_FAILURE, false);
+        }
     }
 
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
-
-        // Add menu items (ID 1 for Reconnect, ID 2 for Edit Config, ID 3 for Additional Settings)
-        popup.getMenu().add(0, 1, 0, "Reconnect");
-        popup.getMenu().add(0, 2, 1, "Edit Config"); // Restored Edit Config option
-        popup.getMenu().add(0, 3, 2, "Settings");    // New Settings Activity option
-        popup.getMenu().add(0, 4, 3, "About & Credits");
+        popup.getMenu().add(0, 1, 0, "Vehicle Config");
+        popup.getMenu().add(0, 2, 1, "Settings");
+        popup.getMenu().add(0, 3, 2, "About & Credits");
 
         popup.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id == 1) {
-                handleReconnect();
-                return true;
-            } else if (id == 2) {
-                // Launch the Edit Config Activity
                 Intent intent = new Intent(MainActivity.this, EditConfigActivity.class);
                 editConfigLauncher.launch(intent);
                 return true;
-            } else if (id == 3) {
-                // Launch the new Settings Activity
+            } else if (id == 2) {
                 Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
                 settingsLauncher.launch(intent);
                 return true;
-            } else if (id == 4) {
+            } else if (id == 3) {
                 showAboutDialog();
                 return true;
             }
@@ -254,13 +286,20 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void handleTelemetryToggle(boolean isChecked) {
         isTelemetryEnabled = isChecked;
-        if (isChecked) {
-            bleManager.sendRawByteCommand((byte) 0x03);
-            onLog("Telemetry request: Resuming live stream.");
-        } else {
-            bleManager.sendRawByteCommand((byte) 0x02);
-            if (txtVoltageValue != null) txtVoltageValue.setText("--.--V");
-            onLog("Telemetry request: Stopped live stream to save hardware power.");
+        BleDeviceSession session = bleManager != null && selectedVehicle != null ? bleManager.getSession(selectedVehicle.getMacAddress()) : null;
+
+        if (session != null && session.isConnected()) {
+            if (isChecked) {
+                session.syncTelemetryState(true);
+                onLog("Telemetry request: Resuming live stream.");
+            } else {
+                session.syncTelemetryState(false);
+                if (!vehicleList.isEmpty()) {
+                    vehicleList.get(0).setVoltage("--.--V");
+                    vehicleAdapter.notifyItemChanged(0);
+                }
+                onLog("Telemetry request: Stopped live stream to save hardware power.");
+            }
         }
         preferenceManager.setTelemetryEnabled(isChecked);
     }
@@ -272,11 +311,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             return;
         }
 
-        if (bleManager.isBluetoothEnabled() && bleManager.isConnected()) {
+        if (bleManager.isBluetoothEnabled() && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             onLog("Already Connected. Skipping on startup connect workflow.");
-            this.onServicesReady();
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                onServicesReady(selectedVehicle.getMacAddress());
+            }, 50);
         } else {
-            bleManager.connect(preferenceManager.isAutoConnectEnabled());
+            bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
         }
     }
 
@@ -287,21 +328,23 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             public void onReceive(Context context, Intent intent) {
                 String formattedCommand = intent.getStringExtra("COMMAND");
                 if (formattedCommand != null) {
-                    if (bleManager == null || !bleManager.isConnected()) {
-                        // Do NOT call setResultCode(-1), letting the broadcast fall through to the service.
+                    if (bleManager == null || !bleManager.isConnected(selectedVehicle.getMacAddress())) {
                         return;
                     }
 
                     // Record start time when the watch trigger is received by UI
                     commandStartTime = System.currentTimeMillis();
 
-//                    onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
-                    bleManager.sendBleCommand(
-                            formattedCommand,
-                            () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS, true),
-                            () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE, true)
-                    );
-                    setResultCode(Activity.RESULT_OK); // Mark handled
+                    BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
+                    if (session != null && session.isConnected()) {
+//                        onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
+                        session.sendBleCommand(
+                                formattedCommand,
+                                () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS, true),
+                                () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE, true)
+                        );
+                        setResultCode(Activity.RESULT_OK);
+                    }
                 }
             }
         };
@@ -328,7 +371,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // Only check for preference changes if BLE is connected and services are initialized,
         // or rely on your explicit sync sequence in onServicesReady().
-        if (preferenceManager != null && bleManager != null && bleManager.isConnected()) {
+        if (preferenceManager != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
             if (newTelemetryState != isTelemetryEnabled) {
                 handleTelemetryToggle(newTelemetryState);
@@ -380,11 +423,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     @Override
-    public void onConnectionStateChanged(boolean isConnected, String statusText) {
+    public void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText) {
         runOnUiThread(() -> {
-            // Format with Sci-Fi prefix
-            String sciFiStatus = "SYSTEMS: " + statusText.toUpperCase();
-            txtStatus.setText(sciFiStatus);
+            updateConnectionUi(preferenceManager.getVehicleByMac(macAddress), isConnected, statusText);
             WearSyncUtils.syncBleStatusToWatch(this, isConnected, statusText);
 
             if (isConnected) {
@@ -409,22 +450,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void updateConnectionUi(boolean isConnected) {
-        // Target Device connection Status Indicator
-        int resourceId = isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline;
-        statusIndicator.setBackgroundResource(resourceId);
+        updateConnectionUi(selectedVehicle, isConnected, isConnected ? "ONLINE" : "OFFLINE");
+    }
 
-        UiUtils.setButtonState(btnStart, isConnected, isConnected ? 1.0f : 0.5f);
-        UiUtils.setButtonState(btnStop, isConnected, isConnected ? 1.0f : 0.5f);
-
-        // Show the reconnect button ONLY when disconnected, hide it when connected
-        if (btnReconnect != null) {
-            btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
-        }
+    private void updateConnectionUi(Vehicle vehicle, boolean isConnected, String statusText) {
+        vehicleAdapter.updateVehicleConnection(vehicle.getId(), isConnected, statusText);
     }
 
     @Override
-    public void onServicesReady() {
-        // Record connection uptime start
+    public void onServicesReady(String macAddress) {
         connectionStartTime = System.currentTimeMillis();
 
         // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
@@ -434,24 +468,26 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
-        bleManager.syncInitializationSequence(
-                () -> bleManager.sendAutoTimeSync(),
-                () -> bleManager.syncTelemetryState(savedTelemetryState),
-                () -> bleManager.syncFailSafeState(savedFailSafeState),
-                () -> bleManager.requestScheduleFromEsp32(),
-                () -> {
-                    // Feedback Haptics and Notifications (Immediate UX feedback)
-                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
-                    FeedbackUtils.triggerDoubleVibrate(this);
-                    FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
+        BleDeviceSession session = bleManager.getSession(macAddress);
+        if (session != null) {
+            session.syncInitializationSequence(
+                    session::sendAutoTimeSync,
+                    () -> session.syncTelemetryState(savedTelemetryState),
+                    () -> session.syncFailSafeState(savedFailSafeState),
+                    session::requestScheduleFromEsp32,
+                    () -> {
+                        FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                        FeedbackUtils.triggerDoubleVibrate(this);
+                        FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
 
-                    onLog("Connection established. Ready for control operations.");
-                }
-        );
+                        onLog("Connection established. Ready for control operations.");
+                    }
+            );
+        }
     }
 
     @Override
-    public void onDataReceived(byte[] rawData) {
+    public void onDataReceived(String macAddress, byte[] rawData) {
         // Hand raw bytes over to our dedicated protocol handler domain layer
         if (protocolHandler != null) {
             protocolHandler.parseIncomingData(rawData);
@@ -510,16 +546,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         commandStartTime = 0;
     }
 
-    private void handleReconnect() {
+    private void handleReconnect(Vehicle vehicle) {
         onLog("Manual reconnect requested...");
-        updateConnectionUi(false);
-        bleManager.connect(preferenceManager.isAutoConnectEnabled());
+        updateConnectionUi(vehicle, false, "Reconnecting");
+        bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
     }
 
     private void pruneOldDatabaseRecords() {
         long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000);
         if (dbHelper != null) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start();
             }, 5000); // Wait 5 seconds after app launch before cleaning up
         }
@@ -528,9 +564,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private final ActivityResultLauncher<Intent> editConfigLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (result.getResultCode() == RESULT_OK) {
-                    onConnectionStateChanged(false, "Reconnecting");
-                    onLog("Configuration updated. Reconnecting...");
-                    bleManager.connect(preferenceManager.isAutoConnectEnabled());
+                    loadVehicles();
+                    selectedVehicle = preferenceManager.getSelectedVehicle();
+
+                    onLog("Vehicle Configuration updated.");
+                    bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
                 }
             });
 
@@ -565,18 +603,20 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
                 long targetEpoch = intent.getLongExtra("EPOCH", -1);
                 if (targetEpoch >= 0) {
-                    if (bleManager != null && bleManager.isConnected()) {
-//                        onLog("[WATCH RX] Syncing engine-run schedule to hardware: " + targetEpoch);
-                        bleManager.sendScheduledEpoch(targetEpoch);
+                    if (bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                        BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
+                        if (session != null && session.isConnected()) {
+//                            onLog("[WATCH RX] Syncing engine-run schedule to hardware: " + targetEpoch);
+                            session.sendScheduledEpoch(targetEpoch);
 
-                        // Request for updated schedule from ESP32 after some delay
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                            if (bleManager != null && bleManager.isConnected()) {
-                                bleManager.requestScheduleFromEsp32();
-                            }
-                        }, 500); // 0.5 sec delay
+                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                if (session.isConnected()) {
+                                    session.requestScheduleFromEsp32();
+                                }
+                            }, 500);
 
-                        setResultCode(Activity.RESULT_OK); // Mark as handled by foreground UI
+                            setResultCode(Activity.RESULT_OK);
+                        }
                     }
                 } else {
                     Log.i(TAG, "Received Invalid Epoch Time for Engine-Schedule-Run");

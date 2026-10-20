@@ -14,6 +14,7 @@ import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
+import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -25,6 +26,7 @@ import in.kvapps.wirelessstart.util.FeedbackUtils;
 public class WearMessageListenerService extends WearableListenerService implements BleManager.BleListener {
     private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
     private BleManager bleManager;
+    private PreferenceManager preferenceManager;
     private String pendingCommandToSend; // Store the intended command
     private long commandStartTime = 0;
 
@@ -33,6 +35,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
         super.onCreate();
         // Grab the app-wide singleton BleManager from MyApplication
         MyApplication app = (MyApplication) getApplication();
+        preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
     }
 
@@ -120,18 +123,19 @@ public class WearMessageListenerService extends WearableListenerService implemen
             // Attach this service as the active listener for the background operation
             bleManager.setListener(this);
 
-            if (bleManager.isConnected()) {
+            var selectedVehicle = preferenceManager.getSelectedVehicle();
+            if (bleManager.isConnected(selectedVehicle.getMacAddress())) {
                 // Already connected (e.g., foreground service kept it alive)
                 sendPendingCommandNow();
             } else {
                 // Not connected, initiate connection using the shared manager
-                bleManager.connect(false);
+                bleManager.connect(selectedVehicle.getMacAddress(), false);
             }
         }
     }
 
     @Override
-    public void onServicesReady() {
+    public void onServicesReady(String macAddress) {
         sendPendingCommandNow();
     }
 
@@ -142,7 +146,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     }
 
     @Override
-    public void onConnectionStateChanged(boolean isConnected, String statusText) {
+    public void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText) {
         Log.d(TAG, "[BLE STATE] " + statusText);
         if (!isConnected && pendingCommandToSend != null) {
             onLog("Connection failed while trying to execute background command.");
@@ -163,21 +167,27 @@ public class WearMessageListenerService extends WearableListenerService implemen
     }
 
     @Override
-    public void onDataReceived(byte[] rawData) {
+    public void onDataReceived(String macAddress, byte[] rawData) {
         // Leave this empty as wearable listener doesn't need
         // to actively process or update the incoming message from BLE GATT
     }
 
     private void sendPendingCommandNow() {
-        if (pendingCommandToSend != null && bleManager != null && bleManager.isConnected()) {
+        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        if (pendingCommandToSend != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             final String executedCommand = pendingCommandToSend;
             onLog("Transmitting background action command: " + executedCommand);
 
-            bleManager.sendBleCommand(
-                    executedCommand,
-                    () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
-                    () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
-            );
+            BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
+            if (session != null && session.isConnected()) {
+                session.sendBleCommand(
+                        executedCommand,
+                        () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
+                        () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
+                );
+            } else {
+                handleCommandResult(executedCommand, Constants.COMMAND_FAILURE);
+            }
             pendingCommandToSend = null;
         }
     }

@@ -28,8 +28,9 @@ public class MyApplication extends android.app.Application {
             public void onStart(@NonNull LifecycleOwner owner) {
                 DefaultLifecycleObserver.super.onStart(owner);
 
-                if (bleManager != null && !bleManager.isConnected()) {
-                    bleManager.connect(false);
+                var selectedVehicle = preferenceManager.getSelectedVehicle();
+                if (bleManager != null && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                    bleManager.connect(selectedVehicle.getMacAddress(), false);
                 }
             }
         });

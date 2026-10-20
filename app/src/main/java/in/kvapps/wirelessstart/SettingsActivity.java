@@ -10,6 +10,7 @@ import com.google.android.material.slider.Slider;
 
 import java.util.Locale;
 
+import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -71,7 +72,7 @@ public class SettingsActivity extends AppCompatActivity {
 
             setupResourcesData();
             // Load saved millisecond values (defaulting to 1.0s if not set)
-            float startMs = preferenceManager.getStartPulseDuration(); // returns float/int ms
+            float startMs = preferenceManager.getStartPulseDuration();
             if (startMs < startSliderMin) startMs = startSliderDefault;
             sliderStart.setValue(startMs);
             updateDurationLabel(txtStartDurationValue, startMs);
@@ -98,12 +99,16 @@ public class SettingsActivity extends AppCompatActivity {
 
         // Fail-Safe Toggle listener
         switchFailSafe.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null) {
+            if (preferenceManager != null && preferenceManager.getSelectedVehicle() != null) {
                 preferenceManager.setFailSafeEnabled(isChecked);
 
-                // Sync immediately to ESP32 if device is connected
-                if (bleManager != null && bleManager.isConnected()) {
-                    bleManager.syncFailSafeState(isChecked);
+                // Sync immediately to ESP32 using BleDeviceSession if connected
+                String macAdd = preferenceManager.getSelectedVehicle().getMacAddress();
+                if (bleManager != null) {
+                    BleDeviceSession session = bleManager.getSession(macAdd);
+                    if (session != null && session.isConnected()) {
+                        session.syncFailSafeState(isChecked);
+                    }
                 }
             }
         });
@@ -163,25 +168,28 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void setupScheduledEngineRunListener() {
         switchEngineSchedule.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null) {
-                // First clean up the Engine-Run Schedule in case of disable
-                if (isChecked) {
-                    // Do nothing when enabled. Schedule can be set using Date/Time picker from the Wear App.
-                } else {
-                    bleManager.sendScheduledEpoch(0);
+            if (preferenceManager != null && preferenceManager.getSelectedVehicle() != null) {
+                String macAdd = preferenceManager.getSelectedVehicle().getMacAddress();
+                BleDeviceSession session = bleManager != null ? bleManager.getSession(macAdd) : null;
 
-                    // Request for updated schedule from ESP32 after some delay
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        if (bleManager != null && bleManager.isConnected()) {
-                            bleManager.requestScheduleFromEsp32();
-                        }
-                    }, 500); // 0.5 sec delay
+                if (!isChecked) {
+                    // Clean up the Engine-Run Schedule when disabled
+                    if (session != null && session.isConnected()) {
+                        session.sendScheduledEpoch(0);
+
+                        // Request updated schedule from ESP32 after a short delay
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            if (session.isConnected()) {
+                                session.requestScheduleFromEsp32();
+                            }
+                        }, 500);
+                    }
                 }
 
-                // Lastly update the Preferences
+                // Lastly update preferences after a delay
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     preferenceManager.setEngineScheduleEnabled(isChecked);
-                }, 2000); // 2 delay
+                }, 2000);
             }
         });
     }

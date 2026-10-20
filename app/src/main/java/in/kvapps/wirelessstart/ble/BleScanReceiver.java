@@ -19,9 +19,9 @@ public class BleScanReceiver extends BroadcastReceiver {
 
     public enum SignalState {
         SUPER_STRONG,      // >= -50 dBm (Triggers Connect)
-        MEDIUM_HIGH,       // -51 dBm to -75 dBm (Triggers Connect)
-        LOW_WAITING,       // < -75 dBm & Avoid Poor Connection = TRUE (Waiting)
-        LOW_TRIGGER        // < -75 dBm & Avoid Poor Connection = FALSE (Triggers Connect)
+        MEDIUM_HIGH,       // -51 dBm to -80 dBm (Triggers Connect)
+        LOW_WAITING,       // < -80 dBm & Avoid Poor Connection = TRUE (Waiting)
+        LOW_TRIGGER        // < -80 dBm & Avoid Poor Connection = FALSE (Triggers Connect)
     }
 
     public interface ScanEventCallback {
@@ -48,10 +48,10 @@ public class BleScanReceiver extends BroadcastReceiver {
 
                         if (rssi >= -50) {
                             currentState = SignalState.SUPER_STRONG;
-                        } else if (rssi >= -75) {
+                        } else if (rssi >= -80) {
                             currentState = SignalState.MEDIUM_HIGH;
                         } else {
-                            // RSSI is < -75 (Low)
+                            // RSSI is < -80 (Low)
                             // Initialize PreferenceManager using the broadcast context
                             PreferenceManager preferenceManager = new PreferenceManager(context);
                             boolean avoidPoorConnection = preferenceManager.isAvoidPoorConnectionEnabled();

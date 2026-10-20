@@ -57,6 +57,8 @@ dependencies {
     androidTestImplementation libs.espresso.core
     androidTestImplementation libs.ext.junit
     implementation libs.lifecycle.process
+    implementation libs.androidx.room.runtime
+    annotationProcessor libs.androidx.room.compiler
 
     // Google Wearable Sync Data Pipeline API
     implementation 'com.google.android.gms:play-services-wearable:19.0.0'

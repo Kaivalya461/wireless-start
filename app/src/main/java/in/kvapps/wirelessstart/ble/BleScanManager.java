@@ -96,15 +96,15 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         BleScanReceiver.targetMacAddress = targetMac;
         BleScanReceiver.callback = this;
 
-        // 2. Build explicit PendingIntent without a redundant custom action string
+        // Use a distinct request code (e.g., 1001) to prevent PendingIntent recycling issues over long spans
         Intent intent = new Intent(context, BleScanReceiver.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
         }
-        scanPendingIntent = PendingIntent.getBroadcast(context, 0, intent, flags);
+        scanPendingIntent = PendingIntent.getBroadcast(context, 1001, intent, flags);
 
-        // 3. Configure filtering for your specific ESP32 Service UUID
+        // Configure filtering for your specific ESP32 Service UUID
         List<ScanFilter> filters = new ArrayList<>();
         if (targetMac != null && !targetMac.trim().isEmpty() && serviceUuid != null) {
             ScanFilter filter = new ScanFilter.Builder()
@@ -113,16 +113,19 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             filters.add(filter);
         }
 
-        // 4. Low latency setup for immediate recognition
+        // IMPORTANT FOR 24/7 BACKGROUND:
+        // SCAN_MODE_LOW_LATENCY is too aggressive and often throttled or killed by Android OS after long periods.
+        // Switch to SCAN_MODE_BALANCED or SCAN_MODE_LOW_POWER for long-running background durability.
         ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setReportDelay(0) // Deliver results immediately
                 .build();
 
         try {
             int result = bluetoothLeScanner.startScan(filters, settings, scanPendingIntent);
             if (result == 0) {
                 isScanning = true;
-                if (listener != null) listener.onScanLog("Scanning active...");
+                if (listener != null) listener.onScanLog("Scanning active (Balanced Mode)...");
             } else {
                 if (listener != null) listener.onScanLog("Failed to start scan. Code: " + result);
             }

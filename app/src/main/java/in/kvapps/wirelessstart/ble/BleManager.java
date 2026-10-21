@@ -34,10 +34,6 @@ public class BleManager {
         void onDataReceived(String macAddress, byte[] rawData);
     }
 
-    public interface RssiCallback {
-        void onRssiRead(String macAddress, int rssi);
-    }
-
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
@@ -53,7 +49,6 @@ public class BleManager {
 
     // Track multiple active device sessions simultaneously keyed by MAC Address
     private final Map<String, BleDeviceSession> activeSessions = new ConcurrentHashMap<>();
-    private final Map<String, RssiCallback> rssiCallbacks = new ConcurrentHashMap<>();
 
     // Track MAC addresses currently undergoing connection to prevent duplicate connectGatt() calls
     private final Set<String> connectingMacs = ConcurrentHashMap.newKeySet();
@@ -196,7 +191,6 @@ public class BleManager {
     public void disconnect(String macAddress) {
         connectingMacs.remove(macAddress);
         BleDeviceSession session = activeSessions.remove(macAddress);
-        rssiCallbacks.remove(macAddress);
 
         if (session != null && session.getGatt() != null) {
             try {
@@ -304,42 +298,5 @@ public class BleManager {
                 listener.onDataReceived(macAddress, value);
             }
         }
-
-        @Override
-        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
-            String macAddress = gatt.getDevice().getAddress();
-            RssiCallback callback = rssiCallbacks.remove(macAddress);
-            if (callback != null) {
-                callback.onRssiRead(macAddress, (status == BluetoothGatt.GATT_SUCCESS) ? rssi : 0);
-            }
-        }
     };
-
-    public void readRssi(String macAddress, RssiCallback callback) {
-        BleDeviceSession session = activeSessions.get(macAddress);
-        if (session != null && session.getGatt() != null) {
-            rssiCallbacks.put(macAddress, callback);
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                        session.getGatt().readRemoteRssi();
-                    }
-                } else {
-                    session.getGatt().readRemoteRssi();
-                }
-            } catch (SecurityException e) {
-                rssiCallbacks.remove(macAddress);
-                callback.onRssiRead(macAddress, 0);
-            }
-        } else {
-            callback.onRssiRead(macAddress, 0);
-        }
-    }
-
-    public void refreshConfiguration() {
-        String latestMac = preferenceManager.getTargetMacAddress();
-        if (bleScanManager != null) {
-            bleScanManager.updateTargetMac(latestMac);
-        }
-    }
 }

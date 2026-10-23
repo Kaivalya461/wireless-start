@@ -14,6 +14,9 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import java.util.List;
+import java.util.Locale;
+
 import in.kvapps.wirelessstart.MainActivity;
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
@@ -65,21 +68,6 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         // Determine correct initial notification state from SSOT repository
         PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
         Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
-
-        String initialMessage = "Background BLE Service Active.";
-        boolean showChronometer = true;
-
-        if (selectedVehicle != null && selectedVehicle.getMacAddress() != null) {
-            ConnectionStateRepository.DeviceConnectionState currentState =
-                    ConnectionStateRepository.getInstance().getState(selectedVehicle.getMacAddress());
-
-            if (currentState != null && currentState.isConnected()) {
-                initialMessage = "Connected to " + selectedVehicle.getName() + " [Healthy]";
-                showChronometer = false;
-            } else {
-                initialMessage = "Scanning for " + selectedVehicle.getName() + " [Healthy]...";
-            }
-        }
 
         // 1. MANDATORY: Call startForeground immediately with the accurate state
         ScanHealth initialHealth = ScanHealth.HEALTHY;
@@ -297,7 +285,7 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
         PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
         BleManager bleManager = getBleManager();
-        java.util.List<Vehicle> vehicles = preferenceManager.getVehicles();
+        List<Vehicle> vehicles = preferenceManager.getVehicles();
 
         int totalVehicles = vehicles != null ? vehicles.size() : 0;
         int connectedCount = 0;
@@ -312,11 +300,13 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
         // Format Scan Status line
         String healthStr = "Healthy";
-        if (health == ScanHealth.WARNING) healthStr = "Warning (Scan Stalled)";
+        if (health == ScanHealth.WARNING) healthStr = String.format(
+                "Warning (Stalled: %s)",
+                UiUtils.formatRelativeTime(BleScanReceiver.getLastScanPacketTimestamp()));
         else if (health == ScanHealth.FAILURE) healthStr = "Failed (BT Off)";
 
-        String summaryLine = String.format(java.util.Locale.getDefault(), "Scan Status: %s", healthStr);
-        String devicesLine = String.format(java.util.Locale.getDefault(), "Vehicles: %d/%d Connected", connectedCount, totalVehicles);
+        String summaryLine = String.format(Locale.getDefault(), "Scan Status: %s", healthStr);
+        String devicesLine = String.format(Locale.getDefault(), "Vehicles: %d/%d Connected", connectedCount, totalVehicles);
 
         // Setup InboxStyle for multi-line display
         NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle()
@@ -328,9 +318,9 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
                 boolean isConnected = (bleManager != null && bleManager.isConnected(v.getMacAddress()));
                 String stateDesc = isConnected ? "Connected" : "Offline";
                 long lastSeen = preferenceManager.getLastSeenTimestamp(v.getMacAddress());
-                String timeDesc = UiUtils.formatRelativeTime(lastSeen);
+                String timeDesc = UiUtils.formatRelativeTimeLastSeen(lastSeen);
 
-                String line = String.format(java.util.Locale.getDefault(), "• %s: %s (%s)", v.getName(), stateDesc, timeDesc);
+                String line = String.format(Locale.getDefault(), "• %s: %s (%s)", v.getName(), stateDesc, timeDesc);
                 inboxStyle.addLine(line);
             }
         }

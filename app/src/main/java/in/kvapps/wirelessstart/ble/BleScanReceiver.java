@@ -17,6 +17,8 @@ public class BleScanReceiver extends BroadcastReceiver {
 
     private static SignalState lastSignalState = null;
 
+    private static long lastScanPacketTimestamp = 0;
+
     public enum SignalState {
         SUPER_STRONG,      // >= -50 dBm (Triggers Connect)
         MEDIUM_HIGH,       // -51 dBm to -80 dBm (Triggers Connect)
@@ -36,6 +38,8 @@ public class BleScanReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
 
+        lastScanPacketTimestamp = System.currentTimeMillis();
+
         List<ScanResult> results = intent.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT);
         if (results != null && !results.isEmpty()) {
             for (ScanResult result : results) {
@@ -45,6 +49,8 @@ public class BleScanReceiver extends BroadcastReceiver {
 
                     if (foundMac.equalsIgnoreCase(targetMacAddress)) {
                         SignalState currentState;
+                        PreferenceManager prefMgr = new PreferenceManager(context);
+                        prefMgr.saveLastSeenTimestamp(foundMac, System.currentTimeMillis());
 
                         if (rssi >= -50) {
                             currentState = SignalState.SUPER_STRONG;
@@ -76,5 +82,9 @@ public class BleScanReceiver extends BroadcastReceiver {
                 }
             }
         }
+    }
+
+    public static long getLastScanPacketTimestamp() {
+        return lastScanPacketTimestamp;
     }
 }

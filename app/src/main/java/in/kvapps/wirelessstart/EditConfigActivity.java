@@ -114,12 +114,16 @@ public class EditConfigActivity extends AppCompatActivity {
     }
 
     private void enterCreateMode() {
-        cardActiveConfig.setVisibility(View.VISIBLE);
+        if (preferenceManager.getVehicles().size() >= 2) {
+            Toast.makeText(this, "Maximum limit of 2 vehicles reached", Toast.LENGTH_SHORT).show();
+            cardActiveConfig.setVisibility(View.GONE);
+            return;
+        }
 
+        cardActiveConfig.setVisibility(View.VISIBLE);
         inputName.setText("");
         inputMac.setText("");
 
-        // Smooth scroll down to the bottom card so the button remains accessible above the keyboard
         if (nestedScrollView != null) {
             nestedScrollView.post(() -> nestedScrollView.smoothScrollTo(0, cardActiveConfig.getBottom()));
         }
@@ -170,6 +174,12 @@ public class EditConfigActivity extends AppCompatActivity {
         String mac = inputMac.getText() != null ? inputMac.getText().toString().trim() : "";
 
         if (!name.isEmpty() && !mac.isEmpty()) {
+            // Check if the vehicle limit (max 2) has already been reached
+            if (preferenceManager.getVehicles().size() >= 2) {
+                Toast.makeText(this, "Maximum limit of 2 vehicles reached. Please delete one to add a new vehicle.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
             preferenceManager.addVehicle(name, mac);
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 

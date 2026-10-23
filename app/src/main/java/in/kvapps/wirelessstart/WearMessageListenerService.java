@@ -17,13 +17,14 @@ import com.google.android.gms.wearable.WearableListenerService;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 
 // Listener to consume messages sent by Wear App
-public class WearMessageListenerService extends WearableListenerService implements BleManager.BleListener {
+public class WearMessageListenerService extends WearableListenerService implements ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
     private BleManager bleManager;
     private PreferenceManager preferenceManager;
@@ -37,6 +38,16 @@ public class WearMessageListenerService extends WearableListenerService implemen
         MyApplication app = (MyApplication) getApplication();
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
+
+        // Register to the ConnectionStateRepository SSOT
+        ConnectionStateRepository.getInstance().addListener(this);
+    }
+
+    @Override
+    public void onDestroy() {
+        // Unregister from the repository to prevent memory leaks
+        ConnectionStateRepository.getInstance().removeListener(this);
+        super.onDestroy();
     }
 
     @Override
@@ -105,7 +116,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
                                 boolean wasHandled = (getResultCode() == Activity.RESULT_OK);
                                 if (!wasHandled) {
                                     // MainActivity is closed; add an error entry in System Activity Monitor
-                                    onLog("Error - Failed to configured Engine-Run Schedule, MainActivity was closed. Try Again!");
+                                    AppLogger.logToDatabaseAndLogcat(context, TAG, "Error - Failed to configure Engine-Run Schedule, MainActivity was closed. Try Again!");
                                 }
                             }
                         }, null, Activity.RESULT_CANCELED, null, null);
@@ -120,10 +131,13 @@ public class WearMessageListenerService extends WearableListenerService implemen
         this.commandStartTime = System.currentTimeMillis();
 
         if (bleManager != null) {
-            // Attach this service as the active listener for the background operation
-            bleManager.setListener(this);
-
             var selectedVehicle = preferenceManager.getSelectedVehicle();
+            if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) {
+                AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] No target vehicle found for background command.");
+                handleCommandResult(command, Constants.COMMAND_FAILURE);
+                return;
+            }
+
             if (bleManager.isConnected(selectedVehicle.getMacAddress())) {
                 // Already connected (e.g., foreground service kept it alive)
                 sendPendingCommandNow();
@@ -134,30 +148,31 @@ public class WearMessageListenerService extends WearableListenerService implemen
         }
     }
 
+    // --- ConnectionStateRepository Observer Callback (SSOT) ---
     @Override
-    public void onServicesReady(String macAddress) {
-        sendPendingCommandNow();
-    }
+    public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
+        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        if (selectedVehicle != null && macAddress.equalsIgnoreCase(selectedVehicle.getMacAddress())) {
+            Log.d(TAG, "[BLE STATE] " + newState.getStatusText());
 
-    @Override
-    public void onLog(String message) {
-        // Shared logging handles both Logcat and background DB persistence
-        AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] " + message);
-    }
-
-    @Override
-    public void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText) {
-        Log.d(TAG, "[BLE STATE] " + statusText);
-        if (!isConnected && pendingCommandToSend != null) {
-            onLog("Connection failed while trying to execute background command.");
-            handleCommandResult(pendingCommandToSend, Constants.COMMAND_FAILURE);
+            if (newState.isConnected()) {
+                // If we were waiting to send a command in the background, trigger it now upon successful connection and service readiness
+                if (pendingCommandToSend != null) {
+                    sendPendingCommandNow();
+                }
+            } else {
+                if (pendingCommandToSend != null) {
+                    AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Connection lost while trying to execute background command.");
+                    handleCommandResult(pendingCommandToSend, Constants.COMMAND_FAILURE);
+                }
+            }
         }
     }
 
     private void handleCommandResult(String executedCommand, String resultPayload) {
         long timeTaken = System.currentTimeMillis() - commandStartTime;
 
-        onLog("[WATCH RX] Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
+        AppLogger.logToDatabaseAndLogcat(this, TAG, "[WATCH RX] Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
 
         FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
 
@@ -166,17 +181,11 @@ public class WearMessageListenerService extends WearableListenerService implemen
         pendingCommandToSend = null;
     }
 
-    @Override
-    public void onDataReceived(String macAddress, byte[] rawData) {
-        // Leave this empty as wearable listener doesn't need
-        // to actively process or update the incoming message from BLE GATT
-    }
-
     private void sendPendingCommandNow() {
         var selectedVehicle = preferenceManager.getSelectedVehicle();
-        if (pendingCommandToSend != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+        if (pendingCommandToSend != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             final String executedCommand = pendingCommandToSend;
-            onLog("Transmitting background action command: " + executedCommand);
+            AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Transmitting background action command: " + executedCommand);
 
             BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
             if (session != null && session.isConnected()) {

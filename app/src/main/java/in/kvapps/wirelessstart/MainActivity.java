@@ -34,17 +34,18 @@ import java.util.Locale;
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
+import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
-import in.kvapps.wirelessstart.util.WearSyncUtils;
 
-public class MainActivity extends AppCompatActivity implements BleManager.BleListener {
+public class MainActivity extends AppCompatActivity implements BleManager.BleListener, ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
 
     // UI Controls
@@ -65,7 +66,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
-    private long connectionStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
 
@@ -101,7 +101,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         registerWatchReceiver();
         registerScheduleReceiver();
 
-        updateConnectionUi(false);
         pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
     }
@@ -311,12 +310,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             return;
         }
 
-        if (bleManager.isBluetoothEnabled() && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-            onLog("Already Connected. Skipping on startup connect workflow.");
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                onServicesReady(selectedVehicle.getMacAddress());
-            }, 50);
-        } else {
+        // Only trigger connect from MainActivity if Foreground Service is disabled.
+        if (!preferenceManager.isForegroundServiceEnabled()) {
             bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
         }
     }
@@ -362,6 +357,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         super.onResume();
         isAppInForeground = true;
 
+        // Register as listener to the Single Source of Truth repository
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                ConnectionStateRepository.getInstance().addListener(this);
+            }, 50);
+
         // Re-bind this activity as the active BLE listener when returning from other layouts/activities
         if (bleManager != null) {
             bleManager.setListener(this);
@@ -369,8 +369,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // Refresh the log UI from the database every time the activity comes to the foreground
         loadStoredLogsForToday();
 
-        // Only check for preference changes if BLE is connected and services are initialized,
-        // or rely on your explicit sync sequence in onServicesReady().
+        // Only check for preference changes if BLE is connected and services are initialized
         if (preferenceManager != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
             if (newTelemetryState != isTelemetryEnabled) {
@@ -383,6 +382,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onPause() {
         super.onPause();
         isAppInForeground = false;
+        // Unregister from repository when paused to avoid leaking references
+        ConnectionStateRepository.getInstance().removeListener(this);
     }
 
     @Override
@@ -391,6 +392,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
         if (scheduleReceiver != null) unregisterReceiver(scheduleReceiver);
         if (dbHelper != null) dbHelper.close();
+        ConnectionStateRepository.getInstance().removeListener(this);
 
         // DO NOT disconnect or release bleManager here, because it's shared globally!
         // Just clear the UI listener reference to prevent memory leaks:
@@ -422,53 +424,55 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         });
     }
 
+    // --- ConnectionStateRepository Observer Callback (SSOT) ---
     @Override
-    public void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText) {
+    public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
         runOnUiThread(() -> {
-            updateConnectionUi(preferenceManager.getVehicleByMac(macAddress), isConnected, statusText);
-            WearSyncUtils.syncBleStatusToWatch(this, isConnected, statusText);
+            Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
+            if (vehicle == null) {
+                onLog("onStateChanged() -> Missing Vehicle object");
+                return;
+            }
 
-            if (isConnected) {
-                // All Connection Success code is handled inside onServicesReady
-                Log.i(TAG, "Received onConnectionStateChanged, isConnected: TRUE");
-            } else {
-                Log.i(TAG, "Received onConnectionStateChanged, isConnected: FALSE");
-                updateConnectionUi(false);
+            vehicle.setConnected(newState.isConnected());
+            vehicle.setStatusText(newState.getStatusText());
+
+            if (ConnectionState.CONNECTED.equals(newState.getState())) {
+                Log.i(TAG, "SSOT StateChanged: Connected for " + macAddress);
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    onServicesReady(vehicle);
+                }, 50);
+            } else if (ConnectionState.DISCONNECTED.equals(newState.getState())) {
+                Log.i(TAG, "SSOT StateChanged: Offline for " + macAddress);
+                updateConnectionUi(vehicle);
 
                 // Calculate total uptime if we have a valid start time
                 long uptimeMillis = 0;
-                if (connectionStartTime > 0) {
-                    uptimeMillis = System.currentTimeMillis() - connectionStartTime;
-                    connectionStartTime = 0; // Reset
+                if (newState.getConnectedAtTime() > 0) {
+                    uptimeMillis = System.currentTimeMillis() - newState.getConnectedAtTime();
                 }
 
-                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 FeedbackUtils.triggerDisconnectVibrate(this);
                 FeedbackUtils.showConnectionNotification(this, false, uptimeMillis, isAppInForeground);
+            } else if (ConnectionState.DISCOVERING.equals(newState.getState())) {
+                updateConnectionUi(vehicle);
             }
         });
     }
 
-    private void updateConnectionUi(boolean isConnected) {
-        updateConnectionUi(selectedVehicle, isConnected, isConnected ? "ONLINE" : "OFFLINE");
+    private void updateConnectionUi(Vehicle vehicle) {
+        vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
     }
 
-    private void updateConnectionUi(Vehicle vehicle, boolean isConnected, String statusText) {
-        vehicleAdapter.updateVehicleConnection(vehicle.getId(), isConnected, statusText);
-    }
-
-    @Override
-    public void onServicesReady(String macAddress) {
-        connectionStartTime = System.currentTimeMillis();
-
+    public void onServicesReady(Vehicle vehicle) {
         // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
-        updateConnectionUi(true);
+        updateConnectionUi(vehicle);
 
         // 1. Sequentially sync initialization settings AND log completion at the end
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
-        BleDeviceSession session = bleManager.getSession(macAddress);
+        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
         if (session != null) {
             session.syncInitializationSequence(
                     session::sendAutoTimeSync,
@@ -476,7 +480,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     () -> session.syncFailSafeState(savedFailSafeState),
                     session::requestScheduleFromEsp32,
                     () -> {
-                        FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
                         FeedbackUtils.triggerDoubleVibrate(this);
                         FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
 
@@ -548,7 +551,9 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void handleReconnect(Vehicle vehicle) {
         onLog("Manual reconnect requested...");
-        updateConnectionUi(vehicle, false, "Reconnecting");
+        vehicle.setConnected(false);
+        vehicle.setStatusText("Reconnecting");
+        updateConnectionUi(vehicle);
         bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
     }
 

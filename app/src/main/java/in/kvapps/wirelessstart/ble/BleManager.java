@@ -24,13 +24,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.ConnectionState;
 
 public class BleManager {
 
     public interface BleListener {
         void onLog(String message);
-        void onConnectionStateChanged(String macAddress, boolean isConnected, String statusText);
-        void onServicesReady(String macAddress);
         void onDataReceived(String macAddress, byte[] rawData);
     }
 
@@ -143,6 +142,7 @@ public class BleManager {
         }
 
         if (activeSessions.containsKey(macAddress) || connectingMacs.contains(macAddress)) {
+            listener.onLog("Already Connected; Skipping connect workflow");
             return;
         }
 
@@ -229,9 +229,7 @@ public class BleManager {
                 // Stop scanning once connection is established to save resources
                 bleScanManager.stopScan();
 
-                if (listener != null) {
-                    listener.onConnectionStateChanged(macAddress, true, "Connected");
-                }
+                ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCOVERING, "Discovering...");
 
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -248,9 +246,7 @@ public class BleManager {
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 disconnect(macAddress);
-                if (listener != null) {
-                    listener.onConnectionStateChanged(macAddress, false, "Offline");
-                }
+                ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
 
                 // If auto-connect is enabled, restart background scan after a short delay
                 if (preferenceManager.isAutoConnectEnabled()) {
@@ -276,7 +272,8 @@ public class BleManager {
                         activeSessions.put(macAddress, session);
 
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                            if (listener != null) listener.onServicesReady(macAddress);
+//                            if (listener != null) listener.onServicesReady(macAddress);
+                            ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.CONNECTED, "Connected");
                         }, 50);
                     }
                 }

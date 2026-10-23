@@ -14,7 +14,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
 
+import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.util.UiUtils;
 
@@ -105,6 +107,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         private final Button btnStop;
         private final View panelVoltage;
         private final TextView txtVoltageValue;
+        private final TextView txtActiveBadge;
 
         public VehicleViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -116,6 +119,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             btnStop = itemView.findViewById(R.id.btn_stop);
             panelVoltage = itemView.findViewById(R.id.panel_voltage);
             txtVoltageValue = itemView.findViewById(R.id.txt_voltage_value);
+            txtActiveBadge = itemView.findViewById(R.id.txt_active_badge);
         }
 
         public void bind(Vehicle vehicle, VehicleActionListener listener, int position) {
@@ -131,10 +135,32 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
 
-            // Buttons are enabled ONLY if connected AND not currently busy
-            boolean canClick = isConnected && !isBusy;
-            UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
-            UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
+            // Access PreferenceManager via Application Context
+            MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
+            PreferenceManager preferenceManager = app.getPreferenceManager();
+
+            // Show ACTIVE badge only if this vehicle matches the selected ID
+            String selectedId = preferenceManager.getSelectedVehicleId();
+            if (selectedId != null && selectedId.equals(vehicle.getId())) {
+                txtActiveBadge.setVisibility(View.VISIBLE);
+            } else {
+                txtActiveBadge.setVisibility(View.GONE);
+            }
+
+            // Check if STOP / Fail-Safe functionality is enabled in preferences
+            boolean isStopEnabled = preferenceManager.isFailSafeEnabled();
+
+            if (isStopEnabled) {
+                btnStop.setVisibility(View.VISIBLE);
+                boolean canClick = isConnected && !isBusy;
+                UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
+                UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
+            } else {
+                // Completely remove/hide STOP button; START button will automatically expand to fill space
+                btnStop.setVisibility(View.GONE);
+                boolean canClick = isConnected && !isBusy;
+                UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
+            }
 
             txtVoltageValue.setText(vehicle.getVoltage());
 

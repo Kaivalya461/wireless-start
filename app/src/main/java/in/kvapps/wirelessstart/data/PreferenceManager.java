@@ -256,4 +256,14 @@ public class PreferenceManager {
     public void setAvoidPoorConnectionEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_AVOID_POOR_CONN, enabled).apply();
     }
+
+    public void saveLastSeenTimestamp(String macAddress, long timestamp) {
+        if (macAddress == null) return;
+        prefs.edit().putLong("key_last_seen_" + macAddress.toUpperCase(), timestamp).apply();
+    }
+
+    public long getLastSeenTimestamp(String macAddress) {
+        if (macAddress == null) return 0;
+        return prefs.getLong("key_last_seen_" + macAddress.toUpperCase(), 0);
+    }
 }

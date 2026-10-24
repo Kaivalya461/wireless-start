@@ -37,10 +37,13 @@ import java.util.List;
 
 import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class EditConfigActivity extends AppCompatActivity {
+    private static final String TAG = "EditConfigActivity";
 
     private TextInputEditText inputName, inputMac;
     private MaterialButton btnScan, btnSave, btnAddVehicle;
@@ -139,8 +142,10 @@ public class EditConfigActivity extends AppCompatActivity {
                     @Override
                     public void onSelect(Vehicle vehicle) {
                         preferenceManager.setSelectedVehicleId(vehicle.getId());
-                        refreshBleConnection(vehicle.getMacAddress());
-                        vehicleConfigAdapter.updateData(preferenceManager.getVehicles(), preferenceManager.getSelectedVehicleId());
+                        vehicleConfigAdapter.updateData(
+                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                                preferenceManager.getSelectedVehicleId()
+                        );
                         cardActiveConfig.setVisibility(View.GONE);
                         Toast.makeText(EditConfigActivity.this, "Switched to " + vehicle.getName(), Toast.LENGTH_SHORT).show();
 
@@ -156,7 +161,10 @@ public class EditConfigActivity extends AppCompatActivity {
                         }
 
                         preferenceManager.deleteVehicle(vehicle.getId());
-                        vehicleConfigAdapter.updateData(preferenceManager.getVehicles(), preferenceManager.getSelectedVehicleId());
+                        vehicleConfigAdapter.updateData(
+                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                                preferenceManager.getSelectedVehicleId()
+                        );
                         cardActiveConfig.setVisibility(View.GONE);
                         Toast.makeText(EditConfigActivity.this, "Vehicle deleted", Toast.LENGTH_SHORT).show();
 
@@ -183,21 +191,14 @@ public class EditConfigActivity extends AppCompatActivity {
             preferenceManager.addVehicle(name, mac);
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 
-            vehicleConfigAdapter.updateData(preferenceManager.getVehicles(), preferenceManager.getSelectedVehicleId());
+            vehicleConfigAdapter.updateData(
+                    VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                    preferenceManager.getSelectedVehicleId()
+            );
             cardActiveConfig.setVisibility(View.GONE); // Hide card after saving
             setResult(RESULT_OK);
         } else {
             Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void refreshBleConnection(String macAddress) {
-        if (bleManager != null) {
-//            bleManager.refreshConfiguration(); // Not needed. It was used to fetch new MacAddress from prefs and reconnect.
-            if (bleManager.isConnected(macAddress)) {
-                bleManager.disconnect(macAddress);
-            }
-            bleManager.connect(macAddress, preferenceManager.isAutoConnectEnabled());
         }
     }
 

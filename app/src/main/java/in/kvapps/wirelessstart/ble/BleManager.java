@@ -105,13 +105,21 @@ public class BleManager {
     private final BroadcastReceiver bluetoothStateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+            String action = intent.getAction();
+            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                if (state == BluetoothAdapter.STATE_OFF) {
-                    if (listener != null) {
+                switch (state) {
+                    case BluetoothAdapter.STATE_ON:
+                        listener.onLog("System Update: Phone Bluetooth was turned on.");
+                        if (preferenceManager.isForegroundServiceEnabled()) {
+                            bleScanManager.startScan();
+                        }
+                        break;
+
+                    case BluetoothAdapter.STATE_OFF:
                         listener.onLog("System Alert: Phone Bluetooth was turned off.");
-                    }
-                    disconnectAll();
+                        disconnectAll();
+                        break;
                 }
             }
         }
@@ -200,6 +208,7 @@ public class BleManager {
                 if (listener != null) listener.onLog("Security Error disconnecting GATT.");
             }
         }
+        ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
     }
 
     public void disconnectAll() {
@@ -246,7 +255,6 @@ public class BleManager {
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 disconnect(macAddress);
-                ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
 
                 // If auto-connect is enabled, restart background scan after a short delay
                 if (preferenceManager.isAutoConnectEnabled()) {

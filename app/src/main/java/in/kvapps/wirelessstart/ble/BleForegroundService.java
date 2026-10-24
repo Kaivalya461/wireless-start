@@ -177,6 +177,11 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
     private void triggerInitialConnection() {
         BleManager manager = getBleManager();
         if (manager != null) {
+            if (!manager.isBluetoothEnabled()) {
+                AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] System Alert: Please turn on phone Bluetooth.");
+                return;
+            }
+
             PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
             Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
 

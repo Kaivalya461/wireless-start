@@ -28,8 +28,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
@@ -44,6 +46,7 @@ import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
+import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener, ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
@@ -68,6 +71,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
+    // Track the last known state per vehicle MAC address
+    private final Map<String, ConnectionState> lastKnownStates = new HashMap<>();
 
     private BroadcastReceiver scheduleReceiver; // For Scheduled Engine Run/Stop
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
@@ -193,7 +198,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void loadVehicles() {
         new Thread(() -> {
-            List<Vehicle> savedVehicles = preferenceManager.getVehicles();
+            List<Vehicle> savedVehicles = VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles());
 
             runOnUiThread(() -> {
                 vehicleList.clear();
@@ -261,7 +266,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void showPopupMenu(View v) {
         PopupMenu popup = new PopupMenu(MainActivity.this, v);
-        popup.getMenu().add(0, 1, 0, "Vehicle Config");
+        popup.getMenu().add(0, 1, 0, "Manage Vehicles");
         popup.getMenu().add(0, 2, 1, "Settings");
         popup.getMenu().add(0, 3, 2, "About & Credits");
 
@@ -398,6 +403,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // DO NOT disconnect or release bleManager here, because it's shared globally!
         // Just clear the UI listener reference to prevent memory leaks:
+        lastKnownStates.clear(); // Clear tracked states
+
         if (bleManager != null) {
             bleManager.setListener(null);
         }
@@ -432,33 +439,20 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         runOnUiThread(() -> {
             Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
             if (vehicle == null) {
-                onLog("onStateChanged() -> Missing Vehicle object");
+                onLog("onStateChanged() -> Missing Vehicle object for MAC: " + macAddress);
                 return;
             }
+
+            ConnectionState currentState = newState.getState();
+            ConnectionState previousState = lastKnownStates.get(macAddress);
 
             vehicle.setConnected(newState.isConnected());
             vehicle.setStatusText(newState.getStatusText());
 
-            if (ConnectionState.CONNECTED.equals(newState.getState())) {
-                Log.i(TAG, "SSOT StateChanged: Connected for " + macAddress);
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    onServicesReady(vehicle);
-                }, 50);
-            } else if (ConnectionState.DISCONNECTED.equals(newState.getState())) {
-                Log.i(TAG, "SSOT StateChanged: Offline for " + macAddress);
-                updateConnectionUi(vehicle);
+            handleStateTransition(vehicle, macAddress, currentState, previousState, newState);
 
-                // Calculate total uptime if we have a valid start time
-                long uptimeMillis = 0;
-                if (newState.getConnectedAtTime() > 0) {
-                    uptimeMillis = System.currentTimeMillis() - newState.getConnectedAtTime();
-                }
-
-                FeedbackUtils.triggerDisconnectVibrate(this);
-                FeedbackUtils.showConnectionNotification(this, false, uptimeMillis, isAppInForeground);
-            } else if (ConnectionState.DISCOVERING.equals(newState.getState())) {
-                updateConnectionUi(vehicle);
-            }
+            // Update the last known state for this specific vehicle MAC
+            lastKnownStates.put(macAddress, currentState);
         });
     }
 
@@ -637,5 +631,51 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         } else {
             registerReceiver(scheduleReceiver, filter);
         }
+    }
+
+    private void handleStateTransition(Vehicle vehicle, String macAddress,
+                                       ConnectionState currentState,
+                                       ConnectionState previousState,
+                                       ConnectionStateRepository.DeviceConnectionState newState) {
+        switch (currentState) {
+            case CONNECTED:
+                handleConnectedState(vehicle, macAddress, previousState);
+                break;
+
+            case DISCONNECTED:
+                handleDisconnectedState(vehicle, newState);
+                break;
+
+            case DISCOVERING:
+                updateConnectionUi(vehicle);
+                break;
+
+            default:
+                updateConnectionUi(vehicle);
+                break;
+        }
+    }
+
+    private void handleConnectedState(Vehicle vehicle, String macAddress, ConnectionState previousState) {
+        // Only trigger setup if this specific vehicle wasn't already connected
+        if (previousState != ConnectionState.CONNECTED) {
+            Log.i(TAG, "SSOT StateChanged: Newly Connected for " + macAddress);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                onServicesReady(vehicle);
+            }, 50);
+        }
+    }
+
+    private void handleDisconnectedState(Vehicle vehicle, ConnectionStateRepository.DeviceConnectionState newState) {
+        Log.i(TAG, "SSOT StateChanged: Offline for " + vehicle.getMacAddress());
+        updateConnectionUi(vehicle);
+
+        long uptimeMillis = 0;
+        if (newState.getConnectedAtTime() > 0) {
+            uptimeMillis = System.currentTimeMillis() - newState.getConnectedAtTime();
+        }
+
+        FeedbackUtils.triggerDisconnectVibrate(this);
+        FeedbackUtils.showConnectionNotification(this, false, uptimeMillis, isAppInForeground);
     }
 }

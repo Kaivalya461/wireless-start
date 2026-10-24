@@ -29,7 +29,9 @@ public class MyApplication extends android.app.Application {
                 DefaultLifecycleObserver.super.onStart(owner);
 
                 var selectedVehicle = preferenceManager.getSelectedVehicle();
-                if (bleManager != null && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                if (!preferenceManager.isForegroundServiceEnabled()
+                        && bleManager != null
+                        && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
                     bleManager.connect(selectedVehicle.getMacAddress(), false);
                 }
             }

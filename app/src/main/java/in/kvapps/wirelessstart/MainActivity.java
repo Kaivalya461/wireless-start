@@ -83,9 +83,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private final ActivityResultLauncher<Intent> settingsLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                onLog("Settings updated successfully.");
                 if (preferenceManager.isAutoConnectEnabled() && (bleManager != null && !bleManager.isConnected(selectedVehicle.getMacAddress()))) {
-                    onLog("Settings updated. Reconnecting...");
-                    bleManager.connect(selectedVehicle.getMacAddress(), true);
+//                    onLog("Settings updated. Reconnecting...");
+//                    bleManager.connect(selectedVehicle.getMacAddress(), true);
                 }
             });
 
@@ -312,6 +313,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // Only trigger connect from MainActivity if Foreground Service is disabled.
         if (!preferenceManager.isForegroundServiceEnabled()) {
+            onLog("Manual Connect Triggered");
             bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
         }
     }
@@ -573,7 +575,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     selectedVehicle = preferenceManager.getSelectedVehicle();
 
                     onLog("Vehicle Configuration updated.");
-                    bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
+//                    bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
                 }
             });
 

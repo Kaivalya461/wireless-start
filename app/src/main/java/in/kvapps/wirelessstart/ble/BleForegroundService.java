@@ -302,16 +302,20 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         String healthStr = "Healthy";
         if (health == ScanHealth.WARNING) healthStr = String.format(
                 "Warning (Stalled: %s)",
-                UiUtils.formatRelativeTime(BleScanReceiver.getLastScanPacketTimestamp()));
+                UiUtils.formatRelativeTime(BleScanManager.getLastScanStartTimestamp()));
         else if (health == ScanHealth.FAILURE) healthStr = "Failed (BT Off)";
 
         String summaryLine = String.format(Locale.getDefault(), "Scan Status: %s", healthStr);
         String devicesLine = String.format(Locale.getDefault(), "Vehicles: %d/%d Connected", connectedCount, totalVehicles);
+        long lastScanStartTimestamp = BleScanManager.getLastScanStartTimestamp();
+        String lastScanStartDesc = UiUtils.formatRelativeTime(lastScanStartTimestamp);
+        String lastScanStartLine = String.format(Locale.getDefault(), "Last Scan Start: %s", lastScanStartDesc);
 
         // Setup InboxStyle for multi-line display
         NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle()
                 .setBigContentTitle(devicesLine)
-                .addLine(summaryLine);
+                .addLine(summaryLine)
+                .addLine(lastScanStartLine);
 
         if (vehicles != null) {
             for (Vehicle v : vehicles) {
@@ -378,14 +382,15 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             return ScanHealth.HEALTHY;
         }
 
-        // Check if the scan receiver has received active packets from Android OS recently (e.g., last 10 minutes)
-        long lastPacketTime = BleScanReceiver.getLastScanPacketTimestamp();
-        long timeSinceLastPacket = System.currentTimeMillis() - lastPacketTime;
+        // Check the last ble scan start time (e.g., more than 10 minutes)
+        long lastScanStartTime = BleScanManager.getLastScanStartTimestamp();
+        long timeSinceLastScanStart = System.currentTimeMillis() - lastScanStartTime;
         long tenMinutesMs = 10L * 60L * 1000L;
 
-        // If it's been more than 10 minutes since the last hardware scan callback,
-        // Android has likely throttled or frozen the background scan.
-        if (lastPacketTime == 0 || timeSinceLastPacket > tenMinutesMs) {
+        // If it's been more than 10 minutes since the last hardware scan start,
+        // Android could have likely throttled or frozen the background scan,
+        // Update Scan status to WARNING which shows Recover Scan button to user.
+        if (lastScanStartTime == 0 || timeSinceLastScanStart > tenMinutesMs) {
             return ScanHealth.WARNING;
         }
 

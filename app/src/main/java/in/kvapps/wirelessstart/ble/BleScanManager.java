@@ -32,6 +32,8 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
     private final UUID serviceUuid;
     private String targetMac;
 
+    private static long lastScanStartTimestamp = 0L;
+
     public BleScanManager(Context context, UUID serviceUuid, String targetMac, ScanListener listener) {
         this.context = context;
         this.serviceUuid = serviceUuid;
@@ -91,6 +93,8 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             }
         }
 
+        lastScanStartTimestamp = System.currentTimeMillis();
+
         // Reset the receiver's state memory when starting a brand new scan
         BleScanReceiver.resetState();
         BleScanReceiver.targetMacAddress = targetMac;
@@ -113,11 +117,9 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             filters.add(filter);
         }
 
-        // IMPORTANT FOR 24/7 BACKGROUND:
-        // SCAN_MODE_LOW_LATENCY is too aggressive and often throttled or killed by Android OS after long periods.
-        // Switch to SCAN_MODE_BALANCED or SCAN_MODE_LOW_POWER for long-running background durability.
+        // Reverted back to Low latency setup for immediate recognition
         ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .setReportDelay(0) // Deliver results immediately
                 .build();
 
@@ -125,7 +127,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             int result = bluetoothLeScanner.startScan(filters, settings, scanPendingIntent);
             if (result == 0) {
                 isScanning = true;
-                if (listener != null) listener.onScanLog("Scanning active (Balanced Mode)...");
+                if (listener != null) listener.onScanLog("Scanning active...");
             } else {
                 if (listener != null) listener.onScanLog("Failed to start scan. Code: " + result);
             }
@@ -153,5 +155,9 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
     public boolean isScanning() {
         return isScanning;
+    }
+
+    public static long getLastScanStartTimestamp() {
+        return lastScanStartTimestamp;
     }
 }

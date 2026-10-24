@@ -142,7 +142,7 @@ public class BleManager {
         }
 
         if (activeSessions.containsKey(macAddress) || connectingMacs.contains(macAddress)) {
-            listener.onLog("Already Connected; Skipping connect workflow");
+            listener.onLog("Already Connecting; Skipping connect workflow");
             return;
         }
 

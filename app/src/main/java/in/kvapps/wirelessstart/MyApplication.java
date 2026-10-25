@@ -32,7 +32,7 @@ public class MyApplication extends android.app.Application {
                 if (!preferenceManager.isForegroundServiceEnabled()
                         && bleManager != null
                         && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                    bleManager.connect(selectedVehicle.getMacAddress(), false);
+                    bleManager.startMultiVehicleScan();
                 }
             }
         });

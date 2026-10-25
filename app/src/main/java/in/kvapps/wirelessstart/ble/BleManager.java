@@ -173,6 +173,55 @@ public class BleManager {
         return session != null && session.isConnected();
     }
 
+    /**
+     * Starts background/foreground scanning for all registered vehicles simultaneously
+     * without needing to specify a single MAC address.
+     */
+    public void startMultiVehicleScan() {
+        if (!isBluetoothEnabled()) {
+            if (listener != null) {
+                listener.onLog("System Alert: Please turn on phone Bluetooth before scanning.");
+            }
+            return;
+        }
+
+        // Always refresh latest vehicles from Room DB before starting scan
+        refreshVehicles();
+
+        if (bleScanManager != null && !bleScanManager.isScanning()) {
+            // Check if all are already connected first so we don't scan needlessly
+            List<String> allTargets = preferenceManager.getTargetMacAddresses();
+            boolean allConnected = true;
+            for (String mac : allTargets) {
+                if (!isConnected(mac)) {
+                    allConnected = false;
+                    break;
+                }
+            }
+
+            if (!allConnected) {
+                bleScanManager.startScan();
+            } else {
+                if (listener != null) {
+                    listener.onLog("All target vehicles are already connected. Skipping scan.");
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops the multi-vehicle scan.
+     */
+    public void stopMultiVehicleScan() {
+        if (bleScanManager != null && bleScanManager.isScanning()) {
+            bleScanManager.stopScan();
+            if (listener != null) {
+                listener.onLog("Stopped multi-vehicle background scan.");
+            }
+        }
+    }
+
+
     public void connect(String macAddress, boolean autoConnect) {
         if (!isBluetoothEnabled()) {
             if (listener != null) {

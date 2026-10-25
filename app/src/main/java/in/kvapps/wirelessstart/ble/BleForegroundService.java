@@ -188,8 +188,8 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             if (selectedVehicle != null && selectedVehicle.getMacAddress() != null) {
                 String targetMac = selectedVehicle.getMacAddress();
                 if (!targetMac.trim().isEmpty() && !manager.isConnected(targetMac)) {
-                    AppLogger.logToDatabaseAndLogcat(this, TAG, "ForegroundService: Initial connect trigger for " + targetMac);
-                    manager.connect(targetMac, false);
+//                    AppLogger.logToDatabaseAndLogcat(this, TAG, "ForegroundService: Initial connect trigger for " + targetMac);
+                    manager.startMultiVehicleScan();
                 }
             }
         }
@@ -209,7 +209,7 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
         // Reset BLE stack and restart scanning
         manager.release();
-        manager.connect(targetMac, preferenceManager.isAutoConnectEnabled());
+        manager.startMultiVehicleScan();
 
         updateForegroundNotification(ScanHealth.HEALTHY);
     }
@@ -249,7 +249,7 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
         // Disconnected & Healthy: Active scanning (No button shown)
         updateForegroundNotification(health);
-        manager.connect(targetMac, preferenceManager.isAutoConnectEnabled());
+        manager.startMultiVehicleScan();
     }
 
     private void forceStopApp() {

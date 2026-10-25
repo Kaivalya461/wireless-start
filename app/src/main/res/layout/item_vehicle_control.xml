@@ -75,7 +75,7 @@
                 android:id="@+id/txt_active_badge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="ACTIVE"
+                android:text="DEFAULT"
                 android:textColor="#00E5FF"
                 android:textSize="10sp"
                 android:textStyle="bold"

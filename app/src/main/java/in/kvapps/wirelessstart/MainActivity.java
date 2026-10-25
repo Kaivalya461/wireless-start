@@ -319,7 +319,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         // Only trigger connect from MainActivity if Foreground Service is disabled.
         if (!preferenceManager.isForegroundServiceEnabled()) {
             onLog("Manual Connect Triggered");
-            bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
+            bleManager.startMultiVehicleScan();
         }
     }
 

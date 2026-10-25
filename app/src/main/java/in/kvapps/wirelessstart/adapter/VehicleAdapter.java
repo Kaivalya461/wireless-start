@@ -1,22 +1,27 @@
 package in.kvapps.wirelessstart.adapter;
 
+import android.animation.ValueAnimator;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
 
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.util.UiUtils;
 
@@ -48,8 +53,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
     @Override
     public void onBindViewHolder(@NonNull VehicleViewHolder holder, int position) {
-        Vehicle vehicle = vehicleList.get(position);
-        holder.bind(vehicle, listener, position);
+        holder.bind(vehicleList.get(position), listener, position);
     }
 
     @Override
@@ -57,22 +61,15 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         return vehicleList.size();
     }
 
-    /**
-     * Helper to set a vehicle into a busy/cooldown state using the Vehicle object
-     * and automatically restore it after delay.
-     */
     public void triggerCooldown(Vehicle vehicle, long cooldownMillis) {
         if (vehicle == null) return;
-
-        // Find the current position of the vehicle in the list
         int position = vehicleList.indexOf(vehicle);
-        if (position == -1) return; // Vehicle is no longer in the list
+        if (position == -1) return;
 
         vehicle.setBusy(true);
         notifyItemChanged(position);
 
         handler.postDelayed(() -> {
-            // Re-check the position in case the list changed while waiting
             int currentPosition = vehicleList.indexOf(vehicle);
             if (currentPosition != -1) {
                 vehicle.setBusy(false);
@@ -83,15 +80,11 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
     public void updateVehicleConnection(String vehicleId, boolean isConnected, String statusText) {
         if (vehicleId == null) return;
-
         for (int i = 0; i < vehicleList.size(); i++) {
             Vehicle vehicle = vehicleList.get(i);
             if (vehicle.getId().equals(vehicleId)) {
-                // Update the properties on the exact object inside the adapter
                 vehicle.setConnected(isConnected);
                 vehicle.setStatusText(statusText);
-
-                // Redraw only this specific row
                 notifyItemChanged(i);
                 break;
             }
@@ -99,15 +92,14 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
     }
 
     static class VehicleViewHolder extends RecyclerView.ViewHolder {
-        private final TextView txtVehicleName;
-        private final View statusIndicator;
-        private final TextView txtStatus;
+        private final TextView txtVehicleName, txtStatus, txtVoltageValue, txtActiveBadge;
+        private final View statusIndicator, viewStatusBar;
+        private final ViewGroup statusBarParent;
         private final ImageButton btnReconnect;
-        private final Button btnStart;
-        private final Button btnStop;
+        private final Button btnStart, btnStop;
         private final View panelVoltage;
-        private final TextView txtVoltageValue;
-        private final TextView txtActiveBadge;
+
+        private ValueAnimator activeAnimator;
 
         public VehicleViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -120,66 +112,142 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             panelVoltage = itemView.findViewById(R.id.panel_voltage);
             txtVoltageValue = itemView.findViewById(R.id.txt_voltage_value);
             txtActiveBadge = itemView.findViewById(R.id.txt_active_badge);
+            viewStatusBar = itemView.findViewById(R.id.view_status_bar);
+            statusBarParent = (ViewGroup) viewStatusBar.getParent();
         }
 
         public void bind(Vehicle vehicle, VehicleActionListener listener, int position) {
             txtVehicleName.setText(vehicle.getName() != null ? vehicle.getName() : "Unit #" + vehicle.getId());
 
+            ConnectionStateRepository.DeviceConnectionState connectionState =
+                    ConnectionStateRepository.getInstance().getState(vehicle.getMacAddress());
             boolean isConnected = vehicle.isConnected();
             boolean isBusy = vehicle.isBusy();
 
             txtStatus.setText(vehicle.getStatusText().toUpperCase());
-
-            int indicatorRes = isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline;
-            statusIndicator.setBackgroundResource(indicatorRes);
-
+            statusIndicator.setBackgroundResource(isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline);
             btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
 
-            // Access PreferenceManager via Application Context
+            // Determine Connection State & RSSI
+            ConnectionState state = (connectionState != null && connectionState.getState() != null)
+                    ? connectionState.getState()
+                    : ConnectionState.DISCONNECTED;
+
+            updateConnectionState(state, -61); // Using -61 as sample RSSI for now
+
+            // Active Badge & Preferences
             MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
             PreferenceManager preferenceManager = app.getPreferenceManager();
 
-            // Show ACTIVE badge only if this vehicle matches the selected ID
             String selectedId = preferenceManager.getSelectedVehicleId();
-            if (selectedId != null && selectedId.equals(vehicle.getId())) {
-                txtActiveBadge.setVisibility(View.VISIBLE);
-            } else {
-                txtActiveBadge.setVisibility(View.GONE);
-            }
+            txtActiveBadge.setVisibility(selectedId != null && selectedId.equals(vehicle.getId()) ? View.VISIBLE : View.GONE);
 
-            // Check if STOP / Fail-Safe functionality is enabled in preferences
+            // Button states
             boolean isStopEnabled = preferenceManager.isFailSafeEnabled();
+            boolean canClick = isConnected && !isBusy;
 
+            btnStop.setVisibility(isStopEnabled ? View.VISIBLE : View.GONE);
+            UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
             if (isStopEnabled) {
-                btnStop.setVisibility(View.VISIBLE);
-                boolean canClick = isConnected && !isBusy;
-                UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
                 UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
-            } else {
-                // Completely remove/hide STOP button; START button will automatically expand to fill space
-                btnStop.setVisibility(View.GONE);
-                boolean canClick = isConnected && !isBusy;
-                UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
             }
 
             txtVoltageValue.setText(vehicle.getVoltage());
 
             // Click Listeners
-            btnStart.setOnClickListener(v -> {
-                if (listener != null) listener.onStartClick(vehicle, position);
-            });
+            btnStart.setOnClickListener(v -> { if (listener != null) listener.onStartClick(vehicle, position); });
+            btnStop.setOnClickListener(v -> { if (listener != null) listener.onStopClick(vehicle, position); });
+            btnReconnect.setOnClickListener(v -> { if (listener != null) listener.onReconnectClick(vehicle, position); });
+            panelVoltage.setOnClickListener(v -> { if (listener != null) listener.onVoltageClick(vehicle, position); });
+        }
 
-            btnStop.setOnClickListener(v -> {
-                if (listener != null) listener.onStopClick(vehicle, position);
-            });
+        public void updateConnectionState(ConnectionState state, int rssiPercent) {
+            viewStatusBar.animate().cancel();
+            if (activeAnimator != null) {
+                activeAnimator.cancel();
+                activeAnimator = null;
+            }
 
-            btnReconnect.setOnClickListener(v -> {
-                if (listener != null) listener.onReconnectClick(vehicle, position);
-            });
+            int parentWidth = statusBarParent.getWidth();
+            if (parentWidth == 0) {
+                statusBarParent.post(() -> updateConnectionState(state, rssiPercent));
+                return;
+            }
 
-            panelVoltage.setOnClickListener(v -> {
-                if (listener != null) listener.onVoltageClick(vehicle, position);
+            if (state != ConnectionState.SCANNING) {
+                ViewGroup.MarginLayoutParams marginParams = (ViewGroup.MarginLayoutParams) viewStatusBar.getLayoutParams();
+                marginParams.leftMargin = 0;
+                viewStatusBar.setLayoutParams(marginParams);
+            }
+
+            int startWidth = viewStatusBar.getWidth();
+            int colorRes;
+            int targetWidth = 0;
+            long duration = 300;
+
+            switch (state) {
+                case CONNECTED:
+                    colorRes = R.color.status_connected;
+                    targetWidth = parentWidth;
+                    duration = 300;
+                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    break;
+
+                case DISCONNECTED:
+                    colorRes = R.color.status_disconnected;
+                    targetWidth = 0;
+                    duration = 800;
+                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    break;
+
+                case NEARBY_FAR_AWAY: // TODO- Yet to implement this
+                    colorRes = R.color.status_nearby;
+                    targetWidth = (int) (parentWidth * (Math.max(0, Math.min(rssiPercent, 100)) / 100f));
+                    duration = 400;
+                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    break;
+
+                case SCANNING:
+                    colorRes = R.color.status_scanning;
+                    viewStatusBar.setBackgroundColor(ContextCompat.getColor(itemView.getContext(), colorRes));
+                    startScanningBounceAnimation(parentWidth);
+                    break;
+            }
+        }
+
+        private void animateBarWidth(int startWidth, int endWidth, long duration, int colorRes, boolean isScanning) {
+            viewStatusBar.setBackgroundColor(ContextCompat.getColor(itemView.getContext(), colorRes));
+
+            ValueAnimator anim = ValueAnimator.ofInt(startWidth, endWidth);
+            anim.setDuration(duration);
+            anim.setInterpolator(new AccelerateDecelerateInterpolator());
+            anim.addUpdateListener(animator -> {
+                ViewGroup.LayoutParams params = viewStatusBar.getLayoutParams();
+                params.width = (int) animator.getAnimatedValue();
+                viewStatusBar.setLayoutParams(params);
             });
+            anim.start();
+            activeAnimator = anim;
+        }
+
+        private void startScanningBounceAnimation(int parentWidth) {
+            int sweepWidth = (int) (parentWidth * 0.22f);
+
+            ValueAnimator anim = ValueAnimator.ofInt(0, parentWidth - sweepWidth);
+            anim.setDuration(1500);
+            anim.setRepeatMode(ValueAnimator.REVERSE);
+            anim.setRepeatCount(ValueAnimator.INFINITE);
+            anim.setInterpolator(new AccelerateDecelerateInterpolator());
+
+            anim.addUpdateListener(animator -> {
+                int leftMargin = (int) animator.getAnimatedValue();
+                ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) viewStatusBar.getLayoutParams();
+                params.width = sweepWidth;
+                params.leftMargin = leftMargin;
+                viewStatusBar.setLayoutParams(params);
+            });
+            anim.start();
+            activeAnimator = anim;
         }
     }
 }

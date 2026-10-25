@@ -66,7 +66,6 @@ public class BleManager {
         this.bleScanManager = new BleScanManager(
                 this.context,
                 SERVICE_UUID,
-                initialTargetMacs,
                 new BleScanManager.ScanListener() {
                     @Override
                     public void onDeviceFound(String macAddress) {
@@ -99,8 +98,9 @@ public class BleManager {
         PreferenceManager prefManager = new PreferenceManager(context);
         List<String> latestMacs = prefManager.getTargetMacAddresses();
 
-        if (bleScanManager != null) {
-            bleScanManager.updateTargetMacs(latestMacs);
+        if (bleScanManager != null && bleScanManager.isScanning()) {
+            bleScanManager.stopScan();
+            startMultiVehicleScan();
         }
     }
 
@@ -151,7 +151,7 @@ public class BleManager {
                     case BluetoothAdapter.STATE_ON:
                         listener.onLog("System Update: Phone Bluetooth was turned on.");
                         if (preferenceManager.isForegroundServiceEnabled()) {
-                            bleScanManager.startScan();
+                            startMultiVehicleScan();
                         }
                         break;
 
@@ -185,22 +185,20 @@ public class BleManager {
             return;
         }
 
-        // Always refresh latest vehicles from Room DB before starting scan
-        refreshVehicles();
-
         if (bleScanManager != null && !bleScanManager.isScanning()) {
             // Check if all are already connected first so we don't scan needlessly
             List<String> allTargets = preferenceManager.getTargetMacAddresses();
+            List<String> disconnectMacs = new ArrayList<>();
             boolean allConnected = true;
             for (String mac : allTargets) {
                 if (!isConnected(mac)) {
                     allConnected = false;
-                    break;
+                    disconnectMacs.add(mac);
                 }
             }
 
             if (!allConnected) {
-                bleScanManager.startScan();
+                bleScanManager.startScan(disconnectMacs);
             } else {
                 if (listener != null) {
                     listener.onLog("All target vehicles are already connected. Skipping scan.");
@@ -299,12 +297,6 @@ public class BleManager {
             }
         }
         ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
-
-        // TODO: Check if this is needed or not. because duplicate StartScan was observed.
-        // If no active connections remain and auto-connect is enabled, ensure background scanning stays active
-//        if (activeSessions.isEmpty() && preferenceManager.isAutoConnectEnabled() && !bleScanManager.isScanning()) {
-//            bleScanManager.startScan();
-//        }
     }
 
     public void disconnectAll() {
@@ -352,9 +344,7 @@ public class BleManager {
                 // If auto-connect is enabled, restart background scan for remaining targets after a short delay
                 if (preferenceManager.isAutoConnectEnabled()) {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        if (!bleScanManager.isScanning()) {
-                            bleScanManager.startScan();
-                        }
+                        startMultiVehicleScan();
                     }, 500);
                 } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");

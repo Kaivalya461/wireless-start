@@ -89,26 +89,21 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
     @Override
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
-        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
-        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
-
-        if (selectedVehicle != null && macAddress.equalsIgnoreCase(selectedVehicle.getMacAddress())) {
-            switch (newState.getState()) {
-                case CONNECTED:
-                    updateForegroundNotification(ScanHealth.HEALTHY);
-                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
-                    break;
-                case DISCOVERING:
-                    updateForegroundNotification(ScanHealth.HEALTHY);
-                    break;
-                case DISCONNECTED:
-                default:
-                    updateForegroundNotification(ScanHealth.HEALTHY);
-                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
-                    break;
-            }
+        switch (newState.getState()) {
+            case CONNECTED:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                break;
+            case DISCOVERING:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                break;
+            case DISCONNECTED:
+            default:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
+                break;
         }
     }
 

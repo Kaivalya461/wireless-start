@@ -12,7 +12,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
-import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ScrollView;
@@ -28,19 +27,16 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
-import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
-import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
@@ -48,7 +44,7 @@ import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 import in.kvapps.wirelessstart.util.VehicleUtils;
 
-public class MainActivity extends AppCompatActivity implements BleManager.BleListener, ConnectionStateRepository.OnConnectionStateChangedListener {
+public class MainActivity extends AppCompatActivity implements BleManager.BleListener, VehicleConnectionManager.ConnectionLifecycleListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
 
     // UI Controls
@@ -65,21 +61,18 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private BleManager bleManager;
     private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
+    private VehicleConnectionManager connectionManager;
     private BroadcastReceiver watchCommandReceiver;
+    private BroadcastReceiver scheduleReceiver;
 
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
-    // Track the last known state per vehicle MAC address
-    private final Map<String, ConnectionState> lastKnownStates = new HashMap<>();
 
-    private BroadcastReceiver scheduleReceiver; // For Scheduled Engine Run/Stop
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
-                boolean bluetoothGranted = PermissionUtils.evaluatePermissionsResult(result);
-
-                if (bluetoothGranted) {
+                if (PermissionUtils.evaluatePermissionsResult(result)) {
                     onLog("Permissions approved by user.");
                 } else {
                     onLog("CRITICAL ERROR: Required BLUETOOTH permissions denied.");
@@ -87,11 +80,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             });
 
     private final ActivityResultLauncher<Intent> settingsLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result ->
+                    onLog("Settings updated successfully.")
+            );
+
+    private final ActivityResultLauncher<Intent> editConfigLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                onLog("Settings updated successfully.");
-                if (preferenceManager.isAutoConnectEnabled() && (bleManager != null && !bleManager.isConnected(selectedVehicle.getMacAddress()))) {
-//                    onLog("Settings updated. Reconnecting...");
-//                    bleManager.connect(selectedVehicle.getMacAddress(), true);
+                if (result.getResultCode() == RESULT_OK) {
+                    loadVehicles();
+                    selectedVehicle = preferenceManager.getSelectedVehicle();
+                    onLog("Vehicle Configuration updated.");
                 }
             });
 
@@ -104,8 +102,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         initUiViews();
         loadStoredLogsForToday();
         setupClickListeners();
-        registerWatchReceiver();
-        registerScheduleReceiver();
+        registerReceivers();
 
         pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
@@ -113,16 +110,12 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void initDependencies() {
         dbHelper = new VoltageDbHelper(this);
-
-        // Get the shared MyApplication instance
         MyApplication app = (MyApplication) getApplication();
 
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
         isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
 
-        // IMPORTANT: Since bleManager is now a shared app-wide singleton,
-        // update its listener to point to the current MainActivity instance
         if (bleManager != null) {
             bleManager.setListener(this);
         }
@@ -130,7 +123,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         protocolHandler = new DeviceProtocolHandler(this, new DeviceProtocolHandler.ProtocolListener() {
             @Override
             public void onVoltageReady(float voltage) {
-                // This handles your voltage business logic cleanly on the UI thread
                 runOnUiThread(() -> {
                     if (isTelemetryEnabled) {
                         long now = System.currentTimeMillis();
@@ -150,7 +142,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         });
 
         if (preferenceManager.isForegroundServiceEnabled()) {
-            startBleForegroundService();
+            startForegroundService(new Intent(this, in.kvapps.wirelessstart.ble.BleForegroundService.class));
         }
     }
 
@@ -162,7 +154,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         recyclerVehicles = findViewById(R.id.recycler_vehicles);
 
         vehicleList = new ArrayList<>();
-
         vehicleAdapter = new VehicleAdapter(vehicleList, new VehicleAdapter.VehicleActionListener() {
             @Override
             public void onStartClick(Vehicle vehicle, int position) {
@@ -188,23 +179,19 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         recyclerVehicles.setLayoutManager(new LinearLayoutManager(this));
         recyclerVehicles.setAdapter(vehicleAdapter);
 
-        if (recyclerVehicles.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
-            ((androidx.recyclerview.widget.SimpleItemAnimator) recyclerVehicles.getItemAnimator()).setSupportsChangeAnimations(false);
-        }
-
         loadVehicles();
         selectedVehicle = preferenceManager.getSelectedVehicle();
+
+        // Initialize connection manager observer
+        connectionManager = new VehicleConnectionManager(this, preferenceManager, vehicleAdapter, this);
     }
 
     private void loadVehicles() {
         new Thread(() -> {
             List<Vehicle> savedVehicles = VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles());
-
             runOnUiThread(() -> {
                 vehicleList.clear();
-                if (savedVehicles != null) {
-                    vehicleList.addAll(savedVehicles);
-                }
+                if (savedVehicles != null) vehicleList.addAll(savedVehicles);
                 vehicleAdapter.notifyDataSetChanged();
             });
         }).start();
@@ -212,259 +199,18 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void setupClickListeners() {
         btnMenu.setOnClickListener(this::showPopupMenu);
-        cardLogSection.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, LogHistoryActivity.class);
-            startActivity(intent);
-        });
-    }
-
-    private void handleStartAction(Vehicle vehicle) {
-        if (vehicleList.isEmpty()) return;
-
-        long pulseMs = preferenceManager.getSelectedStartPulseDuration();
-        long totalCooldownMs = pulseMs + 3000;
-
-        vehicleAdapter.triggerCooldown(vehicle, totalCooldownMs);
-
-        String command = preferenceManager.getFormattedCommand("START");
-
-        // Record start time before sending
-        this.commandStartTime = System.currentTimeMillis();
-
-        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-        if (session != null && session.isConnected()) {
-            session.sendBleCommand(
-                    command,
-                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),
-                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)
-            );
-        } else {
-            handleCommandResult(command, Constants.COMMAND_FAILURE, false);
-        }
-    }
-
-    private void handleStopAction(Vehicle vehicle) {
-        if (vehicleList.isEmpty()) return;
-        long totalCooldownMs = 2000;
-
-        vehicleAdapter.triggerCooldown(vehicle, totalCooldownMs);
-
-        String command = preferenceManager.getFormattedCommand("STOP");
-        this.commandStartTime = System.currentTimeMillis();
-
-        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-        if (session != null && session.isConnected()) {
-            session.sendBleCommand(
-                    command,
-                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, false),
-                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, false)
-            );
-        } else {
-            handleCommandResult(command, Constants.COMMAND_FAILURE, false);
-        }
-    }
-
-    private void showPopupMenu(View v) {
-        PopupMenu popup = new PopupMenu(MainActivity.this, v);
-        popup.getMenu().add(0, 1, 0, "Manage Vehicles");
-        popup.getMenu().add(0, 2, 1, "Settings");
-        popup.getMenu().add(0, 3, 2, "About & Credits");
-
-        popup.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == 1) {
-                Intent intent = new Intent(MainActivity.this, EditConfigActivity.class);
-                editConfigLauncher.launch(intent);
-                return true;
-            } else if (id == 2) {
-                Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
-                settingsLauncher.launch(intent);
-                return true;
-            } else if (id == 3) {
-                showAboutDialog();
-                return true;
-            }
-            return false;
-        });
-        popup.show();
-    }
-
-    private void handleTelemetryToggle(boolean isChecked) {
-        isTelemetryEnabled = isChecked;
-        BleDeviceSession session = bleManager != null && selectedVehicle != null ? bleManager.getSession(selectedVehicle.getMacAddress()) : null;
-
-        if (session != null && session.isConnected()) {
-            if (isChecked) {
-                session.syncTelemetryState(true);
-                onLog("Telemetry request: Resuming live stream.");
-            } else {
-                session.syncTelemetryState(false);
-                if (!vehicleList.isEmpty()) {
-                    vehicleList.get(0).setVoltage("--.--V");
-                    vehicleAdapter.notifyItemChanged(0);
-                }
-                onLog("Telemetry request: Stopped live stream to save hardware power.");
-            }
-        }
-        preferenceManager.setTelemetryEnabled(isChecked);
-    }
-
-    private void checkPermissionsAndConnect() {
-        if (!PermissionUtils.hasBluetoothPermissions(this) || !PermissionUtils.hasNotificationPermissions(this)) {
-            onLog("Requesting hardware and system permissions...");
-            requestPermissionsLauncher.launch(PermissionUtils.getRequiredPermissions());
-            return;
-        }
-
-        // Only trigger connect from MainActivity if Foreground Service is disabled.
-        if (!preferenceManager.isForegroundServiceEnabled()) {
-            onLog("Manual Connect Triggered");
-            bleManager.startMultiVehicleScan();
-        }
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerWatchReceiver() {
-        watchCommandReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String formattedCommand = intent.getStringExtra("COMMAND");
-                if (formattedCommand != null) {
-                    if (bleManager == null || !bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                        return;
-                    }
-
-                    // Record start time when the watch trigger is received by UI
-                    commandStartTime = System.currentTimeMillis();
-
-                    BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
-                    if (session != null && session.isConnected()) {
-//                        onLog("[WATCH RX] UI handling trigger: " + formattedCommand);
-                        session.sendBleCommand(
-                                formattedCommand,
-                                () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS, true),
-                                () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE, true)
-                        );
-                        setResultCode(Activity.RESULT_OK);
-                    }
-                }
-            }
-        };
-
-        IntentFilter filter = new IntentFilter("DIO_HARDWARE_TRIGGER");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(watchCommandReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(watchCommandReceiver, filter);
-        }
+        cardLogSection.setOnClickListener(v -> startActivity(new Intent(MainActivity.this, LogHistoryActivity.class)));
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        isAppInForeground = true;
-
-        // Register as listener to the Single Source of Truth repository
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                ConnectionStateRepository.getInstance().addListener(this);
-            }, 50);
-
-        // Re-bind this activity as the active BLE listener when returning from other layouts/activities
-        if (bleManager != null) {
-            bleManager.setListener(this);
-        }
-        // Refresh the log UI from the database every time the activity comes to the foreground
-        loadStoredLogsForToday();
-
-        // Only check for preference changes if BLE is connected and services are initialized
-        if (preferenceManager != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-            boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
-            if (newTelemetryState != isTelemetryEnabled) {
-                handleTelemetryToggle(newTelemetryState);
-            }
-        }
+    public boolean isAppInForeground() {
+        return isAppInForeground;
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        isAppInForeground = false;
-        // Unregister from repository when paused to avoid leaking references
-        ConnectionStateRepository.getInstance().removeListener(this);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
-        if (scheduleReceiver != null) unregisterReceiver(scheduleReceiver);
-        if (dbHelper != null) dbHelper.close();
-        ConnectionStateRepository.getInstance().removeListener(this);
-
-        // DO NOT disconnect or release bleManager here, because it's shared globally!
-        // Just clear the UI listener reference to prevent memory leaks:
-        lastKnownStates.clear(); // Clear tracked states
-
-        if (bleManager != null) {
-            bleManager.setListener(null);
-        }
-    }
-
-    // --- BLE Manager Callbacks ---
-    @Override
-    public void onLog(String message) {
-        // 1. Save to Database and Logcat via shared utility
-        AppLogger.logToDatabaseAndLogcat(this, TAG, message);
-
-        // 2. Handle UI updates on the Main Thread
-        runOnUiThread(() -> {
-            long currentTime = System.currentTimeMillis();
-            String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(currentTime));
-
-            String fullLogLine = "[" + timeStamp + "] " + message + "\n";
-
-            // Use helper function for color styling
-            SpannableString styledLog = AppLogger.formatLogLine(fullLogLine);
-            txtLog.append(styledLog);
-
-            if (scrollLog != null) {
-                scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
-            }
-        });
-    }
-
-    // --- ConnectionStateRepository Observer Callback (SSOT) ---
-    @Override
-    public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
-        runOnUiThread(() -> {
-            Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
-            if (vehicle == null) {
-                onLog("onStateChanged() -> Missing Vehicle object for MAC: " + macAddress);
-                return;
-            }
-
-            ConnectionState currentState = newState.getState();
-            ConnectionState previousState = lastKnownStates.get(macAddress);
-
-            vehicle.setConnected(newState.isConnected());
-            vehicle.setStatusText(newState.getStatusText());
-
-            handleStateTransition(vehicle, macAddress, currentState, previousState, newState);
-
-            // Update the last known state for this specific vehicle MAC
-            lastKnownStates.put(macAddress, currentState);
-        });
-    }
-
-    private void updateConnectionUi(Vehicle vehicle) {
-        vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
-    }
-
     public void onServicesReady(Vehicle vehicle) {
-        // 0. Phone App Updates - CONN indicator to green and Enable Operation buttons
-        updateConnectionUi(vehicle);
+        vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
 
-        // 1. Sequentially sync initialization settings AND log completion at the end
         boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
         boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
@@ -478,7 +224,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     () -> {
                         FeedbackUtils.triggerDoubleVibrate(this);
                         FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
-
                         onLog("Connection established. Ready for control operations.");
                     }
             );
@@ -486,62 +231,94 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     @Override
-    public void onDataReceived(String macAddress, byte[] rawData) {
-        // Hand raw bytes over to our dedicated protocol handler domain layer
-        if (protocolHandler != null) {
-            protocolHandler.parseIncomingData(rawData);
+    protected void onResume() {
+        super.onResume();
+        isAppInForeground = true;
+        connectionManager.register();
+
+        if (bleManager != null) {
+            bleManager.setListener(this);
+        }
+        loadStoredLogsForToday();
+
+        if (preferenceManager != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+            boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
+            if (newTelemetryState != isTelemetryEnabled) {
+                handleTelemetryToggle(newTelemetryState);
+            }
         }
     }
 
-    private void loadStoredLogsForToday() {
-        if (dbHelper == null) return;
+    @Override
+    protected void onPause() {
+        super.onPause();
+        isAppInForeground = false;
+        connectionManager.unregister();
+    }
 
-        // Clear existing text just in case
-        txtLog.setText("");
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
+        if (scheduleReceiver != null) unregisterReceiver(scheduleReceiver);
+        if (dbHelper != null) dbHelper.close();
 
-        // Fetch logs from SQLite database for the current day
-        java.util.List<String> todayLogs = dbHelper.getTodayLogs();
+        if (bleManager != null) {
+            bleManager.setListener(null);
+        }
+    }
 
-        if (todayLogs != null && !todayLogs.isEmpty()) {
-            SpannableStringBuilder spannableBuilder = new SpannableStringBuilder();
-
-            for (String logLine : todayLogs) {
-                String fullLine = logLine + "\n";
-                // Use helper function for color styling
-                spannableBuilder.append(AppLogger.formatLogLine(fullLine));
-            }
-
-            txtLog.setText(spannableBuilder);
-
-            // Scroll down to the latest log entry automatically
-            if (scrollLog != null) {
-                scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
-            }
-        } else {
-            // Optional welcome log if no history exists for today yet
+    @Override
+    public void onLog(String message) {
+        AppLogger.logToDatabaseAndLogcat(this, TAG, message);
+        runOnUiThread(() -> {
             String timeStamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-            String welcomeLine = "[" + timeStamp + "] SYSTEMS: Initialized fresh session logs.\n";
-            txtLog.append(AppLogger.formatLogLine(welcomeLine));
+            SpannableString styledLog = AppLogger.formatLogLine("[" + timeStamp + "] " + message + "\n");
+            txtLog.append(styledLog);
+            if (scrollLog != null) scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
+        });
+    }
+
+    @Override
+    public void onDataReceived(String macAddress, byte[] rawData) {
+        if (protocolHandler != null) protocolHandler.parseIncomingData(rawData);
+    }
+
+    // --- Actions & Helpers ---
+    private void handleStartAction(Vehicle vehicle) {
+        executeCommand(vehicle, preferenceManager.getFormattedCommand("START"), preferenceManager.getSelectedStartPulseDuration() + 3000, false);
+    }
+
+    private void handleStopAction(Vehicle vehicle) {
+        executeCommand(vehicle, preferenceManager.getFormattedCommand("STOP"), 2000, false);
+    }
+
+    private void executeCommand(Vehicle vehicle, String command, long cooldown, boolean isWatch) {
+        if (vehicleList.isEmpty()) return;
+        vehicleAdapter.triggerCooldown(vehicle, cooldown);
+        commandStartTime = System.currentTimeMillis();
+
+        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+        if (session != null && session.isConnected()) {
+            session.sendBleCommand(
+                    command,
+                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, isWatch),
+                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, isWatch)
+            );
+        } else {
+            handleCommandResult(command, Constants.COMMAND_FAILURE, isWatch);
         }
     }
 
-    private void handleCommandResult(String executedCommand, String resultPayload, boolean isWatchRx) {
+    private void handleCommandResult(String command, String result, boolean isWatch) {
         long timeTaken = System.currentTimeMillis() - commandStartTime;
+        onLog((isWatch ? "[WATCH RX] " : "") + "Command: " + command + " | " + result + " | TimeTaken: " + timeTaken + "ms");
 
-        // Add [Watch] prefix if the trigger came from the watch
-        String logPrefix = isWatchRx ? "[WATCH RX] " : "";
-
-        onLog(logPrefix + "Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
-
-        if (isWatchRx) {
-            FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
-        } else {
-            if (Constants.COMMAND_SUCCESS.equals(resultPayload)) {
-                FeedbackUtils.triggerDoubleVibrate(this);
-            }
+        if (isWatch) {
+            FeedbackUtils.sendCmdResultAckToWatch(this, result);
+        } else if (Constants.COMMAND_SUCCESS.equals(result)) {
+            FeedbackUtils.triggerDoubleVibrate(this);
         }
-
-        // Reset timer
         commandStartTime = 0;
     }
 
@@ -549,133 +326,121 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         onLog("Manual reconnect requested...");
         vehicle.setConnected(false);
         vehicle.setStatusText("Reconnecting");
-        updateConnectionUi(vehicle);
+        vehicleAdapter.updateVehicleConnection(vehicle.getId(), false, "Reconnecting");
         bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
+    }
+
+    private void handleTelemetryToggle(boolean isChecked) {
+        isTelemetryEnabled = isChecked;
+        BleDeviceSession session = bleManager != null && selectedVehicle != null ? bleManager.getSession(selectedVehicle.getMacAddress()) : null;
+
+        if (session != null && session.isConnected()) {
+            session.syncTelemetryState(isChecked);
+            if (!isChecked && !vehicleList.isEmpty()) {
+                vehicleList.get(0).setVoltage("--.--V");
+                vehicleAdapter.notifyItemChanged(0);
+            }
+        }
+        preferenceManager.setTelemetryEnabled(isChecked);
+    }
+
+    private void checkPermissionsAndConnect() {
+        if (!PermissionUtils.hasBluetoothPermissions(this) || !PermissionUtils.hasNotificationPermissions(this)) {
+            requestPermissionsLauncher.launch(PermissionUtils.getRequiredPermissions());
+            return;
+        }
+        if (!preferenceManager.isForegroundServiceEnabled()) {
+            bleManager.startMultiVehicleScan();
+        }
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerReceivers() {
+        // Watch Command Receiver
+        watchCommandReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String cmd = intent.getStringExtra("COMMAND");
+                if (cmd != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                    executeCommand(selectedVehicle, cmd, 3000, true);
+                    setResultCode(Activity.RESULT_OK);
+                }
+            }
+        };
+        IntentFilter watchFilter = new IntentFilter("DIO_HARDWARE_TRIGGER");
+        registerReceiverCompat(watchCommandReceiver, watchFilter);
+
+        // Schedule Receiver
+        scheduleReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!preferenceManager.isEngineScheduleEnabled()) return;
+                long targetEpoch = intent.getLongExtra("EPOCH", -1);
+                if (targetEpoch >= 0 && bleManager != null) {
+                    BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
+                    if (session != null && session.isConnected()) {
+                        session.sendScheduledEpoch(targetEpoch);
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (session.isConnected()) session.requestScheduleFromEsp32();
+                        }, 500);
+                        setResultCode(Activity.RESULT_OK);
+                    }
+                }
+            }
+        };
+        IntentFilter scheduleFilter = new IntentFilter("DIO_SCHEDULE_TRIGGER");
+        registerReceiverCompat(scheduleReceiver, scheduleFilter);
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerReceiverCompat(BroadcastReceiver receiver, IntentFilter filter) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(receiver, filter);
+        }
+    }
+
+    private void loadStoredLogsForToday() {
+        if (dbHelper == null) return;
+        txtLog.setText("");
+        List<String> todayLogs = dbHelper.getTodayLogs();
+        if (todayLogs != null && !todayLogs.isEmpty()) {
+            SpannableStringBuilder builder = new SpannableStringBuilder();
+            for (String log : todayLogs) builder.append(AppLogger.formatLogLine(log + "\n"));
+            txtLog.setText(builder);
+            if (scrollLog != null) scrollLog.post(() -> scrollLog.fullScroll(View.FOCUS_DOWN));
+        }
     }
 
     private void pruneOldDatabaseRecords() {
         long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000);
         if (dbHelper != null) {
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start();
-            }, 5000); // Wait 5 seconds after app launch before cleaning up
+            new Handler(Looper.getMainLooper()).postDelayed(() ->
+                    new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start(), 5000);
         }
     }
 
-    private final ActivityResultLauncher<Intent> editConfigLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                if (result.getResultCode() == RESULT_OK) {
-                    loadVehicles();
-                    selectedVehicle = preferenceManager.getSelectedVehicle();
-
-                    onLog("Vehicle Configuration updated.");
-//                    bleManager.connect(selectedVehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
-                }
-            });
+    private void showPopupMenu(View v) {
+        PopupMenu popup = new PopupMenu(MainActivity.this, v);
+        popup.getMenu().add(0, 1, 0, "Manage Vehicles");
+        popup.getMenu().add(0, 2, 1, "Settings");
+        popup.getMenu().add(0, 3, 2, "About & Credits");
+        popup.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == 1) { editConfigLauncher.launch(new Intent(this, EditConfigActivity.class)); return true; }
+            else if (id == 2) { settingsLauncher.launch(new Intent(this, SettingsActivity.class)); return true; }
+            else if (id == 3) { showAboutDialog(); return true; }
+            return false;
+        });
+        popup.show();
+    }
 
     private void showAboutDialog() {
-        String versionName = BuildConfig.VERSION_NAME;
-
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("About & Credits")
-                .setMessage("App Version: " + versionName + "\n\n" +
-                        "Launcher Icon made by 'Satawat Anukul' from www.flaticon.com/authors/satawat-anukul")
-                .setPositiveButton("OK", (dialog, which) -> dialog.dismiss())
+                .setMessage("App Version: " + BuildConfig.VERSION_NAME + "\n\nLauncher Icon by Satawat Anukul")
+                .setPositiveButton("OK", (d, w) -> d.dismiss())
                 .show();
-    }
-
-    private void startBleForegroundService() {
-        startForegroundService(new Intent(this, in.kvapps.wirelessstart.ble.BleForegroundService.class));
-    }
-
-    private void stopBleForegroundService() {
-        stopService(new Intent(this, in.kvapps.wirelessstart.ble.BleForegroundService.class));
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerScheduleReceiver() {
-        scheduleReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (!preferenceManager.isEngineScheduleEnabled()) {
-                    onLog("[WATCH RX] Scheduled Engine-Run feature is disabled");
-                    return;
-                }
-
-                long targetEpoch = intent.getLongExtra("EPOCH", -1);
-                if (targetEpoch >= 0) {
-                    if (bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                        BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
-                        if (session != null && session.isConnected()) {
-//                            onLog("[WATCH RX] Syncing engine-run schedule to hardware: " + targetEpoch);
-                            session.sendScheduledEpoch(targetEpoch);
-
-                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                                if (session.isConnected()) {
-                                    session.requestScheduleFromEsp32();
-                                }
-                            }, 500);
-
-                            setResultCode(Activity.RESULT_OK);
-                        }
-                    }
-                } else {
-                    Log.i(TAG, "Received Invalid Epoch Time for Engine-Schedule-Run");
-                }
-            }
-        };
-
-        IntentFilter filter = new IntentFilter("DIO_SCHEDULE_TRIGGER");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(scheduleReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(scheduleReceiver, filter);
-        }
-    }
-
-    private void handleStateTransition(Vehicle vehicle, String macAddress,
-                                       ConnectionState currentState,
-                                       ConnectionState previousState,
-                                       ConnectionStateRepository.DeviceConnectionState newState) {
-        switch (currentState) {
-            case CONNECTED:
-                handleConnectedState(vehicle, macAddress, previousState);
-                break;
-
-            case DISCONNECTED:
-                handleDisconnectedState(vehicle, newState);
-                break;
-
-            case DISCOVERING:
-                updateConnectionUi(vehicle);
-                break;
-
-            default:
-                updateConnectionUi(vehicle);
-                break;
-        }
-    }
-
-    private void handleConnectedState(Vehicle vehicle, String macAddress, ConnectionState previousState) {
-        // Only trigger setup if this specific vehicle wasn't already connected
-        if (previousState != ConnectionState.CONNECTED) {
-            Log.i(TAG, "SSOT StateChanged: Newly Connected for " + macAddress);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                onServicesReady(vehicle);
-            }, 50);
-        }
-    }
-
-    private void handleDisconnectedState(Vehicle vehicle, ConnectionStateRepository.DeviceConnectionState newState) {
-        Log.i(TAG, "SSOT StateChanged: Offline for " + vehicle.getMacAddress());
-        updateConnectionUi(vehicle);
-
-        long uptimeMillis = 0;
-        if (newState.getConnectedAtTime() > 0) {
-            uptimeMillis = System.currentTimeMillis() - newState.getConnectedAtTime();
-        }
-
-        FeedbackUtils.triggerDisconnectVibrate(this);
-        FeedbackUtils.showConnectionNotification(this, false, uptimeMillis, isAppInForeground);
     }
 }

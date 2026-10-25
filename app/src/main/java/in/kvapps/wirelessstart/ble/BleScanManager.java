@@ -15,8 +15,9 @@ import android.os.ParcelUuid;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
+
+import in.kvapps.wirelessstart.enums.ConnectionState;
 
 public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
@@ -33,20 +34,12 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
     private boolean isScanning = false;
 
     private final UUID serviceUuid;
-    private final Set<String> targetMacs = new HashSet<>();
 
     private static long lastScanStartTimestamp = 0L;
 
-    public BleScanManager(Context context, UUID serviceUuid, List<String> initialTargetMacs, ScanListener listener) {
+    public BleScanManager(Context context, UUID serviceUuid, ScanListener listener) {
         this.context = context;
         this.serviceUuid = serviceUuid;
-        if (initialTargetMacs != null) {
-            for (String mac : initialTargetMacs) {
-                if (mac != null && !mac.trim().isEmpty()) {
-                    this.targetMacs.add(mac.toUpperCase().trim());
-                }
-            }
-        }
         this.listener = listener;
 
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -57,25 +50,17 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
      * Add or update the list of target vehicles to scan for simultaneously.
      */
     public void updateTargetMacs(List<String> newMacs) {
-        targetMacs.clear();
-        if (newMacs != null) {
-            for (String mac : newMacs) {
-                if (mac != null && !mac.trim().isEmpty()) {
-                    targetMacs.add(mac.toUpperCase().trim());
-                }
-            }
-        }
         // If already scanning, restart the scan dynamically to apply the new filters
         if (isScanning) {
             stopScan();
-            startScan();
+            startScan(newMacs);
         }
     }
 
     @Override
     public void onSignalStateChanged(String macAddress, BleScanReceiver.SignalState state, int rssi) {
         // Ensure the detected device belongs to our active tracking set
-        if (macAddress == null || !targetMacs.contains(macAddress.toUpperCase().trim())) {
+        if (macAddress == null) {
             return;
         }
 
@@ -112,7 +97,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         }
     }
 
-    public void startScan() {
+    public void startScan(List<String> targetMacs) {
         if (bluetoothLeScanner == null || isScanning) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -126,7 +111,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
         // Reset the receiver's state memory when starting a brand new scan
         BleScanReceiver.resetState();
-        BleScanReceiver.targetMacAddresses = targetMacs;
+        BleScanReceiver.targetMacAddresses = new HashSet<>(targetMacs);
         BleScanReceiver.callback = this;
 
         // Use a distinct request code (e.g., 1001) to prevent PendingIntent recycling issues over long spans
@@ -148,6 +133,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
                 }
                 filters.add(builder.build());
             }
+            sendScanningEvent(targetMacs);
         } else if (serviceUuid != null) {
             // Fallback if no specific MACs are provided yet, match by Service UUID globally
             filters.add(new ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(serviceUuid.toString())).build());
@@ -195,5 +181,12 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
     public static long getLastScanStartTimestamp() {
         return lastScanStartTimestamp;
+    }
+
+    private void sendScanningEvent(List<String> targetMacs) {
+        for (String mac : targetMacs) {
+            ConnectionStateRepository.getInstance()
+                    .updateState(mac, ConnectionState.SCANNING, "Scanning");
+        }
     }
 }

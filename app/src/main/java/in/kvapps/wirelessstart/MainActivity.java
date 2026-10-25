@@ -179,6 +179,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         recyclerVehicles.setLayoutManager(new LinearLayoutManager(this));
         recyclerVehicles.setAdapter(vehicleAdapter);
 
+        if (recyclerVehicles.getItemAnimator() instanceof androidx.recyclerview.widget.SimpleItemAnimator) {
+            ((androidx.recyclerview.widget.SimpleItemAnimator) recyclerVehicles.getItemAnimator()).setSupportsChangeAnimations(false);
+        }
+
         loadVehicles();
         selectedVehicle = preferenceManager.getSelectedVehicle();
 
@@ -209,25 +213,27 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     @Override
     public void onServicesReady(Vehicle vehicle) {
-        vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
+        runOnUiThread(() -> {
+            vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
 
-        boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
-        boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
+            boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
+            boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
-        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-        if (session != null) {
-            session.syncInitializationSequence(
-                    session::sendAutoTimeSync,
-                    () -> session.syncTelemetryState(savedTelemetryState),
-                    () -> session.syncFailSafeState(savedFailSafeState),
-                    session::requestScheduleFromEsp32,
-                    () -> {
-                        FeedbackUtils.triggerDoubleVibrate(this);
-                        FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
-                        onLog("Connection established. Ready for control operations.");
-                    }
-            );
-        }
+            BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+            if (session != null) {
+                session.syncInitializationSequence(
+                        session::sendAutoTimeSync,
+                        () -> session.syncTelemetryState(savedTelemetryState),
+                        () -> session.syncFailSafeState(savedFailSafeState),
+                        session::requestScheduleFromEsp32,
+                        () -> {
+                            FeedbackUtils.triggerDoubleVibrate(this);
+                            FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
+                            onLog("Connection established. Ready for control operations.");
+                        }
+                );
+            }
+        });
     }
 
     @Override

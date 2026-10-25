@@ -21,6 +21,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     private final PreferenceManager preferenceManager;
     private final VehicleAdapter vehicleAdapter;
     private final ConnectionLifecycleListener listener;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final Map<String, ConnectionState> lastKnownStates = new HashMap<>();
 
@@ -44,25 +45,29 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
     public void unregister() {
         ConnectionStateRepository.getInstance().removeListener(this);
+        mainHandler.removeCallbacksAndMessages(null);
         lastKnownStates.clear();
     }
 
     @Override
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
-        Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
-        if (vehicle == null) {
-            listener.onLog("onStateChanged() -> Missing Vehicle object for MAC: " + macAddress);
-            return;
-        }
+        // Ensure all state processing and UI updates run strictly on the Main Thread
+        mainHandler.post(() -> {
+            Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
+            if (vehicle == null) {
+                listener.onLog("onStateChanged() -> Missing Vehicle object for MAC: " + macAddress);
+                return;
+            }
 
-        ConnectionState currentState = newState.getState();
-        ConnectionState previousState = lastKnownStates.get(macAddress);
+            ConnectionState currentState = newState.getState();
+            ConnectionState previousState = lastKnownStates.get(macAddress);
 
-        vehicle.setConnected(newState.isConnected());
-        vehicle.setStatusText(newState.getStatusText());
+            vehicle.setConnected(newState.isConnected());
+            vehicle.setStatusText(newState.getStatusText());
 
-        handleStateTransition(vehicle, macAddress, currentState, previousState, newState);
-        lastKnownStates.put(macAddress, currentState);
+            handleStateTransition(vehicle, macAddress, currentState, previousState, newState);
+            lastKnownStates.put(macAddress, currentState);
+        });
     }
 
     private void handleStateTransition(Vehicle vehicle, String macAddress,
@@ -73,7 +78,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
             case CONNECTED:
                 if (previousState != ConnectionState.CONNECTED) {
                     Log.i(TAG, "SSOT StateChanged: Newly Connected for " + macAddress);
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> listener.onServicesReady(vehicle), 50);
+                    mainHandler.postDelayed(() -> listener.onServicesReady(vehicle), 50);
                 }
                 break;
 

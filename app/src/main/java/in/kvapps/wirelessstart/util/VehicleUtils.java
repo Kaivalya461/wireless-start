@@ -4,7 +4,9 @@ import android.util.Log;
 
 import java.util.List;
 
+import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
 
 public class VehicleUtils {
@@ -26,5 +28,23 @@ public class VehicleUtils {
             }
         }
         return vehicles;
+    }
+
+    public static void addVehicle(PreferenceManager preferenceManager, BleManager bleManager,
+                                  String vehicleName, String vehicleMac) {
+        preferenceManager.addVehicle(vehicleName, vehicleMac);
+        bleManager.refreshVehicles();
+    }
+
+    public static void deleteVehicle(PreferenceManager preferenceManager, BleManager bleManager, Vehicle vehicle) {
+        // If vehicle is already connected, release it.
+        if (bleManager.isConnected(vehicle.getMacAddress())) {
+            bleManager.disconnect(vehicle.getMacAddress());
+        }
+
+        preferenceManager.deleteVehicle(vehicle.getId());
+        ConnectionStateRepository repo = ConnectionStateRepository.getInstance();
+        repo.removeState(vehicle.getMacAddress());
+        bleManager.refreshVehicles();
     }
 }

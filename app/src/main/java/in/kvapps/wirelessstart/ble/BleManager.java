@@ -18,6 +18,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -58,10 +60,13 @@ public class BleManager {
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.preferenceManager = new PreferenceManager(this.context);
 
+        // Fetch multiple target MAC addresses from preferences instead of a single string
+        List<String> initialTargetMacs = preferenceManager.getTargetMacAddresses();
+
         this.bleScanManager = new BleScanManager(
                 this.context,
                 SERVICE_UUID,
-                preferenceManager.getTargetMacAddress(),
+                initialTargetMacs,
                 new BleScanManager.ScanListener() {
                     @Override
                     public void onDeviceFound(String macAddress) {
@@ -83,6 +88,40 @@ public class BleManager {
 
     public void setListener(BleListener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * Refreshes target MAC addresses directly from PreferenceManager / Room DB
+     * and updates the scan/connection manager.
+     */
+    public void refreshVehicles() {
+        // Assuming you have a reference to context or preferenceManager inside this class
+        PreferenceManager prefManager = new PreferenceManager(context);
+        List<String> latestMacs = prefManager.getTargetMacAddresses();
+
+        if (bleScanManager != null) {
+            bleScanManager.updateTargetMacs(latestMacs);
+        }
+    }
+
+    private void evaluateScanState() {
+        List<String> allTargets = preferenceManager.getTargetMacAddresses();
+        boolean allConnected = true;
+
+        for (String mac : allTargets) {
+            if (!isConnected(mac)) {
+                allConnected = false;
+                break;
+            }
+        }
+
+        // If every target vehicle is connected, stop scanning!
+        if (allConnected && bleScanManager.isScanning()) {
+            bleScanManager.stopScan();
+            if (listener != null) {
+                listener.onLog("All target vehicles connected. Stopping background scan.");
+            }
+        }
     }
 
     // Helper to fetch session for a given device
@@ -150,7 +189,9 @@ public class BleManager {
         }
 
         if (activeSessions.containsKey(macAddress) || connectingMacs.contains(macAddress)) {
-            listener.onLog("Already Connecting; Skipping connect workflow");
+            if (listener != null) {
+                listener.onLog("Already Connected or Connecting to [" + macAddress + "]; Skipping.");
+            }
             return;
         }
 
@@ -167,7 +208,7 @@ public class BleManager {
             connectingMacs.add(macAddress); // Mark as in-flight immediately
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(macAddress);
             if (listener != null) {
-                listener.onLog("Connecting to target [" + macAddress + "]...");
+                listener.onLog("Connecting to target vehicle [" + macAddress + "]...");
             }
             device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
         } catch (IllegalArgumentException e) {
@@ -209,10 +250,16 @@ public class BleManager {
             }
         }
         ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
+
+        // TODO: Check if this is needed or not. because duplicate StartScan was observed.
+        // If no active connections remain and auto-connect is enabled, ensure background scanning stays active
+//        if (activeSessions.isEmpty() && preferenceManager.isAutoConnectEnabled() && !bleScanManager.isScanning()) {
+//            bleScanManager.startScan();
+//        }
     }
 
     public void disconnectAll() {
-        for (String macAddress : activeSessions.keySet()) {
+        for (String macAddress : new ArrayList<>(activeSessions.keySet())) {
             disconnect(macAddress);
         }
     }
@@ -235,9 +282,6 @@ public class BleManager {
             connectingMacs.remove(macAddress); // Clear connecting lock
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                // Stop scanning once connection is established to save resources
-                bleScanManager.stopScan();
-
                 ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCOVERING, "Discovering...");
 
                 try {
@@ -256,9 +300,13 @@ public class BleManager {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 disconnect(macAddress);
 
-                // If auto-connect is enabled, restart background scan after a short delay
+                // If auto-connect is enabled, restart background scan for remaining targets after a short delay
                 if (preferenceManager.isAutoConnectEnabled()) {
-                    new Handler(Looper.getMainLooper()).postDelayed(bleScanManager::startScan, 500);
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        if (!bleScanManager.isScanning()) {
+                            bleScanManager.startScan();
+                        }
+                    }, 500);
                 } else if (listener != null) {
                     listener.onLog("Auto-connect is disabled. Standing by.");
                 }
@@ -275,9 +323,12 @@ public class BleManager {
                     if (characteristic != null) {
                         enableNotifications(gatt, characteristic);
 
-                        // Instantiate and register the dedicated device session
+                        // Instantiate and register the dedicated device session per vehicle MAC
                         BleDeviceSession session = new BleDeviceSession(context, gatt, characteristic);
                         activeSessions.put(macAddress, session);
+
+                        // This ensures Multi-Vehicle Scan is stopped once all connected.
+                        evaluateScanState();
 
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
 //                            if (listener != null) listener.onServicesReady(macAddress);

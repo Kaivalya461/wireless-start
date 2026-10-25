@@ -7,6 +7,7 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -115,29 +116,25 @@ public class PreferenceManager {
         return vehicleDao.getVehicleByMac(macAddress);
     }
 
-    // --- Backward-Compatible Getters/Setters targeting Active Vehicle ---
-    public String getTargetHwName() {
-        Vehicle active = getSelectedVehicle();
-        return active != null ? active.getName() : "Vehicle 001";
-    }
+    // --- Multi-Vehicle Support Getters ---
 
-    public void saveTargetHwName(String name) {
-        Vehicle active = getSelectedVehicle();
-        if (active != null) {
-            updateVehicle(active.getId(), name, active.getMacAddress());
+    /**
+     * Returns a list of all target MAC addresses from the saved vehicles database
+     * so that BleScanManager can scan for all vehicles simultaneously.
+     */
+    public List<String> getTargetMacAddresses() {
+        List<Vehicle> vehicles = getVehicles();
+        List<String> macs = new ArrayList<>();
+        for (Vehicle v : vehicles) {
+            if (v.getMacAddress() != null && !v.getMacAddress().trim().isEmpty()) {
+                macs.add(v.getMacAddress().trim());
+            }
         }
-    }
-
-    public String getTargetMacAddress() {
-        Vehicle active = getSelectedVehicle();
-        return active != null ? active.getMacAddress() : BuildConfig.ESP32_MAC;
-    }
-
-    public void saveTargetMacAddress(String mac) {
-        Vehicle active = getSelectedVehicle();
-        if (active != null) {
-            updateVehicle(active.getId(), active.getName(), mac);
+        // Fallback to build config if list is empty
+        if (macs.isEmpty() && BuildConfig.ESP32_MAC != null) {
+            macs.add(BuildConfig.ESP32_MAC);
         }
+        return macs;
     }
 
     // --- Existing Pulse, Telemetry, and Service Methods ---

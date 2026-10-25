@@ -6,16 +6,19 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
 
 public class BleScanReceiver extends BroadcastReceiver {
 
-    public static String targetMacAddress = null;
+    public static Set<String> targetMacAddresses = new HashSet<>();
     public static ScanEventCallback callback = null;
-
-    private static SignalState lastSignalState = null;
+    private static final Map<String, SignalState> lastSignalStates = new HashMap<>();
 
     public enum SignalState {
         SUPER_STRONG,      // >= -50 dBm (Triggers Connect)
@@ -29,7 +32,7 @@ public class BleScanReceiver extends BroadcastReceiver {
     }
 
     public static void resetState() {
-        lastSignalState = null;
+        lastSignalStates.clear();
     }
 
     @Override
@@ -38,25 +41,34 @@ public class BleScanReceiver extends BroadcastReceiver {
 
         List<ScanResult> results = intent.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT);
         if (results != null && !results.isEmpty()) {
+            PreferenceManager prefMgr = new PreferenceManager(context);
+            boolean avoidPoorConnection = prefMgr.isAvoidPoorConnectionEnabled();
+
             for (ScanResult result : results) {
                 if (result.getDevice() != null) {
                     String foundMac = result.getDevice().getAddress();
-                    int rssi = result.getRssi();
 
-                    if (foundMac.equalsIgnoreCase(targetMacAddress)) {
-                        SignalState currentState;
-                        PreferenceManager prefMgr = new PreferenceManager(context);
+                    // Check if the found device matches any of our target vehicles (case-insensitive)
+                    boolean isTarget = false;
+                    if (targetMacAddresses != null) {
+                        for (String targetMac : targetMacAddresses) {
+                            if (targetMac != null && targetMac.equalsIgnoreCase(foundMac)) {
+                                isTarget = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isTarget) {
+                        int rssi = result.getRssi();
                         prefMgr.saveLastSeenTimestamp(foundMac, System.currentTimeMillis());
 
+                        SignalState currentState;
                         if (rssi >= -50) {
                             currentState = SignalState.SUPER_STRONG;
                         } else if (rssi >= -80) {
                             currentState = SignalState.MEDIUM_HIGH;
                         } else {
-                            // RSSI is < -80 (Low)
-                            // Initialize PreferenceManager using the broadcast context
-                            PreferenceManager preferenceManager = new PreferenceManager(context);
-                            boolean avoidPoorConnection = preferenceManager.isAvoidPoorConnectionEnabled();
                             if (avoidPoorConnection) {
                                 currentState = SignalState.LOW_WAITING;
                             } else {
@@ -64,16 +76,17 @@ public class BleScanReceiver extends BroadcastReceiver {
                             }
                         }
 
-                        // Trigger callback only if state changes
-                        if (currentState != lastSignalState) {
-                            lastSignalState = currentState;
-//                            Log.i("BleScanReceiver", "State changed to: " + currentState + " (RSSI: " + rssi + ")");
+                        // Check state change specifically for this vehicle MAC
+                        SignalState lastState = lastSignalStates.get(foundMac);
+                        if (currentState != lastState) {
+                            lastSignalStates.put(foundMac, currentState);
 
                             if (callback != null) {
-                                callback.onSignalStateChanged(targetMacAddress, currentState, rssi);
+                                callback.onSignalStateChanged(foundMac, currentState, rssi);
                             }
                         }
-                        break;
+                        // Do not break here because multiple target vehicles
+                        // could be present in the same batch of scan results.
                     }
                 }
             }

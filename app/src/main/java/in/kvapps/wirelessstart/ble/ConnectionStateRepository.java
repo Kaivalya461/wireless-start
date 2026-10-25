@@ -56,6 +56,13 @@ public class ConnectionStateRepository {
         }
     }
 
+    public void removeState(String macAddress) {
+        if (macAddress == null) return;
+
+        // Remove from the map
+        stateMap.remove(macAddress);
+    }
+
     public DeviceConnectionState getState(String macAddress) {
         return stateMap.get(macAddress);
     }

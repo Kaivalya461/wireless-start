@@ -160,7 +160,7 @@ public class EditConfigActivity extends AppCompatActivity {
                             return;
                         }
 
-                        preferenceManager.deleteVehicle(vehicle.getId());
+                        VehicleUtils.deleteVehicle(preferenceManager, bleManager, vehicle);
                         vehicleConfigAdapter.updateData(
                                 VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
                                 preferenceManager.getSelectedVehicleId()
@@ -188,7 +188,7 @@ public class EditConfigActivity extends AppCompatActivity {
                 return;
             }
 
-            preferenceManager.addVehicle(name, mac);
+            VehicleUtils.addVehicle(preferenceManager, bleManager, name, mac);
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 
             vehicleConfigAdapter.updateData(

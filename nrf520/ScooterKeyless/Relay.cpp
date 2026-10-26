@@ -1,12 +1,12 @@
 #include "Relay.h"
 #include "BleManager.h"
-#include <sys/time.h>
 
+// No longer used in nrf52 as the normal use power draw is very low.
 // Night Sleep Window (1:30 AM to 8:30 AM)
-#define SLEEP_START_HOUR   1
-#define SLEEP_START_MIN    30
-#define WAKE_END_HOUR      8
-#define WAKE_END_MIN       30
+#define SLEEP_START_HOUR    1
+#define SLEEP_START_MIN     30
+#define WAKE_END_HOUR       8
+#define WAKE_END_MIN        30
 
 const int SLEEP_START_MINUTES_TOTAL = (SLEEP_START_HOUR * 60) + SLEEP_START_MIN;
 const int WAKE_END_MINUTES_TOTAL    = (WAKE_END_HOUR * 60) + WAKE_END_MIN;
@@ -33,6 +33,10 @@ int activeRelayPin                         = -1;
 unsigned long pulseStartTime               = 0;
 unsigned long activePulseDuration          = 0;
 bool timeIsSynced                          = false;
+
+// Software-based Epoch Time Tracking (Replaces POSIX settimeofday)
+static unsigned long baseEpochTime         = 0;
+static unsigned long baseMillisMark        = 0;
 
 // Scheduled Task Variables
 unsigned long targetExecutionEpoch         = 0;
@@ -73,17 +77,22 @@ void initRelays() {
     }
 }
 
+// Software time synchronization using millis() offset
 void syncTime(unsigned long epochTime) {
-    struct timeval tv;
-    tv.tv_sec = epochTime;
-    tv.tv_usec = 0;
-    settimeofday(&tv, NULL);
+    baseEpochTime = epochTime;
+    baseMillisMark = millis();
     timeIsSynced = true;
 
     if (Serial) {
-        Serial.print(">>> System Time Synced: ");
+        Serial.print(">>> System Time Synced (Software Offset): ");
         Serial.println(epochTime);
     }
+}
+
+// Helper to get current epoch time anywhere in your code if needed
+unsigned long getCurrentEpoch() {
+    if (!timeIsSynced) return 0;
+    return baseEpochTime + ((millis() - baseMillisMark) / 1000);
 }
 
 unsigned long getValidatedDuration(unsigned long customMs) {
@@ -217,6 +226,17 @@ void setScheduledTaskEpoch(unsigned long epochTime) {
 }
 
 void checkScheduledEngineTask() {
+    // If a scheduled task epoch was set and we reached that time
+    if (scheduledTaskPending && timeIsSynced && targetExecutionEpoch > 0) {
+        unsigned long currentEpoch = getCurrentEpoch();
+        if (currentEpoch >= targetExecutionEpoch) {
+            if (Serial) Serial.println(">>> Scheduled Task Triggered: Starting engine sequence.");
+            requestRelayPulse(START_RELAY_PIN, DEFAULT_PULSE_MS);
+            scheduledTaskPending = false; // Run once
+            targetExecutionEpoch = 0;
+        }
+    }
+
     if (isScheduledTaskActive) {
         if (!isPulseActive || activeRelayPin != STOP_RELAY_PIN) {
             setRelayState(STOP_RELAY_PIN, true);

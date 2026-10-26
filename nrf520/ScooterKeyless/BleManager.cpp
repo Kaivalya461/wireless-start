@@ -1,18 +1,18 @@
 #include "BleManager.h"
-#include <ArduinoBLE.h>
+#include <bluefruit.h>
 #include "Relay.h"
 #include <time.h>
 
-// UUIDs mapped to ArduinoBLE format
+// UUIDs mapped for Adafruit Bluefruit format
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
 const unsigned long DEFAULT_STOP_PULSE_MS = 1700;
 
-// Define custom BLE Service and Characteristic
+// Define custom BLE Service and Characteristic using Adafruit classes
 BLEService scooterService(SERVICE_UUID);
-BLECharacteristic customCharacteristic(CHARACTERISTIC_UUID, BLERead | BLEWrite | BLEWriteWithoutResponse | BLENotify, 32);
+BLECharacteristic customCharacteristic(CHARACTERISTIC_UUID);
 
 bool bleConnected = false;
 
@@ -21,10 +21,17 @@ String getStoredDeviceName() {
     return "Honda Dio nrf520";
 }
 
+// Forward declaration
+void handleIncomingCommand(const uint8_t* data, size_t length);
+
+// Corrected Adafruit write callback signature
+void characteristic_write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t length) {
+    handleIncomingCommand(data, length);
+}
+
 void handleIncomingCommand(const uint8_t* data, size_t length) {
     if (length == 0) return;
 
-    // 1. Intercept single-byte configuration toggles (0x02 or 0x03)
     if (length == 1) {
         uint8_t commandByte = data[0];
         if (commandByte == 0x02) {
@@ -36,7 +43,6 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
         }
     }
 
-    // 2. Fallback Route: Handle incoming plain-text action messages
     String command = "";
     for (size_t i = 0; i < length; i++) {
         command += (char)data[i];
@@ -87,52 +93,59 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
     }
 }
 
+void connect_callback(uint16_t conn_handle) {
+    bleConnected = true;
+    if (Serial) Serial.println(">>> App Connected!");
+}
+
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+    bleConnected = false;
+    if (Serial) Serial.println(">>> App Disconnected! Restarting advertising.");
+}
+
 void initBle() {
-    if (!BLE.begin()) {
-        if (Serial) Serial.println("Starting Bluetooth® Low Energy failed!");
-        while (1);
-    }
+    Bluefruit.begin();
+    Bluefruit.setTxPower(4);
+
+    // --- POWER OPTIMIZATION: Disable the automatic connection/status LED ---
+    Bluefruit.autoConnLed(false);
 
     String savedDeviceName = getStoredDeviceName();
-    BLE.setLocalName(savedDeviceName.c_str());
-    BLE.setDeviceName(savedDeviceName.c_str());
+    Bluefruit.setName(savedDeviceName.c_str());
 
-    BLE.setAdvertisedService(scooterService);
-    scooterService.addCharacteristic(customCharacteristic);
-    BLE.addService(scooterService);
+    Bluefruit.Periph.setConnectCallback(connect_callback);
+    Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
-    BLE.advertise();
+    scooterService.begin();
+
+    customCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP | CHR_PROPS_NOTIFY);
+    customCharacteristic.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+    customCharacteristic.setFixedLen(32);
+    customCharacteristic.setWriteCallback(characteristic_write_callback);
+    customCharacteristic.begin();
+
+    Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+    Bluefruit.Advertising.addTxPower();
+    Bluefruit.Advertising.addService(scooterService);
+    Bluefruit.ScanResponse.addName();
+
+    Bluefruit.Advertising.restartOnDisconnect(true);
+    Bluefruit.Advertising.setInterval(160, 320); // 100ms - 200ms interval
+    Bluefruit.Advertising.setFastTimeout(30);
+    Bluefruit.Advertising.start(0);
 
     if (Serial) {
-        Serial.print(">>> ArduinoBLE Initialized & Advertising as: ");
+        Serial.print(">>> Ultra-Low Power BLE Initialized: ");
         Serial.println(savedDeviceName);
     }
 }
 
 bool isBleClientConnected() {
-    BLEDevice central = BLE.central();
-    bool connected = central && central.connected();
-
-    if (connected != bleConnected) {
-        bleConnected = connected;
-        if (bleConnected) {
-            if (Serial) Serial.println(">>> App Connected!");
-        } else {
-            if (Serial) Serial.println(">>> App Disconnected! Restarting advertising.");
-            BLE.advertise();
-        }
-    }
     return bleConnected;
 }
 
 void updateBleAdvertisingState() {
-    isBleClientConnected(); // Refresh connection status check
-
-    if (bleConnected) {
-        if (customCharacteristic.written()) {
-            handleIncomingCommand(customCharacteristic.value(), customCharacteristic.valueLength());
-        }
-    }
+    // Handled automatically via async Bluefruit callbacks
 }
 
 void transmitBatteryTelemetry(uint16_t mvPayload) {
@@ -142,14 +155,14 @@ void transmitBatteryTelemetry(uint16_t mvPayload) {
     payloadBuffer[0] = (mvPayload >> 8) & 0xFF; // High Byte
     payloadBuffer[1] = mvPayload & 0xFF;        // Low Byte
 
-    customCharacteristic.writeValue(payloadBuffer, 2);
+    customCharacteristic.notify(payloadBuffer, 2);
 }
 
 void transmitEngineScheduleTime(unsigned long epochPayload) {
     if (!bleConnected) return;
 
     String response = "SCHED_IS:" + String(epochPayload);
-    customCharacteristic.writeValue((const uint8_t*)response.c_str(), response.length());
+    customCharacteristic.notify((const uint8_t*)response.c_str(), response.length());
 
     if (Serial) {
         Serial.print("Transmitted active schedule to phone: ");

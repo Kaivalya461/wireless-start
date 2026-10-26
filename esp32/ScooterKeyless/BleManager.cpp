@@ -188,8 +188,8 @@ void updateBleAdvertisingState() {
             NimBLEDevice::stopAdvertising();
             NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
             // Eco Mode BLE Advert
-            pAdvertising->setMinInterval(3200); // 2s
-            pAdvertising->setMaxInterval(4800); // 3s
+            pAdvertising->setMinInterval(1600); // 1s
+            pAdvertising->setMaxInterval(3200); // 2s
             NimBLEDevice::startAdvertising();
         }
     }

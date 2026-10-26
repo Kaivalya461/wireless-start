@@ -17,7 +17,7 @@ void setup() {
     // setDeviceName("Vehicle001");
     // setCalibration(1.253, 0.81);
 
-    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.5.0 (STOP-Relay Fix)");
+    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.6.0 (1/2 sec ECO Mode Interval)");
 }
 
 void loop() {

@@ -15,7 +15,7 @@ public class DeviceProtocolHandler {
     private ProtocolListener listener;
 
     public interface ProtocolListener {
-        void onVoltageReady(float voltage);
+        void onVoltageReady(String macAddress, float voltage);
         void onProtocolLog(String message);
     }
 
@@ -29,8 +29,8 @@ public class DeviceProtocolHandler {
         this.listener = listener;
     }
 
-    // Process incoming raw BLE byte arrays
-    public void parseIncomingData(byte[] data) {
+    // Process incoming raw BLE byte arrays mapped to the specific vehicle MAC address
+    public void parseIncomingData(String macAddress, byte[] data) {
         if (data == null || data.length == 0) return;
 
         String payloadString = new String(data).trim();
@@ -39,9 +39,6 @@ public class DeviceProtocolHandler {
         if (payloadString.startsWith("SCHED_IS:")) {
             // Only process schedule updates if the toggle is enabled in preferences
             if (!preferenceManager.isEngineScheduleEnabled()) {
-                if (listener != null) {
-//                    listener.onProtocolLog("[ESP32 RX] Ignored schedule sync: Scheduled Engine-Run is disabled.");
-                }
                 return;
             }
 
@@ -58,7 +55,7 @@ public class DeviceProtocolHandler {
 
                 // Handle cancellation / empty schedule explicitly
                 if (serverEpoch == 0) {
-                    listener.onProtocolLog("[ESP32 RX] Engine-Run Schedule Cancelled");
+                    listener.onProtocolLog("[ESP32 RX][" + macAddress + "] Engine-Run Schedule Cancelled");
                     return;
                 }
 
@@ -67,10 +64,10 @@ public class DeviceProtocolHandler {
                         .withZone(java.time.ZoneId.systemDefault())
                         .format(java.time.Instant.ofEpochMilli(serverEpoch * 1000));
 
-                listener.onProtocolLog("[ESP32 RX] Engine-Run Schedule Completed -> " + formattedDate);
+                listener.onProtocolLog("[ESP32 RX][" + macAddress + "] Engine-Run Schedule Completed -> " + formattedDate);
 
             } catch (NumberFormatException e) {
-                if (listener != null) listener.onProtocolLog("Failed to parse schedule epoch from ESP32.");
+                if (listener != null) listener.onProtocolLog("Failed to parse schedule epoch from ESP32 [" + macAddress + "].");
             }
             return;
         }
@@ -83,7 +80,7 @@ public class DeviceProtocolHandler {
             float finalVoltage = milliVolts / 1000.0f;
 
             if (listener != null) {
-                listener.onVoltageReady(finalVoltage);
+                listener.onVoltageReady(macAddress, finalVoltage);
             }
         }
     }

@@ -19,27 +19,38 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.widget.NestedScrollView;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class EditConfigActivity extends AppCompatActivity {
+    private static final String TAG = "EditConfigActivity";
 
     private TextInputEditText inputName, inputMac;
-    private MaterialButton btnScan, btnSave;
-    private LinearLayout layoutSignalStrength;
-    private TextView tvSignalStrength;
+    private MaterialButton btnScan, btnSave, btnAddVehicle;
+    private TextView tvCancelAction;
+    private NestedScrollView nestedScrollView;
+    private MaterialCardView cardActiveConfig;
+    private RecyclerView recyclerViewVehicles;
 
     private BluetoothLeScanner bluetoothLeScanner;
     private boolean isScanning = false;
@@ -50,11 +61,7 @@ public class EditConfigActivity extends AppCompatActivity {
     private PreferenceManager preferenceManager;
     private BleManager bleManager;
     private ScannedDeviceAdapter scanAdapter;
-
-    // RSSI Polling Handler & Runnable
-    private final Handler rssiHandler = new Handler(Looper.getMainLooper());
-    private Runnable rssiRunnable;
-    private static final long RSSI_UPDATE_INTERVAL_MS = 2000; // Check every 2 seconds
+    private VehicleConfigAdapter vehicleConfigAdapter;
 
     private static final int REQUEST_CODE_PERMISSIONS = 101;
 
@@ -73,12 +80,16 @@ public class EditConfigActivity extends AppCompatActivity {
         inputMac = findViewById(R.id.input_edit_mac);
         btnScan = findViewById(R.id.btn_scan_ble);
         btnSave = findViewById(R.id.btn_save_config);
-        layoutSignalStrength = findViewById(R.id.layout_signal_strength);
-        tvSignalStrength = findViewById(R.id.tv_signal_strength);
+        btnAddVehicle = findViewById(R.id.btn_add_vehicle);
+        tvCancelAction = findViewById(R.id.tv_cancel_action);
+        cardActiveConfig = findViewById(R.id.card_active_config);
+        recyclerViewVehicles = findViewById(R.id.recycler_vehicles);
+        nestedScrollView = findViewById(R.id.nested_scroll_view);
 
-        // Pre-populate fields with currently saved values
-        inputName.setText(preferenceManager.getTargetHwName());
-        inputMac.setText(preferenceManager.getTargetMacAddress());
+        // Hide configuration card by default on launch, show only list
+        cardActiveConfig.setVisibility(View.GONE);
+
+        setupVehicleRecyclerView();
 
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         if (bluetoothAdapter != null) {
@@ -87,8 +98,83 @@ public class EditConfigActivity extends AppCompatActivity {
 
         btnScan.setOnClickListener(v -> checkPermissionsAndScan());
         btnSave.setOnClickListener(v -> saveConfiguration());
+        btnAddVehicle.setOnClickListener(v -> enterCreateMode());
+        tvCancelAction.setOnClickListener(v -> {
+            cardActiveConfig.setVisibility(View.GONE); // Hide card on cancel
+        });
 
-        setupRssiPolling();
+        // Focus listener to scroll down when typing in either input field
+        View.OnFocusChangeListener scrollListener = (v, hasFocus) -> {
+            if (hasFocus && nestedScrollView != null) {
+                // Small delay ensures the keyboard has started opening before scrolling
+                nestedScrollView.postDelayed(() -> {
+                    nestedScrollView.smoothScrollTo(0, cardActiveConfig.getBottom());
+                }, 200);
+            }
+        };
+        inputName.setOnFocusChangeListener(scrollListener);
+        inputMac.setOnFocusChangeListener(scrollListener);
+    }
+
+    private void enterCreateMode() {
+        if (preferenceManager.getVehicles().size() >= 2) {
+            Toast.makeText(this, "Maximum limit of 2 vehicles reached", Toast.LENGTH_SHORT).show();
+            cardActiveConfig.setVisibility(View.GONE);
+            return;
+        }
+
+        cardActiveConfig.setVisibility(View.VISIBLE);
+        inputName.setText("");
+        inputMac.setText("");
+
+        if (nestedScrollView != null) {
+            nestedScrollView.post(() -> nestedScrollView.smoothScrollTo(0, cardActiveConfig.getBottom()));
+        }
+    }
+
+    private void setupVehicleRecyclerView() {
+        recyclerViewVehicles.setLayoutManager(new LinearLayoutManager(this));
+
+        vehicleConfigAdapter = new VehicleConfigAdapter(
+                preferenceManager.getVehicles(),
+                preferenceManager.getSelectedVehicleId(),
+                new VehicleConfigAdapter.OnVehicleActionListener() {
+                    @Override
+                    public void onSelect(Vehicle vehicle) {
+                        preferenceManager.setSelectedVehicleId(vehicle.getId());
+                        vehicleConfigAdapter.updateData(
+                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                                preferenceManager.getSelectedVehicleId()
+                        );
+                        cardActiveConfig.setVisibility(View.GONE);
+                        Toast.makeText(EditConfigActivity.this, "Switched to " + vehicle.getName(), Toast.LENGTH_SHORT).show();
+
+                        // Set result so MainActivity updates when exiting
+                        setResult(RESULT_OK);
+                    }
+
+                    @Override
+                    public void onDelete(Vehicle vehicle) {
+                        if (preferenceManager.getVehicles().size() <= 1) {
+                            Toast.makeText(EditConfigActivity.this, "Cannot delete the last remaining vehicle", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
+                        VehicleUtils.deleteVehicle(preferenceManager, bleManager, vehicle);
+                        vehicleConfigAdapter.updateData(
+                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                                preferenceManager.getSelectedVehicleId()
+                        );
+                        cardActiveConfig.setVisibility(View.GONE);
+                        Toast.makeText(EditConfigActivity.this, "Vehicle deleted", Toast.LENGTH_SHORT).show();
+
+                        // Set result so MainActivity reloads the list and reconnects
+                        setResult(RESULT_OK);
+                    }
+                }
+        );
+
+        recyclerViewVehicles.setAdapter(vehicleConfigAdapter);
     }
 
     private void saveConfiguration() {
@@ -96,70 +182,30 @@ public class EditConfigActivity extends AppCompatActivity {
         String mac = inputMac.getText() != null ? inputMac.getText().toString().trim() : "";
 
         if (!name.isEmpty() && !mac.isEmpty()) {
-            // Save directly using PreferenceManager
-            preferenceManager.saveTargetHwName(name);
-            preferenceManager.saveTargetMacAddress(mac);
-
-            // Refresh active singleton BleManager and BleScanManager instances instantly
-            if (bleManager != null) {
-                bleManager.refreshConfiguration();
-                if (bleManager.isConnected()) {
-                    bleManager.disconnect(); // Disconnect old connection so it targets the new MAC
-                }
-                bleManager.connect(preferenceManager.isAutoConnectEnabled()); // Trigger immediate scan/connect with new parameters
+            // Check if the vehicle limit (max 2) has already been reached
+            if (preferenceManager.getVehicles().size() >= 2) {
+                Toast.makeText(this, "Maximum limit of 2 vehicles reached. Please delete one to add a new vehicle.", Toast.LENGTH_LONG).show();
+                return;
             }
 
-            // EXPLICITLY set RESULT_OK so the launcher callback triggers
-            setResult(RESULT_OK);
+            VehicleUtils.addVehicle(preferenceManager, bleManager, name, mac);
+            Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 
-            Toast.makeText(this, "Configuration Saved & Applied!", Toast.LENGTH_SHORT).show();
-            finish();
+            vehicleConfigAdapter.updateData(
+                    VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
+                    preferenceManager.getSelectedVehicleId()
+            );
+            cardActiveConfig.setVisibility(View.GONE); // Hide card after saving
+            setResult(RESULT_OK);
         } else {
             Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private void setupRssiPolling() {
-        rssiRunnable = new Runnable() {
-            @Override
-            public void run() {
-                updateSignalStrengthUI();
-                rssiHandler.postDelayed(this, RSSI_UPDATE_INTERVAL_MS);
-            }
-        };
-    }
-
-    private void updateSignalStrengthUI() {
-        if (bleManager != null && bleManager.isConnected()) {
-            layoutSignalStrength.setVisibility(View.VISIBLE);
-
-            bleManager.readRssi(rssi -> {
-                runOnUiThread(() -> {
-                    if (rssi != 0) {
-                        tvSignalStrength.setText("Signal Strength: " + rssi + " dBm");
-                    } else {
-                        tvSignalStrength.setText("Signal Strength: -- dBm");
-                    }
-                });
-            });
-        } else {
-            layoutSignalStrength.setVisibility(View.GONE);
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // Start polling the RSSI value periodically when active
-        rssiHandler.post(rssiRunnable);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         stopBleScan();
-        // Stop polling RSSI when leaving the activity to prevent resource waste
-        rssiHandler.removeCallbacks(rssiRunnable);
     }
 
     private void checkPermissionsAndScan() {
@@ -191,7 +237,6 @@ public class EditConfigActivity extends AppCompatActivity {
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
             BluetoothDevice device = result.getDevice();
-
             if (!scannedDevices.contains(device)) {
                 scannedDevices.add(device);
                 if (scanAdapter != null) {

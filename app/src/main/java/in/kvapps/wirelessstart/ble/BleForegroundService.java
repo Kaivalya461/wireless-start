@@ -1,63 +1,264 @@
 package in.kvapps.wirelessstart.ble;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+
+import java.util.List;
+import java.util.Locale;
 
 import in.kvapps.wirelessstart.MainActivity;
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
+import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.ScanHealth;
+import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.util.AppLogger;
+import in.kvapps.wirelessstart.util.FeedbackUtils;
+import in.kvapps.wirelessstart.util.UiUtils;
+import in.kvapps.wirelessstart.util.WearSyncUtils;
 
-public class BleForegroundService extends Service {
+public class BleForegroundService extends Service implements ConnectionStateRepository.OnConnectionStateChangedListener {
 
+    private static final String TAG = "BleForegroundService";
     private static final String CHANNEL_ID = "ble_foreground_channel";
     private static final String ACTION_FORCE_STOP = "in.kvapps.wirelessstart.ACTION_FORCE_STOP";
+    private static final String ACTION_WATCHDOG_TICK = "in.kvapps.wirelessstart.ACTION_WATCHDOG_TICK";
+    private static final String ACTION_RECOVER_SCAN = "in.kvapps.wirelessstart.ACTION_RECOVER_SCAN";
+
+    // Watchdog interval: Check connection status every 15 minutes
+    private static final long WATCHDOG_INTERVAL_MS = 15L * 60L * 1000L;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        // Register to listen to the Single Source of Truth connection state repository
+        ConnectionStateRepository.getInstance().addListener(this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Check if the Force Stop action was triggered from the notification button
-        if (intent != null && ACTION_FORCE_STOP.equals(intent.getAction())) {
-            forceStopApp();
-            return START_NOT_STICKY;
+        if (intent != null) {
+            String action = intent.getAction();
+            if (ACTION_FORCE_STOP.equals(action)) {
+                forceStopApp();
+                return START_NOT_STICKY;
+            } else if (ACTION_RECOVER_SCAN.equals(action)) {
+                triggerManualScanRecovery();
+                return START_STICKY;
+            } else if (ACTION_WATCHDOG_TICK.equals(action)) {
+                performWatchdogCheck();
+                scheduleNextWatchdogAlarm();
+                return START_STICKY;
+            }
         }
 
-        Notification notification = createNotification("Background BLE Service Active.");
+        // Determine correct initial notification state from SSOT repository
+        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+
+        // 1. MANDATORY: Call startForeground immediately with the accurate state
+        ScanHealth initialHealth = ScanHealth.HEALTHY;
+        BleManager manager = getBleManager();
+        if (selectedVehicle != null && selectedVehicle.getMacAddress() != null && manager != null) {
+            initialHealth = evaluateScanHealth(manager, selectedVehicle.getMacAddress());
+        }
+        Notification notification = createNotification(initialHealth);
         startForeground(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification);
 
-        BleManager manager = getBleManager();
-        if (manager != null && !manager.isConnected()) {
-            manager.connect(false); // This parameter doesn't control the autoConnect behavior.
-        }
+        // 2. Trigger initial connection/scanning if not already connected
+        triggerInitialConnection();
+
+        // 3. Schedule the first Doze-safe background watchdog alarm
+        scheduleNextWatchdogAlarm();
 
         return START_STICKY;
     }
 
+    @Override
+    public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
+        switch (newState.getState()) {
+            case CONNECTED:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                break;
+            case DISCOVERING:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                break;
+            case DISCONNECTED:
+            default:
+                updateForegroundNotification(ScanHealth.HEALTHY);
+                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
+                break;
+        }
+    }
+
+    private void scheduleNextWatchdogAlarm() {
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(this, BleForegroundService.class);
+        intent.setAction(ACTION_WATCHDOG_TICK);
+
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            pendingFlags |= PendingIntent.FLAG_MUTABLE;
+        }
+        PendingIntent pendingIntent = PendingIntent.getService(this, 2002, intent, pendingFlags);
+
+        if (alarmManager != null) {
+            long triggerAtMillis = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                    } else {
+                        updateForegroundNotification(ScanHealth.FAILURE);
+                        Log.w(TAG, "Exact Alarm permission (SCHEDULE_EXACT_ALARM) is not granted.");
+                    }
+                } else {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                }
+            } catch (SecurityException e) {
+                Log.e(TAG, "SecurityException while scheduling exact alarm: " + e.getMessage());
+                updateForegroundNotification(ScanHealth.FAILURE);
+                try {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private void cancelWatchdogAlarm() {
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(this, BleForegroundService.class);
+        intent.setAction(ACTION_WATCHDOG_TICK);
+
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent pendingIntent = PendingIntent.getService(this, 2002, intent, pendingFlags);
+
+        if (alarmManager != null && pendingIntent != null) {
+            alarmManager.cancel(pendingIntent);
+        }
+    }
+
+    /**
+     * Updates the foreground notification dynamically.
+     * @param health Scan Health status to determine
+     */
+    public void updateForegroundNotification(ScanHealth health) {
+        Notification notification = createNotification(health);
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification);
+        }
+    }
+
+    private void triggerInitialConnection() {
+        BleManager manager = getBleManager();
+        if (manager != null) {
+            if (!manager.isBluetoothEnabled()) {
+                AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] System Alert: Please turn on phone Bluetooth.");
+                return;
+            }
+
+            PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+            Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+
+            if (selectedVehicle != null && selectedVehicle.getMacAddress() != null) {
+                String targetMac = selectedVehicle.getMacAddress();
+                if (!targetMac.trim().isEmpty() && !manager.isConnected(targetMac)) {
+//                    AppLogger.logToDatabaseAndLogcat(this, TAG, "ForegroundService: Initial connect trigger for " + targetMac);
+                    manager.startMultiVehicleScan();
+                }
+            }
+        }
+    }
+
+    // Method executed when user clicks "Recover Scan" on the notification
+    private void triggerManualScanRecovery() {
+        Log.i(TAG, "Manual Scan Recovery triggered by user from notification.");
+        BleManager manager = getBleManager();
+        if (manager == null) return;
+
+        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+        if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) return;
+
+        String targetMac = selectedVehicle.getMacAddress();
+
+        // Reset BLE stack and restart scanning
+        manager.release();
+        manager.startMultiVehicleScan();
+
+        updateForegroundNotification(ScanHealth.HEALTHY);
+    }
+
+    private void performWatchdogCheck() {
+        Log.i(TAG, "Watchdog Check: Evaluating background BLE health...");
+        BleManager manager = getBleManager();
+        if (manager == null) return;
+
+        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+
+        if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) return;
+        String targetMac = selectedVehicle.getMacAddress();
+
+        if (targetMac.trim().isEmpty()) return;
+
+        // Evaluate Scan Health
+        ScanHealth health = evaluateScanHealth(manager, targetMac);
+
+        if (health == ScanHealth.FAILURE) {
+            updateForegroundNotification(health);
+            return;
+        }
+
+        if (health == ScanHealth.WARNING) {
+            // Shows warning text AND dynamically pops up the "Recover Scan" button
+            updateForegroundNotification(health);
+            Log.w(TAG, "Scan health is WARNING. Showing manual recovery button.");
+            return;
+        }
+
+        if (manager.isConnected(targetMac)) {
+            updateForegroundNotification(health);
+            return;
+        }
+
+        // Disconnected & Healthy: Active scanning (No button shown)
+        updateForegroundNotification(health);
+        manager.startMultiVehicleScan();
+    }
+
     private void forceStopApp() {
-        // 1. Release/Disconnect BLE connections safely
+        cancelWatchdogAlarm();
+
         BleManager manager = getBleManager();
         if (manager != null) {
             manager.setListener(null);
             manager.release();
         }
 
-        // 2. Stop foreground notification and service
         stopForeground(true);
         stopSelf();
 
-        // 3. Completely terminate the app process
         android.os.Process.killProcess(android.os.Process.myPid());
         System.exit(0);
     }
@@ -67,15 +268,14 @@ public class BleForegroundService extends Service {
         return app != null ? app.getBleManager() : null;
     }
 
-
-    private Notification createNotification(String message) {
+    private Notification createNotification(ScanHealth health) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this, 0, notificationIntent,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
 
-        // Intent to handle Force Stop button click
+        // Force Stop Action Intent
         Intent forceStopIntent = new Intent(this, BleForegroundService.class);
         forceStopIntent.setAction(ACTION_FORCE_STOP);
         PendingIntent forceStopPendingIntent = PendingIntent.getService(
@@ -83,14 +283,81 @@ public class BleForegroundService extends Service {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
 
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+        BleManager bleManager = getBleManager();
+        List<Vehicle> vehicles = preferenceManager.getVehicles();
+
+        int totalVehicles = vehicles != null ? vehicles.size() : 0;
+        int connectedCount = 0;
+
+        if (vehicles != null && bleManager != null) {
+            for (Vehicle v : vehicles) {
+                if (bleManager.isConnected(v.getMacAddress())) {
+                    connectedCount++;
+                }
+            }
+        }
+
+        // Format Scan Status line
+        String healthStr = "Healthy";
+        if (health == ScanHealth.WARNING) healthStr = String.format(
+                "Warning (Stalled: %s)",
+                UiUtils.formatRelativeTime(BleScanManager.getLastScanStartTimestamp()));
+        else if (health == ScanHealth.FAILURE) healthStr = "Failed (BT Off)";
+
+        String summaryLine = String.format(Locale.getDefault(), "Scan Status: %s", healthStr);
+        String devicesLine = String.format(Locale.getDefault(), "Vehicles: %d/%d Connected", connectedCount, totalVehicles);
+        long lastScanStartTimestamp = BleScanManager.getLastScanStartTimestamp();
+        String lastScanStartDesc = UiUtils.formatRelativeTime(lastScanStartTimestamp);
+        String lastScanStartLine = String.format(Locale.getDefault(), "Last Scan Start: %s", lastScanStartDesc);
+
+        // Setup InboxStyle for multi-line display
+        NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle()
+                .setBigContentTitle(devicesLine)
+                .addLine(summaryLine)
+                .addLine(lastScanStartLine);
+
+        if (vehicles != null) {
+            for (Vehicle v : vehicles) {
+                boolean isConnected = (bleManager != null && bleManager.isConnected(v.getMacAddress()));
+                String stateDesc = isConnected ? "Connected" : "Offline";
+                long lastSeen = preferenceManager.getLastSeenTimestamp(v.getMacAddress());
+                String timeDesc = UiUtils.formatRelativeTimeLastSeen(lastSeen);
+
+                String line = String.format(Locale.getDefault(), "• %s: %s (%s)", v.getName(), stateDesc, timeDesc);
+                inboxStyle.addLine(line);
+            }
+        }
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Wireless Start Service")
-                .setContentText(message)
+                .setContentText(summaryLine) // Collapsed view text
+                .setStyle(inboxStyle)        // Expanded multi-line view
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(pendingIntent)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Force Stop", forceStopPendingIntent)
-                .setOngoing(true)
-                .build();
+                .setOngoing(true);
+
+        // Add Recover Scan button if in WARNING state
+        if (health == ScanHealth.WARNING) {
+            Intent recoverScanIntent = new Intent(this, BleForegroundService.class);
+            recoverScanIntent.setAction(ACTION_RECOVER_SCAN);
+            PendingIntent recoverScanPendingIntent = PendingIntent.getService(
+                    this, 2, recoverScanIntent,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+            );
+            builder.addAction(android.R.drawable.ic_menu_rotate, "Recover Scan", recoverScanPendingIntent);
+        }
+
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Force Stop", forceStopPendingIntent);
+
+        // Show chronometer if any vehicle is scanning/disconnected
+        if (connectedCount < totalVehicles) {
+            builder.setUsesChronometer(true).setWhen(System.currentTimeMillis());
+        } else {
+            builder.setUsesChronometer(false);
+        }
+
+        return builder.build();
     }
 
     private void createNotificationChannel() {
@@ -105,9 +372,37 @@ public class BleForegroundService extends Service {
         }
     }
 
+    private ScanHealth evaluateScanHealth(BleManager manager, String targetMac) {
+        if (!manager.isBluetoothEnabled()) {
+            return ScanHealth.FAILURE;
+        }
+
+        // If already connected, it's inherently healthy
+        if (manager.isConnected(targetMac)) {
+            return ScanHealth.HEALTHY;
+        }
+
+        // Check the last ble scan start time (e.g., more than 10 minutes)
+        long lastScanStartTime = BleScanManager.getLastScanStartTimestamp();
+        long timeSinceLastScanStart = System.currentTimeMillis() - lastScanStartTime;
+        long tenMinutesMs = 10L * 60L * 1000L;
+
+        // If it's been more than 10 minutes since the last hardware scan start,
+        // Android could have likely throttled or frozen the background scan,
+        // Update Scan status to WARNING which shows Recover Scan button to user.
+        if (lastScanStartTime == 0 || timeSinceLastScanStart > tenMinutesMs) {
+            return ScanHealth.WARNING;
+        }
+
+        return ScanHealth.HEALTHY;
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
+        cancelWatchdogAlarm();
+        ConnectionStateRepository.getInstance().removeListener(this);
+
         BleManager manager = getBleManager();
         if (manager != null) {
             manager.setListener(null);

@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:cardBackgroundColor="#1E1E1E"
+    app:cardCornerRadius="18dp"
+    app:strokeColor="#333333"
+    app:strokeWidth="1dp"
+    app:cardElevation="0dp"
+    android:clipToOutline="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- DYNAMIC STATUS / SIGNAL BAR -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:background="#2A2A2A">
+
+            <View
+                android:id="@+id/view_status_bar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="#4CAF50" />
+        </FrameLayout>
+
+        <!-- Main Card Content Container -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:paddingTop="12dp">
+
+            <!-- Combined Header Row: Name, Status Indicator, and Reconnect Button -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <!-- Vehicle Name & Subtext Status Container -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/txt_vehicle_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Honda Dio"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:fontFamily="sans-serif-medium" />
+
+                    <!-- Inline Status (Dot + Text) -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="3dp">
+
+                        <View
+                            android:id="@+id/status_indicator"
+                            android:layout_width="8dp"
+                            android:layout_height="8dp"
+                            android:background="@drawable/indicator_offline"
+                            android:layout_marginEnd="6dp" />
+
+                        <TextView
+                            android:id="@+id/txt_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="OFFLINE"
+                            android:textColor="#AAAAAA"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:letterSpacing="0.08"
+                            android:fontFamily="sans-serif-medium" />
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Optional Active Badge -->
+                <TextView
+                    android:id="@+id/txt_active_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DEFAULT"
+                    android:textColor="#00E5FF"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:background="@drawable/bg_terminal_console"
+                    android:letterSpacing="0.05"
+                    android:layout_marginEnd="8dp" />
+
+                <!-- Reconnect Button -->
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_reconnect"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_refresh"
+                    app:tint="#00E5FF"
+                    android:contentDescription="Reconnect to BLE" />
+
+            </LinearLayout>
+
+            <!-- Divider Line Separating Header and Actions -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#2A2A2A"
+                android:layout_marginBottom="12dp" />
+
+            <!-- START, STOP, and Voltage Telemetry Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <!-- START Button -->
+                <Button
+                    android:id="@+id/btn_start"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="START"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#4CAF50" />
+
+                <!-- STOP Button -->
+                <Button
+                    android:id="@+id/btn_stop"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="4dp"
+                    android:text="STOP"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#E53935" />
+
+                <!-- Integrated Voltage Reading Telemetry Badge -->
+                <LinearLayout
+                    android:id="@+id/panel_voltage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/bg_terminal_console"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:paddingHorizontal="10dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:id="@+id/lbl_voltage_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BATT"
+                        android:textColor="#777777"
+                        android:textSize="9sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/txt_voltage_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--.--V"
+                        android:textColor="#00E5FF"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

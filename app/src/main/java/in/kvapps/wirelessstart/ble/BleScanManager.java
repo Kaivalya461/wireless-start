@@ -13,12 +13,16 @@ import android.os.Build;
 import android.os.ParcelUuid;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
+
+import in.kvapps.wirelessstart.enums.ConnectionState;
 
 public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
     public interface ScanListener {
+        // Updated to pass back the specific MAC address found
         void onDeviceFound(String macAddress);
         void onScanLog(String message);
     }
@@ -30,58 +34,70 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
     private boolean isScanning = false;
 
     private final UUID serviceUuid;
-    private String targetMac;
 
-    public BleScanManager(Context context, UUID serviceUuid, String targetMac, ScanListener listener) {
+    private static long lastScanStartTimestamp = 0L;
+
+    public BleScanManager(Context context, UUID serviceUuid, ScanListener listener) {
         this.context = context;
         this.serviceUuid = serviceUuid;
-        this.targetMac = targetMac;
         this.listener = listener;
 
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.bluetoothLeScanner = (bluetoothAdapter != null) ? bluetoothAdapter.getBluetoothLeScanner() : null;
     }
 
-    public void updateTargetMac(String newMac) {
-        this.targetMac = newMac;
+    /**
+     * Add or update the list of target vehicles to scan for simultaneously.
+     */
+    public void updateTargetMacs(List<String> newMacs) {
+        // If already scanning, restart the scan dynamically to apply the new filters
+        if (isScanning) {
+            stopScan();
+            startScan(newMacs);
+        }
     }
 
     @Override
     public void onSignalStateChanged(String macAddress, BleScanReceiver.SignalState state, int rssi) {
+        // Ensure the detected device belongs to our active tracking set
+        if (macAddress == null) {
+            return;
+        }
+
         switch (state) {
             case SUPER_STRONG:
                 stopScan();
                 if (listener != null) {
-                    listener.onScanLog("🔥 SuperStrong signal! (" + rssi + " dBm)");
-                    listener.onDeviceFound(targetMac);
+                    listener.onScanLog("🔥 SuperStrong signal for " + macAddress + "! (" + rssi + " dBm)");
+                    listener.onDeviceFound(macAddress);
                 }
                 break;
 
             case MEDIUM_HIGH:
                 stopScan();
                 if (listener != null) {
-                    listener.onScanLog("⚡ Medium-High signal (" + rssi + " dBm)");
-                    listener.onDeviceFound(targetMac);
+                    listener.onScanLog("⚡ Medium-High signal for " + macAddress + " (" + rssi + " dBm)");
+                    listener.onDeviceFound(macAddress);
                 }
                 break;
 
             case LOW_TRIGGER:
                 stopScan();
                 if (listener != null) {
-                    listener.onScanLog("⚠️ Low signal (" + rssi + " dBm), but 'Avoid Poor Connection' setting is disabled. Connecting anyway...");
-                    listener.onDeviceFound(targetMac);
+                    listener.onScanLog("⚠️ Low signal for " + macAddress + " (" + rssi + " dBm). Connecting anyway...");
+                    listener.onDeviceFound(macAddress);
                 }
                 break;
 
             case LOW_WAITING:
                 if (listener != null) {
-                    listener.onScanLog("⏳ Low signal (" + rssi + " dBm). Waiting for signal to improve...");
+                    listener.onScanLog("⏳ Low signal for " + macAddress + " (" + rssi + " dBm). Waiting...");
                 }
                 break;
         }
     }
 
-    public void startScan() {
+    public void startScan(List<String> targetMacs) {
         if (bluetoothLeScanner == null || isScanning) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -91,40 +107,51 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
             }
         }
 
+        lastScanStartTimestamp = System.currentTimeMillis();
+
         // Reset the receiver's state memory when starting a brand new scan
         BleScanReceiver.resetState();
-        BleScanReceiver.targetMacAddress = targetMac;
+        BleScanReceiver.targetMacAddresses = new HashSet<>(targetMacs);
         BleScanReceiver.callback = this;
 
-        // 2. Build explicit PendingIntent without a redundant custom action string
+        // Use a distinct request code (e.g., 1001) to prevent PendingIntent recycling issues over long spans
         Intent intent = new Intent(context, BleScanReceiver.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
         }
-        scanPendingIntent = PendingIntent.getBroadcast(context, 0, intent, flags);
+        scanPendingIntent = PendingIntent.getBroadcast(context, 1001, intent, flags);
 
-        // 3. Configure filtering for your specific ESP32 Service UUID
+        // Build ScanFilters: Android BLE filtering supports matching by MAC address or Service UUID.
+        // To scan multiple specific devices, add a filter for each MAC address combined with your Service UUID.
         List<ScanFilter> filters = new ArrayList<>();
-        if (targetMac != null && !targetMac.trim().isEmpty() && serviceUuid != null) {
-            ScanFilter filter = new ScanFilter.Builder()
-                    .setServiceUuid(ParcelUuid.fromString(serviceUuid.toString()))
-                    .build();
-            filters.add(filter);
+        if (!targetMacs.isEmpty()) {
+            for (String mac : targetMacs) {
+                ScanFilter.Builder builder = new ScanFilter.Builder().setDeviceAddress(mac);
+                if (serviceUuid != null) {
+                    builder.setServiceUuid(ParcelUuid.fromString(serviceUuid.toString()));
+                }
+                filters.add(builder.build());
+            }
+            sendScanningEvent(targetMacs);
+        } else if (serviceUuid != null) {
+            // Fallback if no specific MACs are provided yet, match by Service UUID globally
+            filters.add(new ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(serviceUuid.toString())).build());
         }
 
-        // 4. Low latency setup for immediate recognition
+        // Reverted back to Low latency setup for immediate recognition
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0) // Deliver results immediately
                 .build();
 
         try {
             int result = bluetoothLeScanner.startScan(filters, settings, scanPendingIntent);
             if (result == 0) {
                 isScanning = true;
-                if (listener != null) listener.onScanLog("Scanning active...");
+                if (listener != null) listener.onScanLog("Scanning active for " + targetMacs.size() + " vehicles...");
             } else {
-                if (listener != null) listener.onScanLog("Failed to start scan. Code: " + result);
+                if (listener != null) listener.onScanLog("Failed to start multi-scan. Code: " + result);
             }
         } catch (SecurityException e) {
             if (listener != null) listener.onScanLog("Security Exception starting PendingIntent scan.");
@@ -150,5 +177,16 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
     public boolean isScanning() {
         return isScanning;
+    }
+
+    public static long getLastScanStartTimestamp() {
+        return lastScanStartTimestamp;
+    }
+
+    private void sendScanningEvent(List<String> targetMacs) {
+        for (String mac : targetMacs) {
+            ConnectionStateRepository.getInstance()
+                    .updateState(mac, ConnectionState.SCANNING, "Scanning");
+        }
     }
 }

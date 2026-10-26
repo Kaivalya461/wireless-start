@@ -122,11 +122,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         protocolHandler = new DeviceProtocolHandler(this, new DeviceProtocolHandler.ProtocolListener() {
             @Override
-            public void onVoltageReady(float voltage) {
+            public void onVoltageReady(String mac, float voltage) {
                 runOnUiThread(() -> {
                     if (isTelemetryEnabled) {
                         long now = System.currentTimeMillis();
-                        if (dbHelper != null) dbHelper.insertReading(now, voltage);
+                        if (dbHelper != null) dbHelper.insertReading(mac, now, voltage);
                         if (!vehicleList.isEmpty()) {
                             vehicleList.get(0).setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
                             vehicleAdapter.notifyItemChanged(0);
@@ -274,7 +274,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
     }
 
-    @Override
     public void onLog(String message) {
         AppLogger.logToDatabaseAndLogcat(this, TAG, message);
         runOnUiThread(() -> {
@@ -287,7 +286,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     @Override
     public void onDataReceived(String macAddress, byte[] rawData) {
-        if (protocolHandler != null) protocolHandler.parseIncomingData(rawData);
+        if (protocolHandler != null) protocolHandler.parseIncomingData(macAddress, rawData);
     }
 
     // --- Actions & Helpers ---

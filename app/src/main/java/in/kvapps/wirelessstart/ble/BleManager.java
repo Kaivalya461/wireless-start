@@ -27,13 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.util.AppLogger;
 
 public class BleManager {
 
     public interface BleListener {
-        void onLog(String message);
         void onDataReceived(String macAddress, byte[] rawData);
     }
+    private static final String TAG = "BleManager";
 
     private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
@@ -60,9 +61,6 @@ public class BleManager {
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.preferenceManager = new PreferenceManager(this.context);
 
-        // Fetch multiple target MAC addresses from preferences instead of a single string
-        List<String> initialTargetMacs = preferenceManager.getTargetMacAddresses();
-
         this.bleScanManager = new BleScanManager(
                 this.context,
                 SERVICE_UUID,
@@ -75,14 +73,16 @@ public class BleManager {
 
                     @Override
                     public void onScanLog(String message) {
-                        if (BleManager.this.listener != null) {
-                            BleManager.this.listener.onLog(message);
-                        }
+                        logMessage(message);
                     }
                 }
         );
 
         registerBluetoothStateReceiver();
+    }
+
+    private void logMessage(String message) {
+        AppLogger.logToDatabaseAndLogcat(context, TAG, message);
     }
 
     public void setListener(BleListener listener) {
@@ -94,10 +94,6 @@ public class BleManager {
      * and updates the scan/connection manager.
      */
     public void refreshVehicles() {
-        // Assuming you have a reference to context or preferenceManager inside this class
-        PreferenceManager prefManager = new PreferenceManager(context);
-        List<String> latestMacs = prefManager.getTargetMacAddresses();
-
         if (bleScanManager != null && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
             startMultiVehicleScan();
@@ -118,9 +114,7 @@ public class BleManager {
         // If every target vehicle is connected, stop scanning!
         if (allConnected && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
-            if (listener != null) {
-                listener.onLog("All target vehicles connected. Stopping background scan.");
-            }
+            logMessage("All target vehicles connected. Stopping background scan.");
         }
     }
 
@@ -149,14 +143,14 @@ public class BleManager {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                 switch (state) {
                     case BluetoothAdapter.STATE_ON:
-                        listener.onLog("System Update: Phone Bluetooth was turned on.");
+                        logMessage("System Update: Phone Bluetooth was turned on.");
                         if (preferenceManager.isForegroundServiceEnabled()) {
                             startMultiVehicleScan();
                         }
                         break;
 
                     case BluetoothAdapter.STATE_OFF:
-                        listener.onLog("System Alert: Phone Bluetooth was turned off.");
+                        logMessage("System Alert: Phone Bluetooth was turned off.");
                         disconnectAll();
                         break;
                 }
@@ -179,9 +173,7 @@ public class BleManager {
      */
     public void startMultiVehicleScan() {
         if (!isBluetoothEnabled()) {
-            if (listener != null) {
-                listener.onLog("System Alert: Please turn on phone Bluetooth before scanning.");
-            }
+            logMessage("System Alert: Please turn on phone Bluetooth before scanning.");
             return;
         }
 
@@ -200,9 +192,7 @@ public class BleManager {
             if (!allConnected) {
                 bleScanManager.startScan(disconnectMacs);
             } else {
-                if (listener != null) {
-                    listener.onLog("All target vehicles are already connected. Skipping scan.");
-                }
+                logMessage("All target vehicles are already connected. Skipping scan.");
             }
         }
     }
@@ -213,40 +203,29 @@ public class BleManager {
     public void stopMultiVehicleScan() {
         if (bleScanManager != null && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
-            if (listener != null) {
-                listener.onLog("Stopped multi-vehicle background scan.");
-            }
+            logMessage("Stopped multi-vehicle background scan.");
         }
     }
 
-
     public void connect(String macAddress, boolean autoConnect) {
         if (!isBluetoothEnabled()) {
-            if (listener != null) {
-                listener.onLog("System Alert: Please turn on phone Bluetooth.");
-            }
+            logMessage("System Alert: Please turn on phone Bluetooth.");
             return;
         }
 
         if (macAddress == null || macAddress.trim().isEmpty()) {
-            if (listener != null) {
-                listener.onLog("Configuration Error: Invalid MAC address.");
-            }
+            logMessage("Configuration Error: Invalid MAC address.");
             return;
         }
 
         if (activeSessions.containsKey(macAddress) || connectingMacs.contains(macAddress)) {
-            if (listener != null) {
-                listener.onLog("Already Connected or Connecting to [" + macAddress + "]; Skipping.");
-            }
+            logMessage("Already Connected or Connecting to [" + macAddress + "]; Skipping.");
             return;
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                if (listener != null) {
-                    listener.onLog("Error: Missing runtime Bluetooth connection permission.");
-                }
+                logMessage("Error: Missing runtime Bluetooth connection permission.");
                 return;
             }
         }
@@ -254,16 +233,14 @@ public class BleManager {
         try {
             connectingMacs.add(macAddress); // Mark as in-flight immediately
             BluetoothDevice device = bluetoothAdapter.getRemoteDevice(macAddress);
-            if (listener != null) {
-                listener.onLog("Connecting to target vehicle [" + macAddress + "]...");
-            }
+            logMessage("Connecting to target vehicle [" + macAddress + "]...");
             device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
         } catch (IllegalArgumentException e) {
             connectingMacs.remove(macAddress);
-            if (listener != null) listener.onLog("Configuration Error: Invalid MAC address format.");
+            logMessage("Configuration Error: Invalid MAC address format.");
         } catch (SecurityException e) {
             connectingMacs.remove(macAddress);
-            if (listener != null) listener.onLog("Security Error: Blocked from connecting.");
+            logMessage("Security Error: Blocked from connecting.");
         }
     }
 
@@ -280,7 +257,7 @@ public class BleManager {
                 }
             }
         } catch (SecurityException e) {
-            if (listener != null) listener.onLog("Security Error: Blocked from enabling notifications.");
+            logMessage("Security Error: Blocked from enabling notifications.");
         }
     }
 
@@ -293,7 +270,7 @@ public class BleManager {
                 session.getGatt().disconnect();
                 session.getGatt().close();
             } catch (SecurityException e) {
-                if (listener != null) listener.onLog("Security Error disconnecting GATT.");
+                logMessage("Security Error disconnecting GATT.");
             }
         }
         ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
@@ -335,7 +312,7 @@ public class BleManager {
                     }
                     gatt.discoverServices();
                 } catch (SecurityException e) {
-                    if (listener != null) listener.onLog("Security Exception on post-connection setup.");
+                    logMessage("Security Exception on post-connection setup.");
                 }
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -346,8 +323,8 @@ public class BleManager {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         startMultiVehicleScan();
                     }, 500);
-                } else if (listener != null) {
-                    listener.onLog("Auto-connect is disabled. Standing by.");
+                } else {
+                    logMessage("Auto-connect is disabled. Standing by.");
                 }
             }
         }

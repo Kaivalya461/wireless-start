@@ -13,9 +13,10 @@ import in.kvapps.wirelessstart.model.VoltageEntry;
 public class VoltageDbHelper extends SQLiteOpenHelper {
     private static final String TAG = "VoltageDbHelper";
     private static final String DATABASE_NAME = "telemetry.db";
-    private static final int DATABASE_VERSION = 2; // Incremented version for schema update
+    private static final int DATABASE_VERSION = 3; // Incremented version for schema update
 
     // Voltage Table Constants
+    private static final String COLUMN_MAC_ADDRESS = "mac_address";
     private static final String TABLE_VOLTAGE = "voltage_history";
     private static final String COLUMN_TIMESTAMP = "timestamp";
     private static final String COLUMN_VALUE = "voltage_value";
@@ -31,10 +32,12 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
 
     @Override
     public void onCreate(SQLiteDatabase db) {
-        // Create voltage table
+        // Voltage table with MAC address included in primary key or composite key
         String createVoltageTable = "CREATE TABLE " + TABLE_VOLTAGE + " (" +
-                COLUMN_TIMESTAMP + " INTEGER PRIMARY KEY, " +
-                COLUMN_VALUE + " REAL)";
+                COLUMN_MAC_ADDRESS + " TEXT, " +
+                COLUMN_TIMESTAMP + " INTEGER, " +
+                COLUMN_VALUE + " REAL, " +
+                "PRIMARY KEY (" + COLUMN_MAC_ADDRESS + ", " + COLUMN_TIMESTAMP + "))";
         db.execSQL(createVoltageTable);
 
         // Create logs table
@@ -54,9 +57,10 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
 
     // --- Voltage Operations ---
 
-    public void insertReading(long timestamp, float voltage) {
+    public void insertReading(String macAddress, long timestamp, float voltage) {
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues values = new ContentValues();
+        values.put(COLUMN_MAC_ADDRESS, macAddress);
         values.put(COLUMN_TIMESTAMP, timestamp);
         values.put(COLUMN_VALUE, voltage);
 
@@ -108,6 +112,26 @@ public class VoltageDbHelper extends SQLiteOpenHelper {
                 cursor.close();
             }
         }
+        return list;
+    }
+
+    public List<VoltageEntry> getReadingsForVehicle(String macAddress, long cutoffTimestamp) {
+        List<VoltageEntry> list = new ArrayList<>();
+        SQLiteDatabase db = this.getReadableDatabase();
+
+        String query = "SELECT * FROM " + TABLE_VOLTAGE +
+                " WHERE " + COLUMN_MAC_ADDRESS + " = ? AND " + COLUMN_TIMESTAMP + " >= ? " +
+                " ORDER BY " + COLUMN_TIMESTAMP + " ASC";
+        Cursor cursor = db.rawQuery(query, new String[]{macAddress, String.valueOf(cutoffTimestamp)});
+
+        if (cursor.moveToFirst()) {
+            do {
+                long time = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_TIMESTAMP));
+                float volt = cursor.getFloat(cursor.getColumnIndexOrThrow(COLUMN_VALUE));
+                list.add(new VoltageEntry(time, volt));
+            } while (cursor.moveToNext());
+        }
+        cursor.close();
         return list;
     }
 

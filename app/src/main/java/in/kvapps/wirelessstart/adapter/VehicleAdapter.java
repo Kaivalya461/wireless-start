@@ -30,6 +30,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
     private final List<Vehicle> vehicleList;
     private final VehicleActionListener listener;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    protected static List<ConnectionState> lastSeenEligibleStatusList = List.of(ConnectionState.DISCONNECTED, ConnectionState.SCANNING);
 
     public interface VehicleActionListener {
         void onStartClick(Vehicle vehicle, int position);
@@ -79,12 +80,12 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
     }
 
     public void updateVehicleConnection(String vehicleId, boolean isConnected, String statusText) {
-        if (vehicleId == null) return;
         for (int i = 0; i < vehicleList.size(); i++) {
             Vehicle vehicle = vehicleList.get(i);
             if (vehicle.getId().equals(vehicleId)) {
                 vehicle.setConnected(isConnected);
                 vehicle.setStatusText(statusText);
+                // Use specific notification to avoid resetting animations across the whole list
                 notifyItemChanged(i);
                 break;
             }
@@ -119,12 +120,16 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         public void bind(Vehicle vehicle, VehicleActionListener listener, int position) {
             txtVehicleName.setText(vehicle.getName() != null ? vehicle.getName() : "Unit #" + vehicle.getId());
 
+            MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
+            PreferenceManager preferenceManager = app.getPreferenceManager();
+
             ConnectionStateRepository.DeviceConnectionState connectionState =
                     ConnectionStateRepository.getInstance().getState(vehicle.getMacAddress());
             boolean isConnected = vehicle.isConnected();
             boolean isBusy = vehicle.isBusy();
 
-            txtStatus.setText(vehicle.getStatusText().toUpperCase());
+            long lastSeenTime = preferenceManager.getLastSeenTimestamp(vehicle.getMacAddress());
+            txtStatus.setText(getStatusText(vehicle.getStatusText(), connectionState, lastSeenTime));
             statusIndicator.setBackgroundResource(isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline);
             btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
 
@@ -136,9 +141,6 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             updateConnectionState(state, -61); // Using -61 as sample RSSI for now
 
             // Active Badge & Preferences
-            MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
-            PreferenceManager preferenceManager = app.getPreferenceManager();
-
             String selectedId = preferenceManager.getSelectedVehicleId();
             txtActiveBadge.setVisibility(selectedId != null && selectedId.equals(vehicle.getId()) ? View.VISIBLE : View.GONE);
 
@@ -159,6 +161,19 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             btnStop.setOnClickListener(v -> { if (listener != null) listener.onStopClick(vehicle, position); });
             btnReconnect.setOnClickListener(v -> { if (listener != null) listener.onReconnectClick(vehicle, position); });
             panelVoltage.setOnClickListener(v -> { if (listener != null) listener.onVoltageClick(vehicle, position); });
+        }
+
+        private CharSequence getStatusText(String statusText, ConnectionStateRepository.DeviceConnectionState state,
+                                           long lastSeenTime) {
+            String result;
+            if (lastSeenTime > 0 &&
+                    lastSeenEligibleStatusList.contains(state.getState())) {
+                result = statusText + " • last seen " + UiUtils.formatRelativeTime(lastSeenTime);
+            } else {
+                result = statusText;
+            }
+
+            return result;
         }
 
         public void updateConnectionState(ConnectionState state, int rssiPercent) {

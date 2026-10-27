@@ -37,7 +37,7 @@
             android:padding="16dp"
             android:paddingTop="12dp">
 
-            <!-- Combined Header Row: Name, Status Indicator, and Reconnect Button -->
+            <!-- Combined Header Row: Name Container and Reconnect Button -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -45,22 +45,46 @@
                 android:gravity="center_vertical"
                 android:layout_marginBottom="12dp">
 
-                <!-- Vehicle Name & Subtext Status Container -->
+                <!-- Vehicle Info Container (Name + Badge row + Status row) -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
-                    <TextView
-                        android:id="@+id/txt_vehicle_name"
+                    <!-- Row for Vehicle Name and Active Badge -->
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Honda Dio"
-                        android:textColor="#FFFFFF"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:fontFamily="sans-serif-medium" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/txt_vehicle_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Honda Dio"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:fontFamily="sans-serif-medium" />
+
+                        <!-- Active Badge Moved Here -->
+                        <TextView
+                            android:id="@+id/txt_active_badge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="DEFAULT"
+                            android:textColor="#00E5FF"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:background="@drawable/bg_terminal_console"
+                            android:letterSpacing="0.05"
+                            android:layout_marginStart="8dp" />
+
+                    </LinearLayout>
 
                     <!-- Inline Status (Dot + Text) -->
                     <LinearLayout
@@ -91,21 +115,6 @@
 
                 </LinearLayout>
 
-                <!-- Optional Active Badge -->
-                <TextView
-                    android:id="@+id/txt_active_badge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="DEFAULT"
-                    android:textColor="#00E5FF"
-                    android:textSize="10sp"
-                    android:textStyle="bold"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="3dp"
-                    android:background="@drawable/bg_terminal_console"
-                    android:letterSpacing="0.05"
-                    android:layout_marginEnd="8dp" />
-
                 <!-- Reconnect Button -->
                 <androidx.appcompat.widget.AppCompatImageButton
                     android:id="@+id/btn_reconnect"
@@ -113,7 +122,7 @@
                     android:layout_height="40dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:src="@drawable/ic_refresh"
-                    app:tint="#00E5FF"
+                    app:tint="#CCCCCC"
                     android:contentDescription="Reconnect to BLE" />
 
             </LinearLayout>

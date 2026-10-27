@@ -6,12 +6,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ScrollView;
@@ -27,8 +29,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
@@ -38,6 +42,8 @@ import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
@@ -55,16 +61,16 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private RecyclerView recyclerVehicles;
     private VehicleAdapter vehicleAdapter;
     private List<Vehicle> vehicleList;
+    private Map<String, VehicleSettings> vehicleSettingsMap;
 
     // Architecture & Helpers
     private VoltageDbHelper dbHelper;
     private BleManager bleManager;
+    private VehicleRepository vehicleRepository;
     private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
     private VehicleConnectionManager connectionManager;
     private BroadcastReceiver watchCommandReceiver;
-    private BroadcastReceiver scheduleReceiver;
-
     private boolean isTelemetryEnabled = false;
     private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
@@ -97,6 +103,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        getWindow().setStatusBarColor(Color.parseColor("#121212"));
 
         initDependencies();
         initUiViews();
@@ -114,6 +121,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
+        vehicleRepository = app.getVehicleRepository();
         isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
 
         if (bleManager != null) {
@@ -154,6 +162,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         recyclerVehicles = findViewById(R.id.recycler_vehicles);
 
         vehicleList = new ArrayList<>();
+        vehicleSettingsMap = new HashMap<>();
         vehicleAdapter = new VehicleAdapter(vehicleList, new VehicleAdapter.VehicleActionListener() {
             @Override
             public void onStartClick(Vehicle vehicle, int position) {
@@ -192,10 +201,14 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void loadVehicles() {
         new Thread(() -> {
-            List<Vehicle> savedVehicles = VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles());
+            // Fetch vehicles and vehicle-settings from Database
+            List<Vehicle> savedVehicles = vehicleRepository.getAllVehiclesWithLiveState(TAG);
+            Map<String, VehicleSettings> settingsMap = vehicleRepository.getAllVehicleSettingsMap();
+
             runOnUiThread(() -> {
                 vehicleList.clear();
                 if (savedVehicles != null) vehicleList.addAll(savedVehicles);
+                if (!settingsMap.isEmpty()) vehicleSettingsMap.putAll(settingsMap);
                 vehicleAdapter.notifyDataSetChanged();
             });
         }).start();
@@ -266,7 +279,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onDestroy() {
         super.onDestroy();
         if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
-        if (scheduleReceiver != null) unregisterReceiver(scheduleReceiver);
         if (dbHelper != null) dbHelper.close();
 
         if (bleManager != null) {
@@ -291,15 +303,18 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     // --- Actions & Helpers ---
     private void handleStartAction(Vehicle vehicle) {
-        executeCommand(vehicle, preferenceManager.getFormattedCommand("START"), preferenceManager.getSelectedStartPulseDuration() + 3000, false);
+        executeCommand(vehicle, "START", 3000, false);
     }
 
     private void handleStopAction(Vehicle vehicle) {
-        executeCommand(vehicle, preferenceManager.getFormattedCommand("STOP"), 2000, false);
+        executeCommand(vehicle, "STOP", 2000, false);
     }
 
-    private void executeCommand(Vehicle vehicle, String command, long cooldown, boolean isWatch) {
+    private void executeCommand(Vehicle vehicle, String action ,long cooldown, boolean isWatch) {
         if (vehicleList.isEmpty()) return;
+
+        var settings = vehicleSettingsMap.get(vehicle.getId());
+        var command = VehicleUtils.getFormattedCommand(action, settings);
         vehicleAdapter.triggerCooldown(vehicle, cooldown);
         commandStartTime = System.currentTimeMillis();
 
@@ -366,6 +381,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             @Override
             public void onReceive(Context context, Intent intent) {
                 String cmd = intent.getStringExtra("COMMAND");
+                Log.i(TAG, "Setting  from DB, vehicleSettingsMap -> " + cmd);
                 if (cmd != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
                     executeCommand(selectedVehicle, cmd, 3000, true);
                     setResultCode(Activity.RESULT_OK);
@@ -374,27 +390,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         };
         IntentFilter watchFilter = new IntentFilter("DIO_HARDWARE_TRIGGER");
         registerReceiverCompat(watchCommandReceiver, watchFilter);
-
-        // Schedule Receiver
-        scheduleReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (!preferenceManager.isEngineScheduleEnabled()) return;
-                long targetEpoch = intent.getLongExtra("EPOCH", -1);
-                if (targetEpoch >= 0 && bleManager != null) {
-                    BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
-                    if (session != null && session.isConnected()) {
-                        session.sendScheduledEpoch(targetEpoch);
-                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                            if (session.isConnected()) session.requestScheduleFromEsp32();
-                        }, 500);
-                        setResultCode(Activity.RESULT_OK);
-                    }
-                }
-            }
-        };
-        IntentFilter scheduleFilter = new IntentFilter("DIO_SCHEDULE_TRIGGER");
-        registerReceiverCompat(scheduleReceiver, scheduleFilter);
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")

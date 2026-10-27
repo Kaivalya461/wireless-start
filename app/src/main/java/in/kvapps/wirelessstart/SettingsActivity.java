@@ -6,8 +6,6 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
 
-import com.google.android.material.slider.Slider;
-
 import java.util.Locale;
 
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
@@ -25,10 +23,6 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchForegroundService;
     private SwitchCompat switchEngineSchedule;
     private SwitchCompat switchVoltage;
-    private Slider sliderStart, sliderStop;
-    private TextView txtStartDurationValue, txtStopDurationValue;
-    private float startSliderMin, stopSliderMin;
-    private float startSliderDefault, stopSliderDefault;
     private SwitchCompat switchAvoidPoorConnection;
 
     @Override
@@ -54,10 +48,6 @@ public class SettingsActivity extends AppCompatActivity {
         switchForegroundService = findViewById(R.id.switch_foreground_service);
         switchEngineSchedule = findViewById(R.id.switch_engine_schedule);
         switchVoltage = findViewById(R.id.switch_voltage);
-        sliderStart = findViewById(R.id.slider_start);
-        sliderStop = findViewById(R.id.slider_stop);
-        txtStartDurationValue = findViewById(R.id.txt_start_duration_value);
-        txtStopDurationValue = findViewById(R.id.txt_stop_duration_value);
         switchAvoidPoorConnection = findViewById(R.id.switch_avoid_poor_connection);
     }
 
@@ -69,18 +59,6 @@ public class SettingsActivity extends AppCompatActivity {
             switchEngineSchedule.setChecked(preferenceManager.isEngineScheduleEnabled());
             switchVoltage.setChecked(preferenceManager.isTelemetryEnabled());
             switchAvoidPoorConnection.setChecked(preferenceManager.isAvoidPoorConnectionEnabled());
-
-            setupResourcesData();
-            // Load saved millisecond values (defaulting to 1.0s if not set)
-            float startMs = preferenceManager.getStartPulseDuration();
-            if (startMs < startSliderMin) startMs = startSliderDefault;
-            sliderStart.setValue(startMs);
-            updateDurationLabel(txtStartDurationValue, startMs);
-
-            float stopMs = preferenceManager.getStopPulseDuration();
-            if (stopMs < stopSliderMin) stopMs = stopSliderDefault;
-            sliderStop.setValue(stopMs);
-            updateDurationLabel(txtStopDurationValue, stopMs);
         }
     }
 
@@ -133,22 +111,6 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
 
-        // Start Slider change listener
-        sliderStart.addOnChangeListener((slider, value, fromUser) -> {
-            updateDurationLabel(txtStartDurationValue, value);
-            if (preferenceManager != null && fromUser) {
-                preferenceManager.saveStartPulseDuration((int) value);
-            }
-        });
-
-        // Stop Slider change listener
-        sliderStop.addOnChangeListener((slider, value, fromUser) -> {
-            updateDurationLabel(txtStopDurationValue, value);
-            if (preferenceManager != null && fromUser) {
-                preferenceManager.saveStopPulseDuration((int) value);
-            }
-        });
-
         // Scheduled Engine-Run
         setupScheduledEngineRunListener();
 
@@ -192,21 +154,5 @@ public class SettingsActivity extends AppCompatActivity {
                 }, 2000);
             }
         });
-    }
-
-    private void setupResourcesData() {
-        android.util.TypedValue outValue = new android.util.TypedValue();
-
-        getResources().getValue(R.dimen.start_slider_min_value, outValue, true);
-        startSliderMin = outValue.getFloat();
-
-        getResources().getValue(R.dimen.stop_slider_min_value, outValue, true);
-        stopSliderMin = outValue.getFloat();
-
-        getResources().getValue(R.dimen.start_slider_default_value, outValue, true);
-        startSliderDefault = outValue.getFloat();
-
-        getResources().getValue(R.dimen.stop_slider_default_value, outValue, true);
-        stopSliderDefault = outValue.getFloat();
     }
 }

@@ -7,17 +7,22 @@ import androidx.lifecycle.ProcessLifecycleOwner;
 
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 
 public class MyApplication extends android.app.Application {
 
     private BleManager bleManager;
     private PreferenceManager preferenceManager;
+    private VehicleRepository vehicleRepository;
 
     @Override
     public void onCreate() {
         super.onCreate();
 
         preferenceManager = new PreferenceManager(this);
+
+        // Initialize VehicleRepository once globally
+        vehicleRepository = new VehicleRepository(this);
 
         // Centralize BleManager initialization here once at application startup
         bleManager = new BleManager(this, null);
@@ -31,6 +36,7 @@ public class MyApplication extends android.app.Application {
                 var selectedVehicle = preferenceManager.getSelectedVehicle();
                 if (!preferenceManager.isForegroundServiceEnabled()
                         && bleManager != null
+                        && selectedVehicle != null
                         && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
                     bleManager.startMultiVehicleScan();
                 }
@@ -44,5 +50,9 @@ public class MyApplication extends android.app.Application {
 
     public PreferenceManager getPreferenceManager() {
         return preferenceManager;
+    }
+
+    public VehicleRepository getVehicleRepository() {
+        return vehicleRepository;
     }
 }

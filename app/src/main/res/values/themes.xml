@@ -1,10 +1,24 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base application theme using MainActivity's exact palette -->
+    <!-- At the moment, LIGHT MODE theme also uses dark colors -->
     <style name="Base.Theme.WirelessStart" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Status Bar -->
         <item name="android:statusBarColor">#121212</item>
-
-        <!-- Ensure icons in the status bar are light-colored (since your background is dark) -->
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/dark_background</item>
+
+        <!-- Map Material 3 components to your exact MainActivity colors -->
+        <item name="colorSurface">@color/dark_background</item>
+        <item name="colorSurfaceContainer">@color/dark_card</item>
+        <item name="colorOutline">@color/dark_stroke</item>
+        <item name="colorOutlineVariant">@color/dark_stroke</item>
+
+        <!-- Typography Color Mappings -->
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+
+        <!-- Your App's Primary Accent (#4A90E2) -->
+        <item name="colorPrimary">@color/accent_blue</item>
     </style>
 
     <style name="Theme.WirelessStart" parent="Base.Theme.WirelessStart" />

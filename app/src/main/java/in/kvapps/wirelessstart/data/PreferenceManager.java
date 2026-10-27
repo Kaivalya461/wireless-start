@@ -18,8 +18,6 @@ import in.kvapps.wirelessstart.model.Vehicle;
 
 public class PreferenceManager {
     private static final String PREFS_NAME = "WirelessStartPrefs";
-    private static final String KEY_START_PULSE_DURATION = "start_pulse_duration_ms";
-    private static final String KEY_STOP_PULSE_DURATION = "stop_pulse_duration_ms";
     private static final String KEY_TELEMETRY_ENABLED = "telemetry_enabled";
     private static final String KEY_TARGET_AUTO_CONNECT = "target_auto_connect";
     private static final String KEY_FOREGROUND_SERVICE = "pref_foreground_service";
@@ -27,9 +25,6 @@ public class PreferenceManager {
     private static final String KEY_ENGINE_SCHEDULE_ENABLED = "pref_engine_schedule_enabled";
     private static final String KEY_AVOID_POOR_CONN = "key_avoid_poor_connection";
     private static final String KEY_SELECTED_VEHICLE_ID = "key_selected_vehicle_id";
-
-    private static final long DEFAULT_START_MS = 1500;
-    private static final long DEFAULT_STOP_MS = 2500;
 
     private final SharedPreferences prefs;
     private final Context context;
@@ -60,36 +55,6 @@ public class PreferenceManager {
 
     public List<Vehicle> getVehicles() {
         return vehicleDao.getAllVehicles();
-    }
-
-    public void addVehicle(String name, String macAddress) {
-        String id = UUID.randomUUID().toString();
-        Vehicle vehicle = new Vehicle(id, name, macAddress);
-        vehicleDao.insertVehicle(vehicle);
-
-        // If no vehicle was selected, select this one
-        if (getSelectedVehicleId() == null) {
-            setSelectedVehicleId(id);
-        }
-    }
-
-    public void updateVehicle(String id, String name, String macAddress) {
-        Vehicle vehicle = new Vehicle(id, name, macAddress);
-        vehicleDao.updateVehicle(vehicle);
-    }
-
-    public void deleteVehicle(String id) {
-        vehicleDao.deleteVehicle(id);
-
-        // If the deleted vehicle was the active one, switch to another if available
-        if (id.equals(getSelectedVehicleId())) {
-            List<Vehicle> remaining = getVehicles();
-            if (!remaining.isEmpty()) {
-                setSelectedVehicleId(remaining.get(0).getId());
-            } else {
-                setSelectedVehicleId(null);
-            }
-        }
     }
 
     public void setSelectedVehicleId(String vehicleId) {
@@ -138,71 +103,12 @@ public class PreferenceManager {
     }
 
     // --- Existing Pulse, Telemetry, and Service Methods ---
-    public void saveStartPulseDuration(long durationMs) {
-        prefs.edit().putLong(KEY_START_PULSE_DURATION, durationMs).apply();
-        syncToWearables();
-    }
-
-    public long getStartPulseDuration() {
-        return prefs.getLong(KEY_START_PULSE_DURATION, DEFAULT_START_MS);
-    }
-
-    public void saveStopPulseDuration(long durationMs) {
-        prefs.edit().putLong(KEY_STOP_PULSE_DURATION, durationMs).apply();
-        syncToWearables();
-    }
-
-    public long getStopPulseDuration() {
-        return prefs.getLong(KEY_STOP_PULSE_DURATION, DEFAULT_STOP_MS);
-    }
-
     public void setTelemetryEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_TELEMETRY_ENABLED, enabled).apply();
     }
 
     public boolean isTelemetryEnabled() {
         return prefs.getBoolean(KEY_TELEMETRY_ENABLED, false);
-    }
-
-    /**
-     * Resolves active pulse duration string for a given action.
-     */
-    public String getFormattedCommand(String action) {
-        boolean isStart = "START".equalsIgnoreCase(action);
-        long duration = isStart ? getStartPulseDuration() : getStopPulseDuration();
-        return action + ":" + duration;
-    }
-
-    public long getSelectedPulseDuration(String action) {
-        boolean isStart = "START".equalsIgnoreCase(action);
-        return isStart ? getStartPulseDuration() : getStopPulseDuration();
-    }
-
-    public long getSelectedStartPulseDuration() {
-        return getSelectedPulseDuration("START");
-    }
-
-    public long getSelectedStopPulseDuration() {
-        return getSelectedPulseDuration("STOP");
-    }
-
-    /**
-     * Syncs configuration map to all connected Wear OS devices via DataClient.
-     */
-    public void syncToWearables() {
-        PutDataMapRequest dataMap = PutDataMapRequest.create("/config_durations");
-        dataMap.getDataMap().putString("START_CMD", getFormattedCommand("START"));
-        dataMap.getDataMap().putString("STOP_CMD", getFormattedCommand("STOP"));
-
-        Vehicle active = getSelectedVehicle();
-        if (active != null) {
-            dataMap.getDataMap().putString("ACTIVE_VEHICLE_NAME", active.getName());
-            dataMap.getDataMap().putString("ACTIVE_VEHICLE_MAC", active.getMacAddress());
-        }
-
-        PutDataRequest request = dataMap.asPutDataRequest();
-        request.setUrgent();
-        Wearable.getDataClient(context).putDataItem(request);
     }
 
     public boolean isAutoConnectEnabled() {

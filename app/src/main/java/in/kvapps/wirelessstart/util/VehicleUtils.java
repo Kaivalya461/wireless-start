@@ -3,11 +3,13 @@ package in.kvapps.wirelessstart.util;
 import android.util.Log;
 
 import java.util.List;
+import java.util.Map;
 
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.model.VehicleSettings;
 
 public class VehicleUtils {
     public static List<Vehicle> enrichVehiclesWithLiveState(String tag, List<Vehicle> vehicles) {
@@ -30,21 +32,12 @@ public class VehicleUtils {
         return vehicles;
     }
 
-    public static void addVehicle(PreferenceManager preferenceManager, BleManager bleManager,
-                                  String vehicleName, String vehicleMac) {
-        preferenceManager.addVehicle(vehicleName, vehicleMac);
-        bleManager.refreshVehicles();
-    }
-
-    public static void deleteVehicle(PreferenceManager preferenceManager, BleManager bleManager, Vehicle vehicle) {
-        // If vehicle is already connected, release it.
-        if (bleManager.isConnected(vehicle.getMacAddress())) {
-            bleManager.disconnect(vehicle.getMacAddress());
-        }
-
-        preferenceManager.deleteVehicle(vehicle.getId());
-        ConnectionStateRepository repo = ConnectionStateRepository.getInstance();
-        repo.removeState(vehicle.getMacAddress());
-        bleManager.refreshVehicles();
+    /**
+     * Resolves active pulse duration string for a given action.
+     */
+    public static String getFormattedCommand(String action, VehicleSettings settings) {
+        boolean isStart = "START".equalsIgnoreCase(action);
+        long duration = isStart ? settings.getStartPulseDuration() : settings.getStopPulseDuration();
+        return action + ":" + duration;
     }
 }

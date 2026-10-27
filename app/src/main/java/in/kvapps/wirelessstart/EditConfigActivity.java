@@ -30,26 +30,30 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.slider.Slider;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
-import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
-import in.kvapps.wirelessstart.util.VehicleUtils;
+import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 
 public class EditConfigActivity extends AppCompatActivity {
     private static final String TAG = "EditConfigActivity";
 
     private TextInputEditText inputName, inputMac;
-    private MaterialButton btnScan, btnSave, btnAddVehicle;
-    private TextView tvCancelAction;
+    private MaterialButton btnScan, btnSave, btnAddVehicle, btnSaveSettings;
+    private TextView tvCancelAction, tvSelectedVehicleName;
+    private TextView txtStartVal, txtStopVal;
+    private Slider sliderStart, sliderStop;
     private NestedScrollView nestedScrollView;
-    private MaterialCardView cardActiveConfig;
+    private MaterialCardView cardActiveConfig, cardVehicleSettings;
     private RecyclerView recyclerViewVehicles;
 
     private BluetoothLeScanner bluetoothLeScanner;
@@ -58,11 +62,16 @@ public class EditConfigActivity extends AppCompatActivity {
 
     private final ArrayList<BluetoothDevice> scannedDevices = new ArrayList<>();
     private AlertDialog scanDialog;
-    private PreferenceManager preferenceManager;
+    private PreferenceManager prefs;
+    private VehicleRepository vehicleRepository;
     private BleManager bleManager;
     private ScannedDeviceAdapter scanAdapter;
     private VehicleConfigAdapter vehicleConfigAdapter;
 
+    private String selectedVehicleId = null;
+    private float initialStartValue, initialStopValue;
+    private float startSliderMin, stopSliderMin;
+    private float startSliderDefault, stopSliderDefault;
     private static final int REQUEST_CODE_PERMISSIONS = 101;
 
     @Override
@@ -70,10 +79,12 @@ public class EditConfigActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit_config);
 
-        // Initialize Managers from Application
+        // Initialize Repository & Managers
         MyApplication app = (MyApplication) getApplication();
-        preferenceManager = app.getPreferenceManager();
+        prefs = app.getPreferenceManager();
         bleManager = app.getBleManager();
+        vehicleRepository = app.getVehicleRepository();
+        setupResourcesData();
 
         // Initialize views
         inputName = findViewById(R.id.input_edit_name);
@@ -83,13 +94,23 @@ public class EditConfigActivity extends AppCompatActivity {
         btnAddVehicle = findViewById(R.id.btn_add_vehicle);
         tvCancelAction = findViewById(R.id.tv_cancel_action);
         cardActiveConfig = findViewById(R.id.card_active_config);
+        cardVehicleSettings = findViewById(R.id.card_vehicle_settings);
         recyclerViewVehicles = findViewById(R.id.recycler_vehicles);
         nestedScrollView = findViewById(R.id.nested_scroll_view);
 
-        // Hide configuration card by default on launch, show only list
+        // Settings card components
+        tvSelectedVehicleName = findViewById(R.id.tv_selected_vehicle_name);
+        sliderStart = findViewById(R.id.slider_start);
+        sliderStop = findViewById(R.id.slider_stop);
+        txtStartVal = findViewById(R.id.txt_start_duration_value);
+        txtStopVal = findViewById(R.id.txt_stop_duration_value);
+        btnSaveSettings = findViewById(R.id.btn_save_settings);
+
+        // Hide add config form by default on launch
         cardActiveConfig.setVisibility(View.GONE);
 
         setupVehicleRecyclerView();
+        loadInitialSelection();
 
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         if (bluetoothAdapter != null) {
@@ -97,16 +118,33 @@ public class EditConfigActivity extends AppCompatActivity {
         }
 
         btnScan.setOnClickListener(v -> checkPermissionsAndScan());
-        btnSave.setOnClickListener(v -> saveConfiguration());
+        btnSave.setOnClickListener(v -> saveNewVehicleConfiguration());
         btnAddVehicle.setOnClickListener(v -> enterCreateMode());
+        btnSaveSettings.setOnClickListener(v -> saveVehicleSettings());
+
         tvCancelAction.setOnClickListener(v -> {
-            cardActiveConfig.setVisibility(View.GONE); // Hide card on cancel
+            cardActiveConfig.setVisibility(View.GONE);
+            cardVehicleSettings.setVisibility(View.VISIBLE);
         });
 
-        // Focus listener to scroll down when typing in either input field
+        // Slider value formatting & change listeners
+        sliderStart.addOnChangeListener((slider, value, fromUser) -> {
+            updateDurationLabel(txtStartVal, value);
+            if (fromUser) {
+                updateSaveSettingsButtonState();
+            }
+        });
+
+        sliderStop.addOnChangeListener((slider, value, fromUser) -> {
+            updateDurationLabel(txtStopVal, value);
+            if (fromUser) {
+                updateSaveSettingsButtonState();
+            }
+        });
+
+        // Focus listener to scroll down when typing in input fields
         View.OnFocusChangeListener scrollListener = (v, hasFocus) -> {
             if (hasFocus && nestedScrollView != null) {
-                // Small delay ensures the keyboard has started opening before scrolling
                 nestedScrollView.postDelayed(() -> {
                     nestedScrollView.smoothScrollTo(0, cardActiveConfig.getBottom());
                 }, 200);
@@ -116,14 +154,30 @@ public class EditConfigActivity extends AppCompatActivity {
         inputMac.setOnFocusChangeListener(scrollListener);
     }
 
+    private void updateDurationLabel(TextView label, float valueMs) {
+        float seconds = valueMs / 1000f;
+        label.setText(String.format(Locale.getDefault(), "%.1fs", seconds));
+    }
+
+    private void loadInitialSelection() {
+        List<Vehicle> vehicles = vehicleRepository.getAllVehiclesWithLiveState(TAG);
+        if (!vehicles.isEmpty()) {
+            onVehicleSelected(vehicles.get(0));
+        }
+    }
+
     private void enterCreateMode() {
-        if (preferenceManager.getVehicles().size() >= 2) {
+        List<Vehicle> vehicles = vehicleRepository.getAllVehicles();
+        if (vehicles.size() >= 2) {
             Toast.makeText(this, "Maximum limit of 2 vehicles reached", Toast.LENGTH_SHORT).show();
             cardActiveConfig.setVisibility(View.GONE);
+            cardVehicleSettings.setVisibility(View.VISIBLE); // Ensure settings stay visible
             return;
         }
 
         cardActiveConfig.setVisibility(View.VISIBLE);
+        cardVehicleSettings.setVisibility(View.GONE);
+
         inputName.setText("");
         inputMac.setText("");
 
@@ -135,40 +189,44 @@ public class EditConfigActivity extends AppCompatActivity {
     private void setupVehicleRecyclerView() {
         recyclerViewVehicles.setLayoutManager(new LinearLayoutManager(this));
 
+        List<Vehicle> vehicles = vehicleRepository.getAllVehiclesWithLiveState(TAG);
+
         vehicleConfigAdapter = new VehicleConfigAdapter(
-                preferenceManager.getVehicles(),
-                preferenceManager.getSelectedVehicleId(),
+                vehicles,
+                selectedVehicleId,
                 new VehicleConfigAdapter.OnVehicleActionListener() {
                     @Override
                     public void onSelect(Vehicle vehicle) {
-                        preferenceManager.setSelectedVehicleId(vehicle.getId());
-                        vehicleConfigAdapter.updateData(
-                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
-                                preferenceManager.getSelectedVehicleId()
-                        );
+                        prefs.setSelectedVehicleId(vehicle.getId());
+                        onVehicleSelected(vehicle);
                         cardActiveConfig.setVisibility(View.GONE);
-                        Toast.makeText(EditConfigActivity.this, "Switched to " + vehicle.getName(), Toast.LENGTH_SHORT).show();
-
-                        // Set result so MainActivity updates when exiting
                         setResult(RESULT_OK);
                     }
 
                     @Override
                     public void onDelete(Vehicle vehicle) {
-                        if (preferenceManager.getVehicles().size() <= 1) {
+                        List<Vehicle> currentList = vehicleRepository.getAllVehicles();
+                        if (currentList.size() <= 1) {
                             Toast.makeText(EditConfigActivity.this, "Cannot delete the last remaining vehicle", Toast.LENGTH_SHORT).show();
                             return;
                         }
 
-                        VehicleUtils.deleteVehicle(preferenceManager, bleManager, vehicle);
-                        vehicleConfigAdapter.updateData(
-                                VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
-                                preferenceManager.getSelectedVehicleId()
-                        );
+                        // Disconnect BLE if active, then delete via Repository
+                        if (bleManager.isConnected(vehicle.getMacAddress())) {
+                            bleManager.disconnect(vehicle.getMacAddress());
+                        }
+                        vehicleRepository.deleteVehicle(vehicle);
+                        bleManager.refreshVehicles();
+
+                        List<Vehicle> updatedList = vehicleRepository.getAllVehiclesWithLiveState(TAG);
+                        vehicleConfigAdapter.updateData(updatedList, selectedVehicleId);
                         cardActiveConfig.setVisibility(View.GONE);
                         Toast.makeText(EditConfigActivity.this, "Vehicle deleted", Toast.LENGTH_SHORT).show();
 
-                        // Set result so MainActivity reloads the list and reconnects
+                        if (!updatedList.isEmpty()) {
+                            onVehicleSelected(updatedList.get(0));
+                        }
+
                         setResult(RESULT_OK);
                     }
                 }
@@ -177,29 +235,88 @@ public class EditConfigActivity extends AppCompatActivity {
         recyclerViewVehicles.setAdapter(vehicleConfigAdapter);
     }
 
-    private void saveConfiguration() {
+    private void onVehicleSelected(Vehicle vehicle) {
+        selectedVehicleId = vehicle.getId();
+        tvSelectedVehicleName.setText(vehicle.getName());
+
+        vehicleConfigAdapter.updateData(vehicleRepository.getAllVehiclesWithLiveState(TAG), selectedVehicleId);
+
+        VehicleSettings settings = vehicleRepository.getSettingsForVehicle(selectedVehicleId);
+
+        // Load saved millisecond values (defaulting to 1.0s if not set)
+        initialStartValue = settings.getStartPulseDuration();
+        if (initialStartValue < startSliderMin) initialStartValue = startSliderDefault;
+        sliderStart.setValue(initialStartValue);
+        updateDurationLabel(txtStartVal, initialStartValue);
+
+        initialStopValue = settings.getStopPulseDuration();
+        if (initialStopValue < stopSliderMin) initialStopValue = stopSliderDefault;
+        sliderStop.setValue(initialStopValue);
+        updateDurationLabel(txtStopVal, initialStopValue);
+
+        // Update button state after setting values
+        updateSaveSettingsButtonState();
+    }
+
+    private void saveNewVehicleConfiguration() {
         String name = inputName.getText() != null ? inputName.getText().toString().trim() : "";
         String mac = inputMac.getText() != null ? inputMac.getText().toString().trim() : "";
 
         if (!name.isEmpty() && !mac.isEmpty()) {
-            // Check if the vehicle limit (max 2) has already been reached
-            if (preferenceManager.getVehicles().size() >= 2) {
-                Toast.makeText(this, "Maximum limit of 2 vehicles reached. Please delete one to add a new vehicle.", Toast.LENGTH_LONG).show();
+            List<Vehicle> vehicles = vehicleRepository.getAllVehicles();
+            if (vehicles.size() >= 2) {
+                Toast.makeText(this, "Maximum limit of 2 vehicles reached.", Toast.LENGTH_LONG).show();
                 return;
             }
 
-            VehicleUtils.addVehicle(preferenceManager, bleManager, name, mac);
+            // Add vehicle and default settings (1.0s / 1000ms each) via Repository
+            String newVehicleId = vehicleRepository.addVehicleWithSettings(name, mac, (int) startSliderDefault, (int) stopSliderDefault);
+            prefs.setSelectedVehicleId(newVehicleId);
+            bleManager.refreshVehicles();
+
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 
-            vehicleConfigAdapter.updateData(
-                    VehicleUtils.enrichVehiclesWithLiveState(TAG, preferenceManager.getVehicles()),
-                    preferenceManager.getSelectedVehicleId()
-            );
-            cardActiveConfig.setVisibility(View.GONE); // Hide card after saving
+            List<Vehicle> updatedList = vehicleRepository.getAllVehiclesWithLiveState(TAG);
+            vehicleConfigAdapter.updateData(updatedList, newVehicleId);
+
+            Vehicle addedObj = vehicleRepository.getVehicleById(newVehicleId);
+            if (addedObj != null) {
+                onVehicleSelected(addedObj);
+            }
+
+            // --- HIDE KEYBOARD START ---
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && getCurrentFocus() != null) {
+                imm.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
+            }
+
+            cardActiveConfig.setVisibility(View.GONE);
+            cardVehicleSettings.setVisibility(View.VISIBLE);
             setResult(RESULT_OK);
         } else {
             Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void saveVehicleSettings() {
+        if (selectedVehicleId == null) {
+            Toast.makeText(this, "No vehicle selected", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int startMs = (int) sliderStart.getValue();
+        int stopMs = (int) sliderStop.getValue();
+
+        vehicleRepository.saveVehicleSettings(selectedVehicleId, startMs, stopMs);
+
+        // Update baseline to current values and disable button until next change
+        initialStartValue = sliderStart.getValue();
+        initialStopValue = sliderStop.getValue();
+        updateSaveSettingsButtonState();
+
+        Toast.makeText(this, "Vehicle settings saved!", Toast.LENGTH_SHORT).show();
+        setResult(RESULT_OK);
     }
 
     @Override
@@ -300,7 +417,32 @@ public class EditConfigActivity extends AppCompatActivity {
         }
     }
 
-    public class ScannedDeviceAdapter extends BaseAdapter {
+    private void updateSaveSettingsButtonState() {
+        boolean hasChanged = (sliderStart.getValue() != initialStartValue) ||
+                (sliderStop.getValue() != initialStopValue);
+
+        // Material 3 automatically handles the disabled dimming/styling
+        // and enabled primary color when you use standard theme attributes.
+        btnSaveSettings.setEnabled(hasChanged);
+    }
+
+    private void setupResourcesData() {
+        android.util.TypedValue outValue = new android.util.TypedValue();
+
+        getResources().getValue(R.dimen.start_slider_min_value, outValue, true);
+        startSliderMin = outValue.getFloat();
+
+        getResources().getValue(R.dimen.stop_slider_min_value, outValue, true);
+        stopSliderMin = outValue.getFloat();
+
+        getResources().getValue(R.dimen.start_slider_default_value, outValue, true);
+        startSliderDefault = outValue.getFloat();
+
+        getResources().getValue(R.dimen.stop_slider_default_value, outValue, true);
+        stopSliderDefault = outValue.getFloat();
+    }
+
+    public static class ScannedDeviceAdapter extends BaseAdapter {
         private final Context context;
         private final List<BluetoothDevice> devices;
 

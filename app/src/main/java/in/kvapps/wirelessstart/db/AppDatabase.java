@@ -7,11 +7,14 @@ import androidx.room.Room;
 import androidx.room.RoomDatabase;
 
 import in.kvapps.wirelessstart.dao.VehicleDao;
+import in.kvapps.wirelessstart.dao.VehicleSettingsDao;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.model.VehicleSettings;
 
-@Database(entities = {Vehicle.class}, version = 1, exportSchema = false)
+@Database(entities = {Vehicle.class, VehicleSettings.class}, version = 2, exportSchema = false)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract VehicleDao vehicleDao();
+    public abstract VehicleSettingsDao vehicleSettingsDao();
 
     private static volatile AppDatabase INSTANCE;
 
@@ -24,7 +27,9 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "wireless_start_db"
                             )
-                            .allowMainThreadQueries() // Allows synchronous calls for simple settings management
+                            // Reference the migration from our separate class
+                            .addMigrations(DatabaseMigrations.MIGRATION_1_2)
+                            .allowMainThreadQueries()
                             .build();
                 }
             }

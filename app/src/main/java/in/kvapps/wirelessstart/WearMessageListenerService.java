@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.google.android.gms.wearable.DataEvent;
@@ -19,14 +21,17 @@ import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
+import in.kvapps.wirelessstart.util.VehicleUtils;
 
 // Listener to consume messages sent by Wear App
 public class WearMessageListenerService extends WearableListenerService implements ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
     private BleManager bleManager;
+    private VehicleRepository vehicleRepository;
     private PreferenceManager preferenceManager;
     private String pendingCommandToSend; // Store the intended command
     private long commandStartTime = 0;
@@ -38,6 +43,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
         MyApplication app = (MyApplication) getApplication();
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
+        vehicleRepository = app.getVehicleRepository();
 
         // Register to the ConnectionStateRepository SSOT
         ConnectionStateRepository.getInstance().addListener(this);
@@ -55,19 +61,18 @@ public class WearMessageListenerService extends WearableListenerService implemen
         String path = messageEvent.getPath();
         Log.d(TAG, "Received watch route path: " + path);
 
-        String action = null;
+        String action;
         if (Constants.START_PATH.equals(path)) {
             action = "START";
         } else if (Constants.STOP_PATH.equals(path)) {
             action = "STOP";
+        } else {
+            action = null;
         }
 
         if (action != null) {
-            PreferenceManager prefManager = new PreferenceManager(this);
-            String formattedCommand = prefManager.getFormattedCommand(action);
-
             Intent broadCastIntent = new Intent("DIO_HARDWARE_TRIGGER");
-            broadCastIntent.putExtra("COMMAND", formattedCommand);
+            broadCastIntent.putExtra("COMMAND", action);
 
             sendOrderedBroadcast(broadCastIntent, null, new BroadcastReceiver() {
                 @Override
@@ -78,12 +83,13 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     if (wasHandledByActivity) {
                         AppLogger.logToDatabaseAndLogcat(context, TAG, "Command handled directly by open MainActivity UI.");
                     } else {
-                        AppLogger.logToDatabaseAndLogcat(context, TAG, "MainActivity is closed. Executing background BLE write: " + formattedCommand);
-                        executeBackgroundBleCommand(formattedCommand);
+                        AppLogger.logToDatabaseAndLogcat(context, TAG, "MainActivity is closed. Executing background BLE write.");
+                        executeBackgroundBleCommand(action);
                     }
                 }
             }, null, Activity.RESULT_CANCELED, null, null);
 
+            PreferenceManager prefManager = new PreferenceManager(this);
             if (prefManager.isForegroundServiceEnabled()) {
                 Intent serviceIntent = new Intent(this, BleForegroundService.class);
                 startForegroundService(serviceIntent);
@@ -104,22 +110,8 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     long targetEpoch = dataMap.getLong(Constants.KEY_SCHEDULE_EPOCH, -1);
 
                     if (targetEpoch >= 0) {
-//                        AppLogger.logToDatabaseAndLogcat(this, TAG, "Received Schedule Epoch from Wear: " + targetEpoch);
-
-                        // Broadcast to foreground MainActivity if open, else execute background write
-                        Intent broadcastIntent = new Intent("DIO_SCHEDULE_TRIGGER");
-                        broadcastIntent.putExtra("EPOCH", targetEpoch);
-
-                        sendOrderedBroadcast(broadcastIntent, null, new BroadcastReceiver() {
-                            @Override
-                            public void onReceive(Context context, Intent intent) {
-                                boolean wasHandled = (getResultCode() == Activity.RESULT_OK);
-                                if (!wasHandled) {
-                                    // MainActivity is closed; add an error entry in System Activity Monitor
-                                    AppLogger.logToDatabaseAndLogcat(context, TAG, "Error - Failed to configure Engine-Run Schedule, MainActivity was closed. Try Again!");
-                                }
-                            }
-                        }, null, Activity.RESULT_CANCELED, null, null);
+                        AppLogger.logToDatabaseAndLogcat(this, TAG, "Received Schedule Epoch from Wear: " + targetEpoch);
+                        executeScheduledEngineRunEvent(targetEpoch);
                     }
                 }
             }
@@ -185,19 +177,36 @@ public class WearMessageListenerService extends WearableListenerService implemen
         var selectedVehicle = preferenceManager.getSelectedVehicle();
         if (pendingCommandToSend != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             final String executedCommand = pendingCommandToSend;
-            AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Transmitting background action command: " + executedCommand);
+            var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+            String formattedCommand = VehicleUtils.getFormattedCommand(executedCommand, vehicleSettings);
+            AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Transmitting background action command: " + formattedCommand);
 
             BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
             if (session != null && session.isConnected()) {
                 session.sendBleCommand(
-                        executedCommand,
-                        () -> handleCommandResult(executedCommand, Constants.COMMAND_SUCCESS),
-                        () -> handleCommandResult(executedCommand, Constants.COMMAND_FAILURE)
+                        formattedCommand,
+                        () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS),
+                        () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE)
                 );
             } else {
-                handleCommandResult(executedCommand, Constants.COMMAND_FAILURE);
+                handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE);
             }
             pendingCommandToSend = null;
+        }
+    }
+
+    private void executeScheduledEngineRunEvent(long targetEpoch) {
+        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        if (bleManager != null && selectedVehicle != null) {
+            BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
+            if (session != null && session.isConnected()) {
+                session.sendScheduledEpoch(targetEpoch);
+
+                // send a request for the schedule to confirm that target has received the data
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (session.isConnected()) session.requestScheduleFromEsp32();
+                }, 500);
+            }
         }
     }
 }

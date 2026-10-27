@@ -120,7 +120,6 @@ void initBle() {
 
     customCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP | CHR_PROPS_NOTIFY);
     customCharacteristic.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-    customCharacteristic.setFixedLen(32);
     customCharacteristic.setWriteCallback(characteristic_write_callback);
     customCharacteristic.begin();
 

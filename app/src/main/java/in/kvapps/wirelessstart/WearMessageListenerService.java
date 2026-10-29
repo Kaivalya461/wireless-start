@@ -123,7 +123,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
         this.commandStartTime = System.currentTimeMillis();
 
         if (bleManager != null) {
-            var selectedVehicle = preferenceManager.getSelectedVehicle();
+            var selectedVehicle = vehicleRepository.getDefaultVehicle();
             if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) {
                 AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] No target vehicle found for background command.");
                 handleCommandResult(command, Constants.COMMAND_FAILURE);
@@ -143,7 +143,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     // --- ConnectionStateRepository Observer Callback (SSOT) ---
     @Override
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
-        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        var selectedVehicle = vehicleRepository.getDefaultVehicle();
         if (selectedVehicle != null && macAddress.equalsIgnoreCase(selectedVehicle.getMacAddress())) {
             Log.d(TAG, "[BLE STATE] " + newState.getStatusText());
 
@@ -174,7 +174,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     }
 
     private void sendPendingCommandNow() {
-        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        var selectedVehicle = vehicleRepository.getDefaultVehicle();
         if (pendingCommandToSend != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             final String executedCommand = pendingCommandToSend;
             var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
@@ -196,7 +196,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     }
 
     private void executeScheduledEngineRunEvent(long targetEpoch) {
-        var selectedVehicle = preferenceManager.getSelectedVehicle();
+        var selectedVehicle = vehicleRepository.getDefaultVehicle();
         if (bleManager != null && selectedVehicle != null) {
             BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
             if (session != null && session.isConnected()) {

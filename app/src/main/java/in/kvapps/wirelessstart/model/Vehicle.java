@@ -1,6 +1,7 @@
 package in.kvapps.wirelessstart.model;
 
 import androidx.annotation.NonNull;
+import androidx.room.ColumnInfo;
 import androidx.room.Entity;
 import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
@@ -14,6 +15,8 @@ public class Vehicle {
     private String name;
     private String macAddress;
 
+    @ColumnInfo(name = "is_default", defaultValue = "0")
+    private boolean isDefault;
 
     // Transient runtime UI states (ignored by Room database)
     @Ignore
@@ -30,6 +33,7 @@ public class Vehicle {
         this.id = id;
         this.name = name;
         this.macAddress = macAddress;
+        this.isDefault = false;
         this.isConnected = false;
     }
 
@@ -42,6 +46,9 @@ public class Vehicle {
 
     public String getMacAddress() { return macAddress; }
     public void setMacAddress(String macAddress) { this.macAddress = macAddress; }
+
+    public boolean isDefault() { return isDefault; }
+    public void setDefault(boolean aDefault) { isDefault = aDefault; }
 
     // Getters and Setters for UI Runtime States
     public boolean isConnected() { return isConnected; }

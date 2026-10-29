@@ -162,7 +162,7 @@ public class EditConfigActivity extends AppCompatActivity {
     }
 
     private void loadInitialSelection() {
-        Vehicle selectedVehicle = vehicleRepository.getVehicleById(prefs.getSelectedVehicleId());
+        Vehicle selectedVehicle = vehicleRepository.getDefaultVehicle();
         if (selectedVehicle != null) {
             onVehicleSelected(selectedVehicle);
         }
@@ -199,7 +199,7 @@ public class EditConfigActivity extends AppCompatActivity {
                 new VehicleConfigAdapter.OnVehicleActionListener() {
                     @Override
                     public void onSelect(Vehicle vehicle) {
-                        prefs.setSelectedVehicleId(vehicle.getId());
+                        vehicleRepository.setDefaultVehicle(vehicle.getId());
                         onVehicleSelected(vehicle);
                         cardActiveConfig.setVisibility(View.GONE);
                         setResult(RESULT_OK);
@@ -213,7 +213,8 @@ public class EditConfigActivity extends AppCompatActivity {
                             return;
                         }
 
-                        if (prefs.getSelectedVehicleId().equals(vehicle.getId())) {
+                        var defaultVehicle = vehicleRepository.getDefaultVehicle();
+                        if (defaultVehicle != null && defaultVehicle.getId().equals(vehicle.getId())) {
                             Toast.makeText(EditConfigActivity.this, "Cannot delete the Active vehicle", Toast.LENGTH_SHORT).show();
                             return;
                         }
@@ -223,7 +224,7 @@ public class EditConfigActivity extends AppCompatActivity {
                             bleManager.disconnect(vehicle.getMacAddress());
                         }
                         vehicleRepository.deleteVehicle(vehicle);
-                        bleManager.refreshVehicles();
+                        bleManager.refreshVehiclesScan();
                         ConnectionStateRepository.getInstance().removeState(vehicle.getMacAddress());
 
                         List<Vehicle> updatedList = vehicleRepository.getAllVehiclesWithLiveState(TAG);

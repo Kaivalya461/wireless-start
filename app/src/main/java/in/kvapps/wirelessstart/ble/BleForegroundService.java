@@ -23,6 +23,7 @@ import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ScanHealth;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
@@ -65,15 +66,18 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             }
         }
 
-        // Determine correct initial notification state from SSOT repository
-        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
-        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+        // Determine correct initial notification state from Room Repository (SSOT)
+        VehicleRepository vehicleRepository = getVehicleRepository();
+        Vehicle defaultVehicle = null;
+        if (vehicleRepository != null) {
+            defaultVehicle = vehicleRepository.getDefaultVehicle();
+        }
 
         // 1. MANDATORY: Call startForeground immediately with the accurate state
         ScanHealth initialHealth = ScanHealth.HEALTHY;
         BleManager manager = getBleManager();
-        if (selectedVehicle != null && selectedVehicle.getMacAddress() != null && manager != null) {
-            initialHealth = evaluateScanHealth(manager, selectedVehicle.getMacAddress());
+        if (defaultVehicle != null && defaultVehicle.getMacAddress() != null && manager != null) {
+            initialHealth = evaluateScanHealth(manager, defaultVehicle.getMacAddress());
         }
         Notification notification = createNotification(initialHealth);
         startForeground(Constants.FOREGROUND_SERVICE_NOTIFICATION_ID, notification);
@@ -159,6 +163,7 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
     /**
      * Updates the foreground notification dynamically.
+     *
      * @param health Scan Health status to determine
      */
     public void updateForegroundNotification(ScanHealth health) {
@@ -178,12 +183,13 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             }
 
             PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
-            Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+            VehicleRepository vehicleRepository = new VehicleRepository(getApplicationContext());
+            Vehicle defaultVehicle = vehicleRepository.getDefaultVehicle();
 
             if (preferenceManager.isAutoConnectEnabled()
-                    && selectedVehicle != null
-                    && selectedVehicle.getMacAddress() != null) {
-                String targetMac = selectedVehicle.getMacAddress();
+                    && defaultVehicle != null
+                    && defaultVehicle.getMacAddress() != null) {
+                String targetMac = defaultVehicle.getMacAddress();
                 if (!targetMac.trim().isEmpty() && !manager.isConnected(targetMac)) {
 //                    AppLogger.logToDatabaseAndLogcat(this, TAG, "ForegroundService: Initial connect trigger for " + targetMac);
                     manager.startMultiVehicleScan();
@@ -198,11 +204,9 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         BleManager manager = getBleManager();
         if (manager == null) return;
 
-        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
-        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
-        if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) return;
-
-        String targetMac = selectedVehicle.getMacAddress();
+        VehicleRepository vehicleRepository = new VehicleRepository(getApplicationContext());
+        Vehicle defaultVehicle = vehicleRepository.getDefaultVehicle();
+        if (defaultVehicle == null || defaultVehicle.getMacAddress() == null) return;
 
         // Reset BLE stack and restart scanning
         manager.release();
@@ -216,11 +220,11 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         BleManager manager = getBleManager();
         if (manager == null) return;
 
-        PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
-        Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
+        VehicleRepository vehicleRepository = new VehicleRepository(getApplicationContext());
+        Vehicle defaultVehicle = vehicleRepository.getDefaultVehicle();
 
-        if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) return;
-        String targetMac = selectedVehicle.getMacAddress();
+        if (defaultVehicle == null || defaultVehicle.getMacAddress() == null) return;
+        String targetMac = defaultVehicle.getMacAddress();
 
         if (targetMac.trim().isEmpty()) return;
 
@@ -270,6 +274,11 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         return app != null ? app.getBleManager() : null;
     }
 
+    private VehicleRepository getVehicleRepository() {
+        MyApplication app = (MyApplication) getApplication();
+        return app != null ? app.getVehicleRepository() : null;
+    }
+
     private Notification createNotification(ScanHealth health) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -286,8 +295,9 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
         );
 
         PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
+        VehicleRepository vehicleRepository = new VehicleRepository(getApplicationContext());
         BleManager bleManager = getBleManager();
-        List<Vehicle> vehicles = preferenceManager.getVehicles();
+        List<Vehicle> vehicles = vehicleRepository.getAllVehicles();
 
         int totalVehicles = vehicles != null ? vehicles.size() : 0;
         int connectedCount = 0;

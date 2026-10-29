@@ -33,4 +33,12 @@ public class DatabaseMigrations {
             );
         }
     };
+
+    public static final Migration MIGRATION_3_4 = new Migration(3, 4) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // Add the new column to the existing 'vehicles' table
+            database.execSQL("ALTER TABLE vehicles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0");
+        }
+    };
 }

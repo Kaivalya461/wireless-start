@@ -26,8 +26,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.util.AppLogger;
 
 public class BleManager {
@@ -47,6 +49,7 @@ public class BleManager {
     private BleListener listener;
     private final BluetoothAdapter bluetoothAdapter;
     private final PreferenceManager preferenceManager;
+    private final VehicleRepository vehicleRepository;
     private final BleScanManager bleScanManager;
     private boolean isReceiverRegistered = false;
 
@@ -61,6 +64,8 @@ public class BleManager {
         this.listener = listener;
         this.bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         this.preferenceManager = new PreferenceManager(this.context);
+        MyApplication app = (MyApplication) context.getApplicationContext();
+        vehicleRepository = app.getVehicleRepository();
 
         this.bleScanManager = new BleScanManager(
                 this.context,
@@ -94,15 +99,18 @@ public class BleManager {
      * Refreshes target MAC addresses directly from PreferenceManager / Room DB
      * and updates the scan/connection manager.
      */
-    public void refreshVehicles() {
-        if (bleScanManager != null && bleScanManager.isScanning()) {
-            bleScanManager.stopScan();
-            startMultiVehicleScan();
+    public void refreshVehiclesScan() {
+        if (bleScanManager != null) {
+            if (bleScanManager.isScanning()) {
+                bleScanManager.stopScan();
+            }
+
+            new Handler(Looper.getMainLooper()).postDelayed(this::startMultiVehicleScan, 100);
         }
     }
 
     private void evaluateScanState() {
-        List<String> allTargets = preferenceManager.getTargetMacAddresses();
+        List<String> allTargets = vehicleRepository.getAllTargetMacAddresses();
         boolean allConnected = true;
 
         for (String mac : allTargets) {
@@ -180,7 +188,7 @@ public class BleManager {
 
         if (bleScanManager != null && !bleScanManager.isScanning()) {
             // Check if all are already connected first so we don't scan needlessly
-            List<String> allTargets = preferenceManager.getTargetMacAddresses();
+            List<String> allTargets = vehicleRepository.getAllTargetMacAddresses();
             List<String> disconnectMacs = new ArrayList<>();
             boolean allConnected = true;
             for (String mac : allTargets) {
@@ -204,7 +212,7 @@ public class BleManager {
     public void stopMultiVehicleScan() {
         if (bleScanManager != null && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
-            preferenceManager.getTargetMacAddresses()
+            vehicleRepository.getAllTargetMacAddresses()
                     .stream()
                     .filter(mac -> !isConnected(mac))
                     .forEach(disconnectedMac ->

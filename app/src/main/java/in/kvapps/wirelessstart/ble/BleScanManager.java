@@ -11,6 +11,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.ParcelUuid;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -165,7 +166,8 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
                         context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
                     bluetoothLeScanner.stopScan(scanPendingIntent);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                Log.e("BleScanManager", "[BleScanManager] Failed to stop scan", e);
             }
         }
 

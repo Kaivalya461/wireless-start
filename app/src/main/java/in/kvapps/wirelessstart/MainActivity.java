@@ -29,8 +29,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
@@ -75,7 +77,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
-    private final List<String> pendingFirstTimeConfigVehicles = new ArrayList<>();
+    private final Set<String> pendingFirstTimeConfigVehicles = new HashSet<>();
 
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
@@ -104,10 +106,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     String newVehicleId = result.getData().getStringExtra("EXTRA_NEW_VEHICLE_ID");
                     if (newVehicleId != null) {
                         pendingFirstTimeConfigVehicles.add(newVehicleId);
-                        bleManager.refreshVehicles();
+                        bleManager.refreshVehiclesScan();
                     }
                 } else if (result.getResultCode() == RESULT_OK) {
-                    selectedVehicle = preferenceManager.getSelectedVehicle();
+                    selectedVehicle = vehicleRepository.getDefaultVehicle();
                     onLog("Vehicle Configuration updated.");
                 }
             });
@@ -116,7 +118,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        getWindow().setStatusBarColor(Color.parseColor("#121212"));
+//        getWindow().setStatusBarColor(Color.parseColor("#121212"));
 
         initDependencies();
         initUiViews();
@@ -126,6 +128,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
+        checkFirstRunOrNoVehicles();
     }
 
     private void initDependencies() {
@@ -148,9 +151,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     if (isTelemetryEnabled) {
                         long now = System.currentTimeMillis();
                         if (dbHelper != null) dbHelper.insertReading(mac, now, voltage);
-                        if (!vehicleWithSettingsList.isEmpty()) {
-                            vehicleWithSettingsList.get(0).getVehicle().setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
-                            vehicleAdapter.notifyItemChanged(0);
+
+                        // Find the specific vehicle matching the MAC address and update only its row
+                        for (int i = 0; i < vehicleWithSettingsList.size(); i++) {
+                            VehicleWithSettings item = vehicleWithSettingsList.get(i);
+                            if (item.getVehicle() != null && mac.equalsIgnoreCase(item.getVehicle().getMacAddress())) {
+                                item.getVehicle().setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
+                                vehicleAdapter.notifyItemChanged(i);
+                                break;
+                            }
                         }
                     }
                 });
@@ -163,7 +172,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
             @Override
             public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled) {
-                var vehicle = preferenceManager.getVehicleByMac(macAddress);
+                var vehicle = vehicleRepository.getVehicleByMac(macAddress);
                 vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled);
                 pendingFirstTimeConfigVehicles.remove(vehicle.getId());
 //                onLog("Successfully Updated Vehicle Config settings received from the nrf52!");
@@ -221,10 +230,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             vehicleAdapter.notifyDataSetChanged();
         });
 
-        selectedVehicle = preferenceManager.getSelectedVehicle();
+        selectedVehicle = vehicleRepository.getDefaultVehicle();
 
         // Initialize connection manager observer
-        connectionManager = new VehicleConnectionManager(this, preferenceManager, vehicleAdapter, this);
+        connectionManager = new VehicleConnectionManager(this, vehicleRepository, vehicleAdapter, this);
     }
 
     private void setupClickListeners() {
@@ -252,7 +261,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                         () -> session.syncTelemetryState(savedTelemetryState),
                         () -> session.syncFailSafeState(savedFailSafeState),
                         session::requestScheduleFromEsp32,
-                        session::fetchVehicleConfig,
+                        () -> {
+                            if (pendingFirstTimeConfigVehicles.contains(vehicle.getMacAddress())) {
+                                session.fetchVehicleConfig();
+                            }
+                        },
                         () -> {
                             FeedbackUtils.triggerDoubleVibrate(this);
                             FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
@@ -274,7 +287,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
         loadStoredLogsForToday();
 
-        if (preferenceManager != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+        if (preferenceManager != null && bleManager != null) {
             boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
             if (newTelemetryState != isTelemetryEnabled) {
                 handleTelemetryToggle(newTelemetryState);
@@ -372,15 +385,25 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void handleTelemetryToggle(boolean isChecked) {
         isTelemetryEnabled = isChecked;
-        BleDeviceSession session = bleManager != null && selectedVehicle != null ? bleManager.getSession(selectedVehicle.getMacAddress()) : null;
 
-        if (session != null && session.isConnected()) {
-            session.syncTelemetryState(isChecked);
-            if (!isChecked && !vehicleWithSettingsList.isEmpty()) {
-                vehicleWithSettingsList.get(0).getVehicle().setVoltage("--.--V");
-                vehicleAdapter.notifyItemChanged(0);
+        if (vehicleWithSettingsList != null && bleManager != null) {
+            for (int i = 0; i < vehicleWithSettingsList.size(); i++) {
+                VehicleWithSettings item = vehicleWithSettingsList.get(i);
+                if (item != null && item.getVehicle() != null) {
+                    Vehicle vehicle = item.getVehicle();
+                    BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+
+                    if (session != null && session.isConnected()) {
+                        session.syncTelemetryState(isChecked);
+                        if (!isChecked) {
+                            vehicle.setVoltage("--.--V");
+                            vehicleAdapter.notifyItemChanged(i);
+                        }
+                    }
+                }
             }
         }
+
         preferenceManager.setTelemetryEnabled(isChecked);
     }
 
@@ -462,5 +485,15 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 .setMessage("App Version: " + BuildConfig.VERSION_NAME + "\n\nLauncher Icon by Satawat Anukul")
                 .setPositiveButton("OK", (d, w) -> d.dismiss())
                 .show();
+    }
+
+    private void checkFirstRunOrNoVehicles() {
+        // Query database to see if any vehicles exist
+        List<Vehicle> vehicles = vehicleRepository.getAllVehicles();
+        if (vehicles == null || vehicles.isEmpty()) {
+            onLog("No vehicles found. Launching initial configuration...");
+            // Launch EditConfigActivity for first-time setup
+            editConfigLauncher.launch(new Intent(this, EditConfigActivity.class));
+        }
     }
 }

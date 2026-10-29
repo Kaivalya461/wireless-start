@@ -9,6 +9,7 @@ import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 
 import java.util.HashMap;
@@ -18,7 +19,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     private static final String TAG = "VehicleConnectionMgr";
 
     private final Context context;
-    private final PreferenceManager preferenceManager;
+    private final VehicleRepository vehicleRepository;
     private final VehicleAdapter vehicleAdapter;
     private final ConnectionLifecycleListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -31,10 +32,10 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
         void onLog(String message);
     }
 
-    public VehicleConnectionManager(Context context, PreferenceManager preferenceManager,
+    public VehicleConnectionManager(Context context, VehicleRepository vehicleRepository,
                                     VehicleAdapter vehicleAdapter, ConnectionLifecycleListener listener) {
         this.context = context;
-        this.preferenceManager = preferenceManager;
+        this.vehicleRepository = vehicleRepository;
         this.vehicleAdapter = vehicleAdapter;
         this.listener = listener;
     }
@@ -52,7 +53,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
         // Ensure all state processing and UI updates run strictly on the Main Thread
         mainHandler.post(() -> {
-            Vehicle vehicle = preferenceManager.getVehicleByMac(macAddress);
+            Vehicle vehicle = vehicleRepository.getVehicleByMac(macAddress);
             if (vehicle == null) {
                 listener.onLog("onStateChanged() -> Missing Vehicle object for MAC: " + macAddress);
                 return;

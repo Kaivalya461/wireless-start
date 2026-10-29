@@ -9,10 +9,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import in.kvapps.wirelessstart.BuildConfig;
 import in.kvapps.wirelessstart.db.AppDatabase;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
-import in.kvapps.wirelessstart.model.VehicleWithSettings; // Import your combined model
+import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class VehicleRepository {
@@ -53,6 +54,49 @@ public class VehicleRepository {
         return db.vehicleDao().getVehicleById(vehicleId);
     }
 
+    // ==========================================
+    // NEW METHODS FOR DEFAULT VEHICLE MANAGEMENT
+    // ==========================================
+
+    /**
+     * Fetches the designated default vehicle. If none is explicitly marked,
+     * it falls back to the first available vehicle in the database and makes it default.
+     */
+    public Vehicle getDefaultVehicle() {
+        Vehicle defaultVehicle = db.vehicleDao().getDefaultVehicle();
+        if (defaultVehicle == null) {
+            List<Vehicle> allVehicles = db.vehicleDao().getAllVehicles();
+            if (!allVehicles.isEmpty()) {
+                defaultVehicle = allVehicles.get(0);
+                setDefaultVehicle(defaultVehicle.getId());
+            }
+        }
+        return defaultVehicle;
+    }
+
+    /**
+     * Sets a specific vehicle as the default and clears the flag from all others.
+     */
+    public void setDefaultVehicle(String vehicleId) {
+        db.vehicleDao().switchDefaultVehicle(vehicleId);
+    }
+
+    public Vehicle getVehicleByMac(String macAddress) {
+        if (macAddress == null) return null;
+        return db.vehicleDao().getVehicleByMac(macAddress);
+    }
+
+    public List<String> getAllTargetMacAddresses() {
+        List<String> macs = db.vehicleDao().getAllMacAddresses();
+        // Fallback to build config if the database is completely empty
+        if (macs.isEmpty() && BuildConfig.ESP32_MAC != null) {
+            macs.add(BuildConfig.ESP32_MAC);
+        }
+        return macs;
+    }
+
+    // ==========================================
+
     /**
      * Fetches all vehicle settings mapped by their vehicleId for quick lookup.
      */
@@ -80,6 +124,11 @@ public class VehicleRepository {
         String vehicleId = String.valueOf(System.currentTimeMillis());
 
         Vehicle vehicle = new Vehicle(vehicleId, name, mac);
+
+        // If this is the very first vehicle being added, make it default automatically
+        boolean isFirstVehicle = db.vehicleDao().getVehicleCount() == 0;
+        vehicle.setDefault(isFirstVehicle);
+
         db.vehicleDao().insertVehicle(vehicle);
 
         VehicleSettings settings = new VehicleSettings(vehicleId, defaultStartMs, defaultStopMs);
@@ -113,5 +162,13 @@ public class VehicleRepository {
     public void deleteVehicle(Vehicle vehicle) {
         // Room cascade delete handles the settings automatically
         db.vehicleDao().deleteVehicle(vehicle.getId());
+
+        // If the deleted vehicle was the default, pick a new default if any remain
+        if (vehicle.isDefault()) {
+            List<Vehicle> remainingVehicles = db.vehicleDao().getAllVehicles();
+            if (!remainingVehicles.isEmpty()) {
+                setDefaultVehicle(remainingVehicles.get(0).getId());
+            }
+        }
     }
 }

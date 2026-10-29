@@ -33,11 +33,11 @@ public class MyApplication extends android.app.Application {
             public void onStart(@NonNull LifecycleOwner owner) {
                 DefaultLifecycleObserver.super.onStart(owner);
 
-                var selectedVehicle = preferenceManager.getSelectedVehicle();
+                var defaultVehicle = vehicleRepository.getDefaultVehicle();
                 if (!preferenceManager.isForegroundServiceEnabled()
                         && bleManager != null
-                        && selectedVehicle != null
-                        && !bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                        && defaultVehicle != null
+                        && !bleManager.isConnected(defaultVehicle.getMacAddress())) {
                     bleManager.startMultiVehicleScan();
                 }
             }

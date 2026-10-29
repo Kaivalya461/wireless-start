@@ -158,8 +158,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             updateConnectionState(state, -61); // Using -61 as sample RSSI for now
 
             // Active Badge & Preferences
-            String selectedId = preferenceManager.getSelectedVehicleId();
-            txtActiveBadge.setVisibility(selectedId != null && selectedId.equals(vehicle.getId()) ? View.VISIBLE : View.GONE);
+            txtActiveBadge.setVisibility(vehicle.isDefault() ? View.VISIBLE : View.GONE);
 
             // Extract flags from settings (fallback safely if settings is null)
             boolean isStartEnabledSetting = settings != null && settings.isStartEngineEnabled();

@@ -11,7 +11,7 @@ import in.kvapps.wirelessstart.dao.VehicleSettingsDao;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 
-@Database(entities = {Vehicle.class, VehicleSettings.class}, version = 3, exportSchema = false)
+@Database(entities = {Vehicle.class, VehicleSettings.class}, version = 4, exportSchema = false)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract VehicleDao vehicleDao();
     public abstract VehicleSettingsDao vehicleSettingsDao();
@@ -27,10 +27,10 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "wireless_start_db"
                             )
-                            // Include your previous migrations and the new one
                             .addMigrations(
                                     DatabaseMigrations.MIGRATION_1_2,
-                                    DatabaseMigrations.MIGRATION_2_3
+                                    DatabaseMigrations.MIGRATION_2_3,
+                                    DatabaseMigrations.MIGRATION_3_4
                             )
                             .allowMainThreadQueries()
                             .build();

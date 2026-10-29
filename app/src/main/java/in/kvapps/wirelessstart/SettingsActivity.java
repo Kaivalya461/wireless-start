@@ -12,11 +12,13 @@ import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.repository.VehicleRepository;
 
 public class SettingsActivity extends AppCompatActivity {
 
     private PreferenceManager preferenceManager;
     private BleManager bleManager;
+    private VehicleRepository vehicleRepository;
 
     private SwitchCompat switchAutoConnect;
     private SwitchCompat switchFailSafe;
@@ -46,6 +48,7 @@ public class SettingsActivity extends AppCompatActivity {
         MyApplication app = (MyApplication) getApplication();
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
+        vehicleRepository = app.getVehicleRepository();
     }
 
     private void initUiViews() {
@@ -90,11 +93,11 @@ public class SettingsActivity extends AppCompatActivity {
 
         // Fail-Safe Toggle listener
         switchFailSafe.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null && preferenceManager.getSelectedVehicle() != null) {
+            if (preferenceManager != null && vehicleRepository.getDefaultVehicle() != null) {
                 preferenceManager.setFailSafeEnabled(isChecked);
 
                 // Sync immediately to ESP32 using BleDeviceSession if connected
-                String macAdd = preferenceManager.getSelectedVehicle().getMacAddress();
+                String macAdd = vehicleRepository.getDefaultVehicle().getMacAddress();
                 if (bleManager != null) {
                     BleDeviceSession session = bleManager.getSession(macAdd);
                     if (session != null && session.isConnected()) {
@@ -162,8 +165,8 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void setupScheduledEngineRunListener() {
         switchEngineSchedule.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null && preferenceManager.getSelectedVehicle() != null) {
-                String macAdd = preferenceManager.getSelectedVehicle().getMacAddress();
+            if (preferenceManager != null && vehicleRepository.getDefaultVehicle() != null) {
+                String macAdd = vehicleRepository.getDefaultVehicle().getMacAddress();
                 BleDeviceSession session = bleManager != null ? bleManager.getSession(macAdd) : null;
 
                 if (!isChecked) {

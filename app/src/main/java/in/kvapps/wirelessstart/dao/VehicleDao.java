@@ -24,6 +24,24 @@ public interface VehicleDao {
     @Query("SELECT * FROM vehicles WHERE macAddress = :macAddress")
     Vehicle getVehicleByMac(String macAddress);
 
+    @Query("SELECT * FROM vehicles WHERE is_default = 1 LIMIT 1")
+    Vehicle getDefaultVehicle();
+
+    @Query("UPDATE vehicles SET is_default = 0")
+    void clearAllDefaults();
+
+    @Query("UPDATE vehicles SET is_default = 1 WHERE id = :vehicleId")
+    void setVehicleAsDefault(String vehicleId);
+
+    @Transaction
+    default void switchDefaultVehicle(String vehicleId) {
+        clearAllDefaults();
+        setVehicleAsDefault(vehicleId);
+    }
+
+    @Query("SELECT macAddress FROM vehicles WHERE macAddress IS NOT NULL AND macAddress != ''")
+    List<String> getAllMacAddresses();
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertVehicle(Vehicle vehicle);
 

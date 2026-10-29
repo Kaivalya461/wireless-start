@@ -180,7 +180,9 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             PreferenceManager preferenceManager = new PreferenceManager(getApplicationContext());
             Vehicle selectedVehicle = preferenceManager.getSelectedVehicle();
 
-            if (selectedVehicle != null && selectedVehicle.getMacAddress() != null) {
+            if (preferenceManager.isAutoConnectEnabled()
+                    && selectedVehicle != null
+                    && selectedVehicle.getMacAddress() != null) {
                 String targetMac = selectedVehicle.getMacAddress();
                 if (!targetMac.trim().isEmpty() && !manager.isConnected(targetMac)) {
 //                    AppLogger.logToDatabaseAndLogcat(this, TAG, "ForegroundService: Initial connect trigger for " + targetMac);
@@ -298,40 +300,48 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             }
         }
 
-        // Format Scan Status line
+        // Format Health String for the Last Scan Start line brackets
         String healthStr = "Healthy";
-        if (health == ScanHealth.WARNING) healthStr = String.format(
-                "Warning (Stalled: %s)",
-                UiUtils.formatRelativeTime(BleScanManager.getLastScanStartTimestamp()));
-        else if (health == ScanHealth.FAILURE) healthStr = "Failed (BT Off)";
+        if (health == ScanHealth.WARNING) {
+            healthStr = "Warning";
+        } else if (health == ScanHealth.FAILURE) {
+            healthStr = "Failed (BT Off)";
+        }
 
-        String summaryLine = String.format(Locale.getDefault(), "Scan Status: %s", healthStr);
         String devicesLine = String.format(Locale.getDefault(), "Vehicles: %d/%d Connected", connectedCount, totalVehicles);
         long lastScanStartTimestamp = BleScanManager.getLastScanStartTimestamp();
         String lastScanStartDesc = UiUtils.formatRelativeTime(lastScanStartTimestamp);
-        String lastScanStartLine = String.format(Locale.getDefault(), "Last Scan Start: %s", lastScanStartDesc);
+
+        // Combined Last Scan Start line with ScanStatus in round brackets
+        String lastScanStartLine = String.format(Locale.getDefault(), "Scan Start: %s (%s)", lastScanStartDesc, healthStr);
 
         // Setup InboxStyle for multi-line display
         NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle()
                 .setBigContentTitle(devicesLine)
-                .addLine(summaryLine)
                 .addLine(lastScanStartLine);
 
         if (vehicles != null) {
             for (Vehicle v : vehicles) {
                 boolean isConnected = (bleManager != null && bleManager.isConnected(v.getMacAddress()));
-                String stateDesc = isConnected ? "Connected" : "Offline";
-                long lastSeen = preferenceManager.getLastSeenTimestamp(v.getMacAddress());
-                String timeDesc = UiUtils.formatRelativeTimeLastSeen(lastSeen);
 
-                String line = String.format(Locale.getDefault(), "• %s: %s (%s)", v.getName(), stateDesc, timeDesc);
+                String line;
+                if (isConnected) {
+                    // Show only Connected when online
+                    line = String.format(Locale.getDefault(), "• %s: Connected", v.getName());
+                } else {
+                    // Show Offline and last seen time when disconnected
+                    long lastSeen = preferenceManager.getLastSeenTimestamp(v.getMacAddress());
+                    String timeDesc = UiUtils.formatRelativeTimeLastSeen(lastSeen);
+                    line = String.format(Locale.getDefault(), "• %s: Offline (%s)", v.getName(), timeDesc);
+                }
+
                 inboxStyle.addLine(line);
             }
         }
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Wireless Start Service")
-                .setContentText(summaryLine) // Collapsed view text
+                .setContentText(devicesLine) // Collapsed view text summary
                 .setStyle(inboxStyle)        // Expanded multi-line view
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(pendingIntent)

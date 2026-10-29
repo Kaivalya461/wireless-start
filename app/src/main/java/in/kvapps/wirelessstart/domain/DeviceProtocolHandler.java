@@ -17,6 +17,8 @@ public class DeviceProtocolHandler {
     public interface ProtocolListener {
         void onVoltageReady(String macAddress, float voltage);
         void onProtocolLog(String message);
+        // Added callback when vehicle configuration is received from nRF52
+        void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled);
     }
 
     public DeviceProtocolHandler(Context context, ProtocolListener listener) {
@@ -35,7 +37,32 @@ public class DeviceProtocolHandler {
 
         String payloadString = new String(data).trim();
 
-        // 1. Handle Text / Command Protocol Responses (e.g. Schedule sync from ESP32)
+        // 1. Handle Vehicle Configuration Response (CONFIG:Name,StartEn,StopEn,BattEn)
+        if (payloadString.startsWith("CONFIG:")) {
+            try {
+                String configData = payloadString.substring(7);
+                String[] parts = configData.split(",");
+
+                if (parts.length >= 4) {
+                    String deviceName = parts[0];
+                    boolean startEnabled = parts[1].equals("1");
+                    boolean stopEnabled = parts[2].equals("1");
+                    boolean battEnabled = parts[3].equals("1");
+
+                    if (listener != null) {
+                        listener.onVehicleConfigReceived(macAddress, deviceName, startEnabled, stopEnabled, battEnabled);
+                        listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Config Synced -> Name: " + deviceName);
+                    }
+                }
+            } catch (Exception e) {
+                if (listener != null) {
+                    listener.onProtocolLog("Failed to parse vehicle configuration payload from " + macAddress);
+                }
+            }
+            return;
+        }
+
+        // 2. Handle Text / Command Protocol Responses (e.g. Schedule sync from ESP32/nRF52)
         if (payloadString.startsWith("SCHED_IS:")) {
             // Only process schedule updates if the toggle is enabled in preferences
             if (!preferenceManager.isEngineScheduleEnabled()) {
@@ -55,7 +82,7 @@ public class DeviceProtocolHandler {
 
                 // Handle cancellation / empty schedule explicitly
                 if (serverEpoch == 0) {
-                    listener.onProtocolLog("[ESP32 RX][" + macAddress + "] Engine-Run Schedule Cancelled");
+                    listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Cancelled");
                     return;
                 }
 
@@ -64,15 +91,15 @@ public class DeviceProtocolHandler {
                         .withZone(java.time.ZoneId.systemDefault())
                         .format(java.time.Instant.ofEpochMilli(serverEpoch * 1000));
 
-                listener.onProtocolLog("[ESP32 RX][" + macAddress + "] Engine-Run Schedule Completed -> " + formattedDate);
+                listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Completed -> " + formattedDate);
 
             } catch (NumberFormatException e) {
-                if (listener != null) listener.onProtocolLog("Failed to parse schedule epoch from ESP32 [" + macAddress + "].");
+                if (listener != null) listener.onProtocolLog("Failed to parse schedule epoch from nRF52 [" + macAddress + "].");
             }
             return;
         }
 
-        // 2. Handle Binary Telemetry Payload (Voltage: High Byte + Low Byte)
+        // 3. Handle Binary Telemetry Payload (Voltage: High Byte + Low Byte)
         if (data.length >= 2) {
             int highByte = data[0] & 0xFF;
             int lowByte = data[1] & 0xFF;

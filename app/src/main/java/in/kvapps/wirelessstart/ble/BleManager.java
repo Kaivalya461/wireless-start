@@ -17,6 +17,7 @@ import android.bluetooth.BluetoothProfile;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -203,6 +204,13 @@ public class BleManager {
     public void stopMultiVehicleScan() {
         if (bleScanManager != null && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
+            preferenceManager.getTargetMacAddresses()
+                    .stream()
+                    .filter(mac -> !isConnected(mac))
+                    .forEach(disconnectedMac ->
+                            ConnectionStateRepository.getInstance()
+                                    .updateState(disconnectedMac, ConnectionState.DISCONNECTED, "Offline")
+                    );
             logMessage("Stopped multi-vehicle background scan.");
         }
     }
@@ -319,12 +327,17 @@ public class BleManager {
                 disconnect(macAddress);
 
                 // If auto-connect is enabled, restart background scan for remaining targets after a short delay
-                if (preferenceManager.isAutoConnectEnabled()) {
+                if (!preferenceManager.isAutoConnectEnabled()) {
+                    logMessage("Auto-connect is disabled. Standing by.");
+                } else if (!bleScanManager.isScanning()) {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         startMultiVehicleScan();
-                    }, 500);
-                } else {
-                    logMessage("Auto-connect is disabled. Standing by.");
+                    }, 200);
+                } else if (bleScanManager.getActiveTargetMacs().contains(macAddress)) {
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        bleScanManager.stopScan();
+                        startMultiVehicleScan();
+                    }, 200);
                 }
             }
         }

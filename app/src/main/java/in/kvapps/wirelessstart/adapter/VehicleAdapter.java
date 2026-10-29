@@ -3,6 +3,7 @@ package in.kvapps.wirelessstart.adapter;
 import android.animation.ValueAnimator;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,11 +24,13 @@ import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.util.UiUtils;
 
 public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleViewHolder> {
 
-    private final List<Vehicle> vehicleList;
+    private final List<VehicleWithSettings> vehicleList;
     private final VehicleActionListener listener;
     private final Handler handler = new Handler(Looper.getMainLooper());
     protected static List<ConnectionState> lastSeenEligibleStatusList = List.of(ConnectionState.DISCONNECTED, ConnectionState.SCANNING);
@@ -39,7 +42,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         void onVoltageClick(Vehicle vehicle, int position);
     }
 
-    public VehicleAdapter(List<Vehicle> vehicleList, VehicleActionListener listener) {
+    public VehicleAdapter(List<VehicleWithSettings> vehicleList, VehicleActionListener listener) {
         this.vehicleList = vehicleList;
         this.listener = listener;
     }
@@ -54,7 +57,8 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
     @Override
     public void onBindViewHolder(@NonNull VehicleViewHolder holder, int position) {
-        holder.bind(vehicleList.get(position), listener, position);
+        VehicleWithSettings item = vehicleList.get(position);
+        holder.bind(item.getVehicle(), item.getVehicleSettings(), listener, position);
     }
 
     @Override
@@ -64,16 +68,30 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
     public void triggerCooldown(Vehicle vehicle, long cooldownMillis) {
         if (vehicle == null) return;
-        int position = vehicleList.indexOf(vehicle);
+
+        int position = -1;
+        for (int i = 0; i < vehicleList.size(); i++) {
+            if (vehicleList.get(i).getVehicle().getId().equals(vehicle.getId())) {
+                position = i;
+                break;
+            }
+        }
         if (position == -1) return;
 
         vehicle.setBusy(true);
         notifyItemChanged(position);
 
+        final String targetVehicleId = vehicle.getId();
         handler.postDelayed(() -> {
-            int currentPosition = vehicleList.indexOf(vehicle);
+            int currentPosition = -1;
+            for (int i = 0; i < vehicleList.size(); i++) {
+                if (vehicleList.get(i).getVehicle().getId().equals(targetVehicleId)) {
+                    currentPosition = i;
+                    break;
+                }
+            }
             if (currentPosition != -1) {
-                vehicle.setBusy(false);
+                vehicleList.get(currentPosition).getVehicle().setBusy(false);
                 notifyItemChanged(currentPosition);
             }
         }, cooldownMillis);
@@ -81,11 +99,10 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
     public void updateVehicleConnection(String vehicleId, boolean isConnected, String statusText) {
         for (int i = 0; i < vehicleList.size(); i++) {
-            Vehicle vehicle = vehicleList.get(i);
+            Vehicle vehicle = vehicleList.get(i).getVehicle();
             if (vehicle.getId().equals(vehicleId)) {
                 vehicle.setConnected(isConnected);
                 vehicle.setStatusText(statusText);
-                // Use specific notification to avoid resetting animations across the whole list
                 notifyItemChanged(i);
                 break;
             }
@@ -117,7 +134,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             statusBarParent = (ViewGroup) viewStatusBar.getParent();
         }
 
-        public void bind(Vehicle vehicle, VehicleActionListener listener, int position) {
+        public void bind(Vehicle vehicle, VehicleSettings settings, VehicleActionListener listener, int position) {
             txtVehicleName.setText(vehicle.getName() != null ? vehicle.getName() : "Unit #" + vehicle.getId());
 
             MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
@@ -144,13 +161,20 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             String selectedId = preferenceManager.getSelectedVehicleId();
             txtActiveBadge.setVisibility(selectedId != null && selectedId.equals(vehicle.getId()) ? View.VISIBLE : View.GONE);
 
-            // Button states
-            boolean isStopEnabled = preferenceManager.isFailSafeEnabled();
+            // Extract flags from settings (fallback safely if settings is null)
+            boolean isStartEnabledSetting = settings != null && settings.isStartEngineEnabled();
+            boolean isStopEnabledSetting = settings != null && settings.isStopEngineEnabled();
+
             boolean canClick = isConnected && !isBusy;
 
-            btnStop.setVisibility(isStopEnabled ? View.VISIBLE : View.GONE);
-            UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
-            if (isStopEnabled) {
+//            // Start button visibility & state
+            btnStart.setVisibility(isStartEnabledSetting ? View.VISIBLE : View.GONE);
+            if (isStartEnabledSetting) {
+                UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
+            }
+//            // Stop button visibility & state
+            btnStop.setVisibility(isStopEnabledSetting ? View.VISIBLE : View.GONE);
+            if (isStopEnabledSetting) {
                 UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
             }
 
@@ -166,7 +190,8 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         private CharSequence getStatusText(String statusText, ConnectionStateRepository.DeviceConnectionState state,
                                            long lastSeenTime) {
             String result;
-            if (lastSeenTime > 0 &&
+            if (lastSeenTime > 0
+                    && state != null &&
                     lastSeenEligibleStatusList.contains(state.getState())) {
                 result = statusText + " • last seen " + UiUtils.formatRelativeTime(lastSeenTime);
             } else {

@@ -5,5 +5,6 @@ public enum ConnectionState {
     DISCOVERING,
     DISCONNECTED,
     SCANNING,
-    NEARBY_FAR_AWAY
+    NEARBY_FAR_AWAY,
+    RECONNECTING
 }

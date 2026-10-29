@@ -179,6 +179,18 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         return isScanning;
     }
 
+    /**
+     * Fetches all the active target MAC addresses currently configured for scanning.
+     *
+     * @return A list of target MAC addresses, or an empty list if none are active.
+     */
+    public List<String> getActiveTargetMacs() {
+        if (BleScanReceiver.targetMacAddresses != null) {
+            return new ArrayList<>(BleScanReceiver.targetMacAddresses);
+        }
+        return new ArrayList<>();
+    }
+
     public static long getLastScanStartTimestamp() {
         return lastScanStartTimestamp;
     }

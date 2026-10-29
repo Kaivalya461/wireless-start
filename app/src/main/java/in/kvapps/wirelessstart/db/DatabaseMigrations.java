@@ -20,4 +20,17 @@ public class DatabaseMigrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS `index_vehicle_settings_vehicleId` ON `vehicle_settings` (`vehicleId`)");
         }
     };
+
+    // New migration from version 2 to version 3 (Adding the two startEnabled and stopEnabled flags)
+    public static final Migration MIGRATION_2_3 = new Migration(2, 3) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL(
+                    "ALTER TABLE vehicle_settings ADD COLUMN isStartEngineEnabled INTEGER NOT NULL DEFAULT 1"
+            );
+            database.execSQL(
+                    "ALTER TABLE vehicle_settings ADD COLUMN isStopEngineEnabled INTEGER NOT NULL DEFAULT 0"
+            );
+        }
+    };
 }

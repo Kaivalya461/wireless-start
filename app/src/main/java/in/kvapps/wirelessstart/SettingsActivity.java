@@ -24,6 +24,12 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchEngineSchedule;
     private SwitchCompat switchVoltage;
     private SwitchCompat switchAvoidPoorConnection;
+    private boolean initialAutoConnect;
+    private boolean initialFailSafe;
+    private boolean initialForegroundService;
+    private boolean initialEngineSchedule;
+    private boolean initialVoltage;
+    private boolean initialAvoidPoorConnection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,12 +59,19 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void loadStoredPreferences() {
         if (preferenceManager != null) {
-            switchAutoConnect.setChecked(preferenceManager.isAutoConnectEnabled());
-            switchFailSafe.setChecked(preferenceManager.isFailSafeEnabled());
-            switchForegroundService.setChecked(preferenceManager.isForegroundServiceEnabled());
-            switchEngineSchedule.setChecked(preferenceManager.isEngineScheduleEnabled());
-            switchVoltage.setChecked(preferenceManager.isTelemetryEnabled());
-            switchAvoidPoorConnection.setChecked(preferenceManager.isAvoidPoorConnectionEnabled());
+            initialAutoConnect = preferenceManager.isAutoConnectEnabled();
+            initialFailSafe = preferenceManager.isFailSafeEnabled();
+            initialForegroundService = preferenceManager.isForegroundServiceEnabled();
+            initialEngineSchedule = preferenceManager.isEngineScheduleEnabled();
+            initialVoltage = preferenceManager.isTelemetryEnabled();
+            initialAvoidPoorConnection = preferenceManager.isAvoidPoorConnectionEnabled();
+
+            switchAutoConnect.setChecked(initialAutoConnect);
+            switchFailSafe.setChecked(initialFailSafe);
+            switchForegroundService.setChecked(initialForegroundService);
+            switchEngineSchedule.setChecked(initialEngineSchedule);
+            switchVoltage.setChecked(initialVoltage);
+            switchAvoidPoorConnection.setChecked(initialAvoidPoorConnection);
         }
     }
 
@@ -126,6 +139,25 @@ public class SettingsActivity extends AppCompatActivity {
     public boolean onSupportNavigateUp() {
         finish();
         return true;
+    }
+
+    @Override
+    public void finish() {
+        // Check if any current switch state differs from its initial state
+        boolean hasChanges = (switchAutoConnect.isChecked() != initialAutoConnect) ||
+                (switchFailSafe.isChecked() != initialFailSafe) ||
+                (switchForegroundService.isChecked() != initialForegroundService) ||
+                (switchEngineSchedule.isChecked() != initialEngineSchedule) ||
+                (switchVoltage.isChecked() != initialVoltage) ||
+                (switchAvoidPoorConnection.isChecked() != initialAvoidPoorConnection);
+
+        if (hasChanges) {
+            setResult(RESULT_OK);
+        } else {
+            setResult(RESULT_CANCELED);
+        }
+
+        super.finish();
     }
 
     private void setupScheduledEngineRunListener() {

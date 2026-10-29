@@ -1,7 +1,9 @@
 package in.kvapps.wirelessstart.repository;
 
 import android.content.Context;
-import android.util.Log;
+
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.Transformations;
 
 import java.util.HashMap;
 import java.util.List;
@@ -10,6 +12,7 @@ import java.util.Map;
 import in.kvapps.wirelessstart.db.AppDatabase;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.model.VehicleWithSettings; // Import your combined model
 import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class VehicleRepository {
@@ -29,6 +32,18 @@ public class VehicleRepository {
     public List<Vehicle> getAllVehiclesWithLiveState(String tag) {
         List<Vehicle> vehicles = db.vehicleDao().getAllVehicles();
         return VehicleUtils.enrichVehiclesWithLiveState(tag, vehicles);
+    }
+
+    /**
+     * Fetches vehicles with settings as LiveData, and enriches them with live BLE connection states.
+     */
+    public LiveData<List<VehicleWithSettings>> getAllVehiclesWithSettingsAndLiveState(String tag) {
+        LiveData<List<VehicleWithSettings>> rawLiveData = db.vehicleDao().getAllVehiclesWithSettings();
+
+        return Transformations.map(rawLiveData, vehicleWithSettingsList -> {
+            // Enriches the transient fields (isConnected, statusText) on the fly
+            return VehicleUtils.enrichVehiclesWithSettingsLiveState(tag, vehicleWithSettingsList);
+        });
     }
 
     /**
@@ -82,6 +97,15 @@ public class VehicleRepository {
         } else {
             settings.setStartPulseDuration(startMs);
             settings.setStopPulseDuration(stopMs);
+            db.vehicleSettingsDao().updateSettings(settings);
+        }
+    }
+
+    public void saveVehicleConfigSettings(String vehicleId, boolean startEn, boolean stopEn) {
+        VehicleSettings settings = db.vehicleSettingsDao().getSettingsForVehicle(vehicleId);
+        if (settings != null) {
+            settings.setStartEngineEnabled(startEn);
+            settings.setStopEngineEnabled(stopEn);
             db.vehicleSettingsDao().updateSettings(settings);
         }
     }

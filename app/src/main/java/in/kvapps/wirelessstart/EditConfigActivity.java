@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -39,6 +40,7 @@ import java.util.Locale;
 
 import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
@@ -160,9 +162,9 @@ public class EditConfigActivity extends AppCompatActivity {
     }
 
     private void loadInitialSelection() {
-        List<Vehicle> vehicles = vehicleRepository.getAllVehiclesWithLiveState(TAG);
-        if (!vehicles.isEmpty()) {
-            onVehicleSelected(vehicles.get(0));
+        Vehicle selectedVehicle = vehicleRepository.getVehicleById(prefs.getSelectedVehicleId());
+        if (selectedVehicle != null) {
+            onVehicleSelected(selectedVehicle);
         }
     }
 
@@ -211,12 +213,18 @@ public class EditConfigActivity extends AppCompatActivity {
                             return;
                         }
 
+                        if (prefs.getSelectedVehicleId().equals(vehicle.getId())) {
+                            Toast.makeText(EditConfigActivity.this, "Cannot delete the Active vehicle", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
                         // Disconnect BLE if active, then delete via Repository
                         if (bleManager.isConnected(vehicle.getMacAddress())) {
                             bleManager.disconnect(vehicle.getMacAddress());
                         }
                         vehicleRepository.deleteVehicle(vehicle);
                         bleManager.refreshVehicles();
+                        ConnectionStateRepository.getInstance().removeState(vehicle.getMacAddress());
 
                         List<Vehicle> updatedList = vehicleRepository.getAllVehiclesWithLiveState(TAG);
                         vehicleConfigAdapter.updateData(updatedList, selectedVehicleId);
@@ -271,8 +279,6 @@ public class EditConfigActivity extends AppCompatActivity {
 
             // Add vehicle and default settings (1.0s / 1000ms each) via Repository
             String newVehicleId = vehicleRepository.addVehicleWithSettings(name, mac, (int) startSliderDefault, (int) stopSliderDefault);
-            prefs.setSelectedVehicleId(newVehicleId);
-            bleManager.refreshVehicles();
 
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
 
@@ -293,7 +299,10 @@ public class EditConfigActivity extends AppCompatActivity {
 
             cardActiveConfig.setVisibility(View.GONE);
             cardVehicleSettings.setVisibility(View.VISIBLE);
-            setResult(RESULT_OK);
+
+            Intent resultIntent = new Intent();
+            resultIntent.putExtra("EXTRA_NEW_VEHICLE_ID", newVehicleId);
+            setResult(RESULT_OK, resultIntent);
         } else {
             Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
         }

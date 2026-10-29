@@ -46,7 +46,6 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     public void unregister() {
         ConnectionStateRepository.getInstance().removeListener(this);
         mainHandler.removeCallbacksAndMessages(null);
-        lastKnownStates.clear();
     }
 
     @Override
@@ -99,6 +98,12 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
             case SCANNING:
                 if (previousState != ConnectionState.SCANNING) {
+                    updateConnectionUi(vehicle);
+                }
+                break;
+
+            case RECONNECTING:
+                if (previousState != ConnectionState.RECONNECTING) {
                     updateConnectionUi(vehicle);
                 }
                 break;

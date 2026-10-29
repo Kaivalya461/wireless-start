@@ -29,20 +29,21 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
+import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
@@ -60,8 +61,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private ImageButton btnMenu;
     private RecyclerView recyclerVehicles;
     private VehicleAdapter vehicleAdapter;
-    private List<Vehicle> vehicleList;
-    private Map<String, VehicleSettings> vehicleSettingsMap;
+    private List<VehicleWithSettings> vehicleWithSettingsList;
 
     // Architecture & Helpers
     private VoltageDbHelper dbHelper;
@@ -75,6 +75,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
+    private final List<String> pendingFirstTimeConfigVehicles = new ArrayList<>();
 
     private final ActivityResultLauncher<String[]> requestPermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
@@ -86,14 +87,26 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             });
 
     private final ActivityResultLauncher<Intent> settingsLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result ->
-                    onLog("Settings updated successfully.")
-            );
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    if (!preferenceManager.isAutoConnectEnabled()) {
+                        bleManager.stopMultiVehicleScan();
+                    } else {
+                        bleManager.startMultiVehicleScan();
+                    }
+                    onLog("Settings updated successfully.");
+                }
+            });
 
     private final ActivityResultLauncher<Intent> editConfigLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                if (result.getResultCode() == RESULT_OK) {
-                    loadVehicles();
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    String newVehicleId = result.getData().getStringExtra("EXTRA_NEW_VEHICLE_ID");
+                    if (newVehicleId != null) {
+                        pendingFirstTimeConfigVehicles.add(newVehicleId);
+                        bleManager.refreshVehicles();
+                    }
+                } else if (result.getResultCode() == RESULT_OK) {
                     selectedVehicle = preferenceManager.getSelectedVehicle();
                     onLog("Vehicle Configuration updated.");
                 }
@@ -135,8 +148,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     if (isTelemetryEnabled) {
                         long now = System.currentTimeMillis();
                         if (dbHelper != null) dbHelper.insertReading(mac, now, voltage);
-                        if (!vehicleList.isEmpty()) {
-                            vehicleList.get(0).setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
+                        if (!vehicleWithSettingsList.isEmpty()) {
+                            vehicleWithSettingsList.get(0).getVehicle().setVoltage(String.format(Locale.getDefault(), "%.2fV", voltage));
                             vehicleAdapter.notifyItemChanged(0);
                         }
                     }
@@ -146,6 +159,14 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             @Override
             public void onProtocolLog(String message) {
                 onLog(message);
+            }
+
+            @Override
+            public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled) {
+                var vehicle = preferenceManager.getVehicleByMac(macAddress);
+                vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled);
+                pendingFirstTimeConfigVehicles.remove(vehicle.getId());
+//                onLog("Successfully Updated Vehicle Config settings received from the nrf52!");
             }
         });
 
@@ -161,9 +182,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         cardLogSection = findViewById(R.id.card_log_section);
         recyclerVehicles = findViewById(R.id.recycler_vehicles);
 
-        vehicleList = new ArrayList<>();
-        vehicleSettingsMap = new HashMap<>();
-        vehicleAdapter = new VehicleAdapter(vehicleList, new VehicleAdapter.VehicleActionListener() {
+        vehicleWithSettingsList = new ArrayList<>();
+        vehicleAdapter = new VehicleAdapter(vehicleWithSettingsList, new VehicleAdapter.VehicleActionListener() {
             @Override
             public void onStartClick(Vehicle vehicle, int position) {
                 handleStartAction(vehicle);
@@ -192,26 +212,19 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             ((androidx.recyclerview.widget.SimpleItemAnimator) recyclerVehicles.getItemAnimator()).setSupportsChangeAnimations(false);
         }
 
-        loadVehicles();
+        // Observe LiveData from Room. Whenever data changes, this updates automatically!
+        vehicleRepository.getAllVehiclesWithSettingsAndLiveState(TAG).observe(this, savedList -> {
+            vehicleWithSettingsList.clear();
+            if (savedList != null) {
+                vehicleWithSettingsList.addAll(savedList);
+            }
+            vehicleAdapter.notifyDataSetChanged();
+        });
+
         selectedVehicle = preferenceManager.getSelectedVehicle();
 
         // Initialize connection manager observer
         connectionManager = new VehicleConnectionManager(this, preferenceManager, vehicleAdapter, this);
-    }
-
-    private void loadVehicles() {
-        new Thread(() -> {
-            // Fetch vehicles and vehicle-settings from Database
-            List<Vehicle> savedVehicles = vehicleRepository.getAllVehiclesWithLiveState(TAG);
-            Map<String, VehicleSettings> settingsMap = vehicleRepository.getAllVehicleSettingsMap();
-
-            runOnUiThread(() -> {
-                vehicleList.clear();
-                if (savedVehicles != null) vehicleList.addAll(savedVehicles);
-                if (!settingsMap.isEmpty()) vehicleSettingsMap.putAll(settingsMap);
-                vehicleAdapter.notifyDataSetChanged();
-            });
-        }).start();
     }
 
     private void setupClickListeners() {
@@ -239,6 +252,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                         () -> session.syncTelemetryState(savedTelemetryState),
                         () -> session.syncFailSafeState(savedFailSafeState),
                         session::requestScheduleFromEsp32,
+                        session::fetchVehicleConfig,
                         () -> {
                             FeedbackUtils.triggerDoubleVibrate(this);
                             FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
@@ -260,7 +274,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
         loadStoredLogsForToday();
 
-        if (preferenceManager != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+        if (preferenceManager != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
             boolean newTelemetryState = preferenceManager.isTelemetryEnabled();
             if (newTelemetryState != isTelemetryEnabled) {
                 handleTelemetryToggle(newTelemetryState);
@@ -310,10 +324,18 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         executeCommand(vehicle, "STOP", 2000, false);
     }
 
-    private void executeCommand(Vehicle vehicle, String action ,long cooldown, boolean isWatch) {
-        if (vehicleList.isEmpty()) return;
+    private void executeCommand(Vehicle vehicle, String action, long cooldown, boolean isWatch) {
+        if (vehicleWithSettingsList.isEmpty()) return;
 
-        var settings = vehicleSettingsMap.get(vehicle.getId());
+        // Find corresponding VehicleSettings for this vehicle
+        VehicleSettings settings = null;
+        for (VehicleWithSettings item : vehicleWithSettingsList) {
+            if (item.getVehicle().getId().equals(vehicle.getId())) {
+                settings = item.getVehicleSettings();
+                break;
+            }
+        }
+
         var command = VehicleUtils.getFormattedCommand(action, settings);
         vehicleAdapter.triggerCooldown(vehicle, cooldown);
         commandStartTime = System.currentTimeMillis();
@@ -344,9 +366,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     private void handleReconnect(Vehicle vehicle) {
         onLog("Manual reconnect requested...");
-        vehicle.setConnected(false);
-        vehicle.setStatusText("Reconnecting");
-        vehicleAdapter.updateVehicleConnection(vehicle.getId(), false, "Reconnecting");
+        ConnectionStateRepository.getInstance().updateState(vehicle.getMacAddress(), ConnectionState.RECONNECTING, "Reconnecting");
         bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
     }
 
@@ -356,8 +376,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         if (session != null && session.isConnected()) {
             session.syncTelemetryState(isChecked);
-            if (!isChecked && !vehicleList.isEmpty()) {
-                vehicleList.get(0).setVoltage("--.--V");
+            if (!isChecked && !vehicleWithSettingsList.isEmpty()) {
+                vehicleWithSettingsList.get(0).getVehicle().setVoltage("--.--V");
                 vehicleAdapter.notifyItemChanged(0);
             }
         }
@@ -381,8 +401,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             @Override
             public void onReceive(Context context, Intent intent) {
                 String cmd = intent.getStringExtra("COMMAND");
-                Log.i(TAG, "Setting  from DB, vehicleSettingsMap -> " + cmd);
-                if (cmd != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
+                Log.i(TAG, "Setting from DB, command -> " + cmd);
+                if (cmd != null && selectedVehicle != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
                     executeCommand(selectedVehicle, cmd, 3000, true);
                     setResultCode(Activity.RESULT_OK);
                 }
@@ -414,7 +434,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     private void pruneOldDatabaseRecords() {
-        long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000);
+        long thirtyDaysAgoMillis = System.currentTimeMillis() - (30L * 24L * 60L * 60L * 1000L);
         if (dbHelper != null) {
             new Handler(Looper.getMainLooper()).postDelayed(() ->
                     new Thread(() -> dbHelper.deleteOldRecords(thirtyDaysAgoMillis)).start(), 5000);

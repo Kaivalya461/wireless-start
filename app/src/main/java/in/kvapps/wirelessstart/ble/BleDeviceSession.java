@@ -131,4 +131,14 @@ public class BleDeviceSession {
             Log.d(TAG, "Requested active schedule from " + macAddress);
         }, null);
     }
+
+    /**
+     * Request the current persistent configuration from the esp32/nRF52 device.
+     */
+    public void fetchVehicleConfig() {
+        sendBleCommand("GET_CONFIG",
+                () -> Log.d(TAG, "GET_CONFIG command sent successfully."),
+                () -> Log.e(TAG, "Failed to send GET_CONFIG command.")
+        );
+    }
 }

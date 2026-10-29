@@ -1,6 +1,7 @@
 #include "BleManager.h"
 #include <bluefruit.h>
 #include "Relay.h"
+#include "ConfigManager.h" // Include your persistent storage manager
 #include <time.h>
 
 // UUIDs mapped for Adafruit Bluefruit format
@@ -16,9 +17,9 @@ BLECharacteristic customCharacteristic(CHARACTERISTIC_UUID);
 
 bool bleConnected = false;
 
-// Default Device Name handler
+// Pull device name from persistent flash storage struct instead of hardcoded string
 String getStoredDeviceName() {
-    return "Honda Dio nrf520";
+    return String(currentConfig.deviceName);
 }
 
 // Forward declaration
@@ -27,6 +28,24 @@ void handleIncomingCommand(const uint8_t* data, size_t length);
 // Corrected Adafruit write callback signature
 void characteristic_write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t length) {
     handleIncomingCommand(data, length);
+}
+
+void transmitConfigToApp() {
+    if (!bleConnected) return;
+
+    // Format properties neatly as text/JSON payload so app can parse easily:
+    // Format: CONFIG:Name,StartEn(0/1),StopEn(0/1),BattEn(0/1)
+    String configPayload = "CONFIG:" + String(currentConfig.deviceName) + "," +
+                           String(currentConfig.isStartEngineEnabled ? 1 : 0) + "," +
+                           String(currentConfig.isStopEngineEnabled ? 1 : 0) + "," +
+                           String(currentConfig.liveBatteryVoltageEnabled ? 1 : 0);
+
+    customCharacteristic.notify((const uint8_t*)configPayload.c_str(), configPayload.length());
+
+    if (Serial) {
+        Serial.print("Transmitted Config to App: ");
+        Serial.println(configPayload);
+    }
 }
 
 void handleIncomingCommand(const uint8_t* data, size_t length) {
@@ -62,7 +81,15 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
         tzset();
         syncTime(epoch);
     }
+    else if (command.equals("GET_CONFIG")) {
+        // App requests to fetch all persistent properties
+        transmitConfigToApp();
+    }
     else if (command.startsWith("START")) {
+        if (!currentConfig.isStartEngineEnabled) {
+            if (Serial) Serial.println(">>> Ignored: Start Engine is disabled via config.");
+            return;
+        }
         unsigned long duration = DEFAULT_START_PULSE_MS;
         if (command.startsWith("START:")) {
             duration = getValidatedDuration(command.substring(6).toInt());
@@ -70,6 +97,10 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
         requestRelayPulse(START_RELAY_PIN, duration);
     }
     else if (command.startsWith("STOP")) {
+        if (!currentConfig.isStopEngineEnabled) {
+            if (Serial) Serial.println(">>> Ignored: Stop Engine is disabled via config.");
+            return;
+        }
         unsigned long duration = DEFAULT_STOP_PULSE_MS;
         if (command.startsWith("STOP:")) {
             duration = getValidatedDuration(command.substring(5).toInt());
@@ -150,6 +181,9 @@ void updateBleAdvertisingState() {
 void transmitBatteryTelemetry(uint16_t mvPayload) {
     if (!bleConnected) return;
 
+    // Check if battery stream telemetry is permitted by current flash configuration
+    if (!currentConfig.liveBatteryVoltageEnabled) return;
+
     uint8_t payloadBuffer[2];
     payloadBuffer[0] = (mvPayload >> 8) & 0xFF; // High Byte
     payloadBuffer[1] = mvPayload & 0xFF;        // Low Byte
@@ -170,8 +204,20 @@ void transmitEngineScheduleTime(unsigned long epochPayload) {
 }
 
 void setDeviceName(String newName) {
+    newName.toCharArray(currentConfig.deviceName, sizeof(currentConfig.deviceName));
+    saveConfig(); // Save permanently to flash
+
+    // --- Instantly update BLE advertising name live ---
+    Bluefruit.setName(currentConfig.deviceName);
+
+    // Optional: Restart advertising so nearby phones see the new name immediately
+    if (Bluefruit.Advertising.isRunning()) {
+        Bluefruit.Advertising.stop();
+        Bluefruit.Advertising.start(0);
+    }
+
     if (Serial) {
-        Serial.print(">>> New Device Name Requested (RAM-only active): ");
-        Serial.println(newName);
+        Serial.print(">>> Device Name updated live & saved to flash: ");
+        Serial.println(currentConfig.deviceName);
     }
 }

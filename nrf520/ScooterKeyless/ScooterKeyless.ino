@@ -1,5 +1,6 @@
 #include "Relay.h"
 #include "BleManager.h"
+#include "ConfigManager.h"
 
 void setup() {
     // 1. Enable internal DC/DC buck converter for efficiency
@@ -10,7 +11,11 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, HIGH);
 
-    // 2. Check if a USB cable is actively plugged in (VBUS detected)
+    // 2. Load Persistent Configuration from Flash
+    loadConfig();
+    // burnVehicleConfig("nrf520", 1, 1, 1);   // One time execution to udpate Config on chip's Flash
+
+    // 3. Check if a USB cable is actively plugged in (VBUS detected)
     bool usbConnected = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk) != 0;
 
     if (usbConnected) {
@@ -18,12 +23,10 @@ void setup() {
         Serial.begin(115200);
         delay(1000); // Give serial monitor time to open
         Serial.println(">>> USB Connected: Serial Debugging Active.");
-    } else {
-        // Running purely on battery: completely bypass Serial overhead
-        // (Do not call Serial.begin at all to save power)
+        Serial.print("Loaded Device Name: "); Serial.println(currentConfig.deviceName);
     }
 
-    // 3. Initialize sub-components
+    // 4. Initialize sub-components (Pass currentConfig.deviceName to your BLE init)
     initRelays();
     initBle();
 

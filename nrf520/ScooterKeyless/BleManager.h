@@ -10,5 +10,6 @@ bool isBleClientConnected();
 void updateBleAdvertisingState();
 unsigned long getDisconnectionTime();
 void setDeviceName(String newName);
+void transmitConfigToApp();
 
 #endif

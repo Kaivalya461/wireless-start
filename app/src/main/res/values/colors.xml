@@ -20,4 +20,7 @@
     <!-- Accents -->
     <color name="accent_blue">#4A90E2</color>
     <color name="terminal_green">#00FF00</color>
+
+    <color name="default_core_color">#FFE0F7FF</color>
+    <color name="default_glow_color">#FF00B0FF</color>
 </resources>

@@ -28,6 +28,7 @@ import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.util.UiUtils;
+import in.kvapps.wirelessstart.view.GlowCardView;
 
 public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleViewHolder> {
 
@@ -111,6 +112,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
     }
 
     static class VehicleViewHolder extends RecyclerView.ViewHolder {
+        private final GlowCardView cardVehicleItem; // Root view cast to GlowCardView
         private final TextView txtVehicleName, txtStatus, txtVoltageValue, txtActiveBadge;
         private final View statusIndicator, viewStatusBar;
         private final ViewGroup statusBarParent;
@@ -127,6 +129,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
         public VehicleViewHolder(@NonNull View itemView) {
             super(itemView);
+            cardVehicleItem = (GlowCardView) itemView; // itemView itself is the root GlowCardView
             txtVehicleName = itemView.findViewById(R.id.txt_vehicle_name);
             statusIndicator = itemView.findViewById(R.id.status_indicator);
             txtStatus = itemView.findViewById(R.id.txt_status);
@@ -172,8 +175,12 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             updateConnectionState(state, liveRssi);
 
-            // Active Badge & Preferences
-            txtActiveBadge.setVisibility(vehicle.isDefault() ? View.VISIBLE : View.GONE);
+            // Active Badge & Pulsing Glow Effect
+            boolean isActive = vehicle.isDefault();
+            txtActiveBadge.setVisibility(isActive ? View.VISIBLE : View.GONE);
+
+            // Toggle slow-pulsing edge glow via GlowCardView
+            cardVehicleItem.setGlowActive(isActive && isConnected);
 
             // Extract flags from settings (fallback safely if settings is null)
             boolean isStartEnabledSetting = settings != null && settings.isStartEngineEnabled();
@@ -181,12 +188,12 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             boolean canClick = isConnected && !isBusy;
 
-//            // Start button visibility & state
+            // Start button visibility & state
             btnStart.setVisibility(isStartEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStartEnabledSetting) {
                 UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
             }
-//            // Stop button visibility & state
+            // Stop button visibility & state
             btnStop.setVisibility(isStopEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStopEnabledSetting) {
                 UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);

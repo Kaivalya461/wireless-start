@@ -17,7 +17,7 @@ import java.util.Map;
 
 public class VehicleConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = "VehicleConnectionMgr";
-    private static final long RSSI_TIMEOUT_MS = 4000;
+    private static final long RSSI_TIMEOUT_MS = 8000;
 
     private final Context context;
     private final VehicleRepository vehicleRepository;

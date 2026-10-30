@@ -11,6 +11,7 @@ public class PreferenceManager {
     private static final String KEY_ENGINE_SCHEDULE_RUN_TIME = "pref_engine_scheduled_run_time";
     private static final String KEY_ENGINE_SCHEDULE_ENABLED = "pref_engine_schedule_enabled";
     private static final String KEY_AVOID_POOR_CONN = "key_avoid_poor_connection";
+    public static final String KEY_CONNECTION_THRESHOLD = "key_connection_threshold";
 
     private final SharedPreferences prefs;
     private final Context context;
@@ -86,5 +87,14 @@ public class PreferenceManager {
     public long getLastSeenTimestamp(String macAddress) {
         if (macAddress == null) return 0;
         return prefs.getLong("key_last_seen_" + macAddress.toUpperCase(), 0);
+    }
+
+    public int getConnectionThreshold() {
+        // Default to 1, Auto-Connect Signal Threshold to Medium Range.
+        return prefs.getInt(KEY_CONNECTION_THRESHOLD, 1);
+    }
+
+    public void setConnectionThreshold(int threshold) {
+        prefs.edit().putInt(KEY_CONNECTION_THRESHOLD, threshold).apply();
     }
 }

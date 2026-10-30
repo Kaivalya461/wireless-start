@@ -145,7 +145,7 @@ public class WearMessageListenerService extends WearableListenerService implemen
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
         var selectedVehicle = vehicleRepository.getDefaultVehicle();
         if (selectedVehicle != null && macAddress.equalsIgnoreCase(selectedVehicle.getMacAddress())) {
-            Log.d(TAG, "[BLE STATE] " + newState.getStatusText());
+            Log.d(TAG, "[BLE STATE] " + newState.getStatusText() + ", MAC-> " + macAddress);
 
             if (newState.isConnected()) {
                 // If we were waiting to send a command in the background, trigger it now upon successful connection and service readiness

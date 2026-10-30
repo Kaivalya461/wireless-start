@@ -6,7 +6,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
 
-import java.util.Locale;
+import com.google.android.material.slider.Slider;
 
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
@@ -25,13 +25,19 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchForegroundService;
     private SwitchCompat switchEngineSchedule;
     private SwitchCompat switchVoltage;
-    private SwitchCompat switchAvoidPoorConnection;
+
+    // Slider controls for Proximity Range
+    private Slider sliderConnectionThreshold;
+    private TextView txtConnectionThresholdSummary;
+
     private boolean initialAutoConnect;
     private boolean initialFailSafe;
     private boolean initialForegroundService;
     private boolean initialEngineSchedule;
     private boolean initialVoltage;
-    private boolean initialAvoidPoorConnection;
+    private int initialConnectionThreshold;
+
+    private int currentConnectionThreshold;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,7 +63,9 @@ public class SettingsActivity extends AppCompatActivity {
         switchForegroundService = findViewById(R.id.switch_foreground_service);
         switchEngineSchedule = findViewById(R.id.switch_engine_schedule);
         switchVoltage = findViewById(R.id.switch_voltage);
-        switchAvoidPoorConnection = findViewById(R.id.switch_avoid_poor_connection);
+
+        sliderConnectionThreshold = findViewById(R.id.slider_connection_threshold);
+        txtConnectionThresholdSummary = findViewById(R.id.txt_connection_threshold_summary);
     }
 
     private void loadStoredPreferences() {
@@ -67,36 +75,40 @@ public class SettingsActivity extends AppCompatActivity {
             initialForegroundService = preferenceManager.isForegroundServiceEnabled();
             initialEngineSchedule = preferenceManager.isEngineScheduleEnabled();
             initialVoltage = preferenceManager.isTelemetryEnabled();
-            initialAvoidPoorConnection = preferenceManager.isAvoidPoorConnectionEnabled();
+            initialConnectionThreshold = preferenceManager.getConnectionThreshold();
+
+            currentConnectionThreshold = initialConnectionThreshold;
 
             switchAutoConnect.setChecked(initialAutoConnect);
             switchFailSafe.setChecked(initialFailSafe);
             switchForegroundService.setChecked(initialForegroundService);
             switchEngineSchedule.setChecked(initialEngineSchedule);
             switchVoltage.setChecked(initialVoltage);
-            switchAvoidPoorConnection.setChecked(initialAvoidPoorConnection);
+
+            sliderConnectionThreshold.setValue(currentConnectionThreshold);
+            updateThresholdSummary(currentConnectionThreshold);
         }
     }
 
-    private void updateDurationLabel(TextView label, float valueMs) {
-        float seconds = valueMs / 1000f;
-        label.setText(String.format(Locale.getDefault(), "%.1fs", seconds));
+    private void updateThresholdSummary(int threshold) {
+        String[] descriptions = {
+                "Long Range (If you want to connect from far away.)",
+                "Medium Range (You are around the vehicle.) Default",
+                "Strong Only (You are right on the vehicle!)"
+        };
+        if (threshold >= 0 && threshold < descriptions.length) {
+            txtConnectionThresholdSummary.setText(descriptions[threshold]);
+        }
     }
 
     private void setupListeners() {
-        // Auto-Connect toggle listener
         switchAutoConnect.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null) {
-                preferenceManager.setAutoConnectEnabled(isChecked);
-            }
+            if (preferenceManager != null) preferenceManager.setAutoConnectEnabled(isChecked);
         });
 
-        // Fail-Safe Toggle listener
         switchFailSafe.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (preferenceManager != null && vehicleRepository.getDefaultVehicle() != null) {
                 preferenceManager.setFailSafeEnabled(isChecked);
-
-                // Sync immediately to ESP32 using BleDeviceSession if connected
                 String macAdd = vehicleRepository.getDefaultVehicle().getMacAddress();
                 if (bleManager != null) {
                     BleDeviceSession session = bleManager.getSession(macAdd);
@@ -107,11 +119,9 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
 
-        // Foreground Service Toggle listener
         switchForegroundService.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (preferenceManager != null) {
                 preferenceManager.setForegroundServiceEnabled(isChecked);
-
                 if (isChecked) {
                     startForegroundService(new Intent(SettingsActivity.this, BleForegroundService.class));
                 } else {
@@ -120,20 +130,19 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
 
-        // Voltage / Telemetry Toggle listener
         switchVoltage.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null) {
-                preferenceManager.setTelemetryEnabled(isChecked);
-            }
+            if (preferenceManager != null) preferenceManager.setTelemetryEnabled(isChecked);
         });
 
-        // Scheduled Engine-Run
         setupScheduledEngineRunListener();
 
-        // Avoid Poor Connection
-        switchAvoidPoorConnection.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (preferenceManager != null) {
-                preferenceManager.setAvoidPoorConnectionEnabled(isChecked);
+        // Slider value change listener
+        sliderConnectionThreshold.addOnChangeListener((slider, value, fromUser) -> {
+            int threshold = (int) value;
+            currentConnectionThreshold = threshold;
+            updateThresholdSummary(threshold);
+            if (fromUser && preferenceManager != null) {
+                preferenceManager.setConnectionThreshold(threshold);
             }
         });
     }
@@ -146,13 +155,12 @@ public class SettingsActivity extends AppCompatActivity {
 
     @Override
     public void finish() {
-        // Check if any current switch state differs from its initial state
         boolean hasChanges = (switchAutoConnect.isChecked() != initialAutoConnect) ||
                 (switchFailSafe.isChecked() != initialFailSafe) ||
                 (switchForegroundService.isChecked() != initialForegroundService) ||
                 (switchEngineSchedule.isChecked() != initialEngineSchedule) ||
                 (switchVoltage.isChecked() != initialVoltage) ||
-                (switchAvoidPoorConnection.isChecked() != initialAvoidPoorConnection);
+                (currentConnectionThreshold != initialConnectionThreshold);
 
         if (hasChanges) {
             setResult(RESULT_OK);
@@ -170,11 +178,8 @@ public class SettingsActivity extends AppCompatActivity {
                 BleDeviceSession session = bleManager != null ? bleManager.getSession(macAdd) : null;
 
                 if (!isChecked) {
-                    // Clean up the Engine-Run Schedule when disabled
                     if (session != null && session.isConnected()) {
                         session.sendScheduledEpoch(0);
-
-                        // Request updated schedule from ESP32 after a short delay
                         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                             if (session.isConnected()) {
                                 session.requestScheduleFromEsp32();
@@ -183,7 +188,6 @@ public class SettingsActivity extends AppCompatActivity {
                     }
                 }
 
-                // Lastly update preferences after a delay
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     preferenceManager.setEngineScheduleEnabled(isChecked);
                 }, 2000);

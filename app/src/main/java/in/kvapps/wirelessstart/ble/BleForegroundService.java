@@ -14,13 +14,16 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import in.kvapps.wirelessstart.MainActivity;
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.enums.ScanHealth;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
@@ -40,6 +43,7 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
     // Watchdog interval: Check connection status every 15 minutes
     private static final long WATCHDOG_INTERVAL_MS = 15L * 60L * 1000L;
+    private final Map<String, ConnectionState> lastKnownStates = new HashMap<>();
 
     @Override
     public void onCreate() {
@@ -93,22 +97,33 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
 
     @Override
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
+        ConnectionState currentState = newState.getState();
+        ConnectionState previousState = lastKnownStates.get(macAddress);
+
         switch (newState.getState()) {
             case CONNECTED:
-                updateForegroundNotification(ScanHealth.HEALTHY);
-                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                if (previousState != ConnectionState.CONNECTED) {
+                    updateForegroundNotification(ScanHealth.HEALTHY);
+                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
+                }
                 break;
             case DISCOVERING:
                 updateForegroundNotification(ScanHealth.HEALTHY);
                 break;
             case DISCONNECTED:
+                if (previousState != ConnectionState.DISCONNECTED) {
+                    updateForegroundNotification(ScanHealth.HEALTHY);
+                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
+                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
+                }
+                break;
+            case NEARBY_FAR_AWAY:
             default:
-                updateForegroundNotification(ScanHealth.HEALTHY);
-                WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 break;
         }
+
+        lastKnownStates.put(macAddress, currentState);
     }
 
     private void scheduleNextWatchdogAlarm() {

@@ -42,11 +42,14 @@ public class ConnectionStateRepository {
         }
     }
 
-    public void updateState(String macAddress, ConnectionState state, String statusText) {
+    /**
+     * Updates device connection state with RSSI support.
+     */
+    public void updateState(String macAddress, ConnectionState state, String statusText, int rssi) {
         if (macAddress == null) return;
 
         long connectedAtTime = ConnectionState.CONNECTED.equals(state) ? System.currentTimeMillis() : 0L;
-        DeviceConnectionState newState = new DeviceConnectionState(macAddress, state, statusText, connectedAtTime);
+        DeviceConnectionState newState = new DeviceConnectionState(macAddress, state, statusText, connectedAtTime, rssi);
         stateMap.put(macAddress, newState);
 
         for (OnConnectionStateChangedListener listener : listeners) {
@@ -54,6 +57,13 @@ public class ConnectionStateRepository {
                 listener.onStateChanged(macAddress, newState);
             } catch (Exception ignored) {}
         }
+    }
+
+    /**
+     * Backward-compatible overload defaulting RSSI to -61 dBm.
+     */
+    public void updateState(String macAddress, ConnectionState state, String statusText) {
+        updateState(macAddress, state, statusText, -999);
     }
 
     public void removeState(String macAddress) {
@@ -72,12 +82,20 @@ public class ConnectionStateRepository {
         private final ConnectionState state;
         private final String statusText;
         private final long connectedAtTime;
+        private final int rssi;
 
-        public DeviceConnectionState(String macAddress, ConnectionState state, String statusText, long connectedAtTime) {
+        // Primary constructor with RSSI
+        public DeviceConnectionState(String macAddress, ConnectionState state, String statusText, long connectedAtTime, int rssi) {
             this.macAddress = macAddress;
             this.state = state;
             this.statusText = statusText;
             this.connectedAtTime = connectedAtTime;
+            this.rssi = rssi;
+        }
+
+        // Secondary constructor for fallback instances
+        public DeviceConnectionState(String macAddress, ConnectionState state, String statusText, long connectedAtTime) {
+            this(macAddress, state, statusText, connectedAtTime, -999);
         }
 
         public String getMacAddress() { return macAddress; }
@@ -85,5 +103,6 @@ public class ConnectionStateRepository {
         public boolean isConnected() { return state == ConnectionState.CONNECTED; }
         public String getStatusText() { return statusText; }
         public long getConnectedAtTime() { return connectedAtTime; }
+        public int getRssi() { return rssi; }
     }
 }

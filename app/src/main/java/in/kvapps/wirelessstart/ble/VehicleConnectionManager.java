@@ -17,6 +17,7 @@ import java.util.Map;
 
 public class VehicleConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener {
     private static final String TAG = "VehicleConnectionMgr";
+    private static final long RSSI_TIMEOUT_MS = 4000;
 
     private final Context context;
     private final VehicleRepository vehicleRepository;
@@ -25,6 +26,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final Map<String, ConnectionState> lastKnownStates = new HashMap<>();
+    private final Map<String, Runnable> rssiTimeoutRunnables = new HashMap<>();
 
     public interface ConnectionLifecycleListener {
         void onServicesReady(Vehicle vehicle);
@@ -47,6 +49,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
     public void unregister() {
         ConnectionStateRepository.getInstance().removeListener(this);
         mainHandler.removeCallbacksAndMessages(null);
+        rssiTimeoutRunnables.clear();
     }
 
     @Override
@@ -76,6 +79,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
                                        ConnectionStateRepository.DeviceConnectionState newState) {
         switch (currentState) {
             case CONNECTED:
+                cancelRssiTimeout(macAddress);
                 if (previousState != ConnectionState.CONNECTED) {
                     Log.i(TAG, "SSOT StateChanged: Newly Connected for " + macAddress);
                     mainHandler.postDelayed(() -> listener.onServicesReady(vehicle), 50);
@@ -83,6 +87,7 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
                 break;
 
             case DISCONNECTED:
+                cancelRssiTimeout(macAddress);
                 if (previousState != ConnectionState.DISCONNECTED) {
                     Log.i(TAG, "SSOT StateChanged: Offline for " + vehicle.getMacAddress());
                     updateConnectionUi(vehicle);
@@ -98,19 +103,29 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
                 break;
 
             case SCANNING:
+                cancelRssiTimeout(macAddress);
                 if (previousState != ConnectionState.SCANNING) {
                     updateConnectionUi(vehicle);
                 }
                 break;
 
             case RECONNECTING:
+                cancelRssiTimeout(macAddress);
                 if (previousState != ConnectionState.RECONNECTING) {
                     updateConnectionUi(vehicle);
                 }
                 break;
 
+            case NEARBY_FAR_AWAY:
+                // previousState check not needed for NEARBY_FAR_AWAY; as this workflow is sent continuously for rssi updates
+                updateConnectionUi(vehicle);
+                // Reset/Start the watchdog timer. If RSSI packets stop, it falls back to SCANNING.
+                resetRssiTimeout(macAddress);
+                break;
+
             case DISCOVERING:
             default:
+                cancelRssiTimeout(macAddress);
                 updateConnectionUi(vehicle);
                 break;
         }
@@ -118,5 +133,27 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
     private void updateConnectionUi(Vehicle vehicle) {
         vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
+    }
+
+    private void resetRssiTimeout(String macAddress) {
+        cancelRssiTimeout(macAddress);
+
+        Runnable timeoutRunnable = () -> {
+            Log.i(TAG, "RSSI timeout reached for " + macAddress + ". Device likely out of range or powered off. Resetting to SCANNING.");
+
+            ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.SCANNING, "Scanning");
+
+            rssiTimeoutRunnables.remove(macAddress);
+        };
+
+        rssiTimeoutRunnables.put(macAddress, timeoutRunnable);
+        mainHandler.postDelayed(timeoutRunnable, RSSI_TIMEOUT_MS);
+    }
+
+    private void cancelRssiTimeout(String macAddress) {
+        Runnable existingRunnable = rssiTimeoutRunnables.remove(macAddress);
+        if (existingRunnable != null) {
+            mainHandler.removeCallbacks(existingRunnable);
+        }
     }
 }

@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.enums.SignalState;
 
 public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
@@ -47,19 +48,8 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         this.bluetoothLeScanner = (bluetoothAdapter != null) ? bluetoothAdapter.getBluetoothLeScanner() : null;
     }
 
-    /**
-     * Add or update the list of target vehicles to scan for simultaneously.
-     */
-    public void updateTargetMacs(List<String> newMacs) {
-        // If already scanning, restart the scan dynamically to apply the new filters
-        if (isScanning) {
-            stopScan();
-            startScan(newMacs);
-        }
-    }
-
     @Override
-    public void onSignalStateChanged(String macAddress, BleScanReceiver.SignalState state, int rssi) {
+    public void onSignalStateChanged(String macAddress, SignalState state, int rssi) {
         // Ensure the detected device belongs to our active tracking set
         if (macAddress == null) {
             return;
@@ -88,9 +78,12 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
                 break;
 
             case LOW_WAITING:
-                if (listener != null) {
-                    listener.onScanLog("⏳ Low signal for " + macAddress + " (" + rssi + " dBm). Waiting...");
-                }
+                String statusDesc = "Waiting for Signal to improve! (" + rssi + " dBm)";
+//                Log.i("BleScanManager", "Received rssi events for MAC => " + macAddress + " rssiValue => " + rssi);
+                ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.NEARBY_FAR_AWAY, statusDesc, rssi);
+                break;
+            default:
+                // Do nothing
                 break;
         }
     }
@@ -108,7 +101,6 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         lastScanStartTimestamp = System.currentTimeMillis();
 
         // Reset the receiver's state memory when starting a brand new scan
-        BleScanReceiver.resetState();
         BleScanReceiver.targetMacAddresses = new HashSet<>(targetMacs);
         BleScanReceiver.callback = this;
 
@@ -171,7 +163,6 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         isScanning = false;
         scanPendingIntent = null;
         BleScanReceiver.callback = null;
-        BleScanReceiver.resetState();
     }
 
     public boolean isScanning() {

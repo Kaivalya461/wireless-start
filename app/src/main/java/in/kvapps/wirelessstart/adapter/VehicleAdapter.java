@@ -3,7 +3,6 @@ package in.kvapps.wirelessstart.adapter;
 import android.animation.ValueAnimator;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,17 +15,20 @@ import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.util.UiUtils;
+import in.kvapps.wirelessstart.view.GlowCardView;
 
 public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleViewHolder> {
 
@@ -110,6 +112,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
     }
 
     static class VehicleViewHolder extends RecyclerView.ViewHolder {
+        private final GlowCardView cardVehicleItem; // Root view cast to GlowCardView
         private final TextView txtVehicleName, txtStatus, txtVoltageValue, txtActiveBadge;
         private final View statusIndicator, viewStatusBar;
         private final ViewGroup statusBarParent;
@@ -118,9 +121,13 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
         private final View panelVoltage;
 
         private ValueAnimator activeAnimator;
+        private final List<Integer> rssiHistory = new ArrayList<>();
+        private float currentAnimatedWidth = 0f;
+        private int lastAnimatedWidth = -1;
 
         public VehicleViewHolder(@NonNull View itemView) {
             super(itemView);
+            cardVehicleItem = (GlowCardView) itemView; // itemView itself is the root GlowCardView
             txtVehicleName = itemView.findViewById(R.id.txt_vehicle_name);
             statusIndicator = itemView.findViewById(R.id.status_indicator);
             txtStatus = itemView.findViewById(R.id.txt_status);
@@ -150,15 +157,28 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             statusIndicator.setBackgroundResource(isConnected ? R.drawable.indicator_online : R.drawable.indicator_offline);
             btnReconnect.setVisibility(isConnected ? View.GONE : View.VISIBLE);
 
-            // Determine Connection State & RSSI
+            // Determine Connection State & Live RSSI
             ConnectionState state = (connectionState != null && connectionState.getState() != null)
                     ? connectionState.getState()
                     : ConnectionState.DISCONNECTED;
 
-            updateConnectionState(state, -61); // Using -61 as sample RSSI for now
+            int liveRssi = (connectionState != null) ? connectionState.getRssi() : -999;
 
-            // Active Badge & Preferences
-            txtActiveBadge.setVisibility(vehicle.isDefault() ? View.VISIBLE : View.GONE);
+            // Reset history if the vehicle changes or disconnects to prevent stale averages
+            if (state == ConnectionState.DISCONNECTED || state == ConnectionState.SCANNING) {
+                rssiHistory.clear();
+                lastAnimatedWidth = -1;
+                currentAnimatedWidth = 0f;
+            }
+
+            updateConnectionState(vehicle, state, liveRssi);
+
+            // Active Badge & Pulsing Glow Effect
+            boolean isActive = vehicle.isDefault();
+            txtActiveBadge.setVisibility(isActive ? View.VISIBLE : View.GONE);
+
+            // Toggle slow-pulsing edge glow via GlowCardView
+            cardVehicleItem.setGlowActive(isActive && isConnected);
 
             // Extract flags from settings (fallback safely if settings is null)
             boolean isStartEnabledSetting = settings != null && settings.isStartEngineEnabled();
@@ -166,12 +186,12 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             boolean canClick = isConnected && !isBusy;
 
-//            // Start button visibility & state
+            // Start button visibility & state
             btnStart.setVisibility(isStartEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStartEnabledSetting) {
                 UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
             }
-//            // Stop button visibility & state
+            // Stop button visibility & state
             btnStop.setVisibility(isStopEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStopEnabledSetting) {
                 UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
@@ -200,7 +220,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             return result;
         }
 
-        public void updateConnectionState(ConnectionState state, int rssiPercent) {
+        public void updateConnectionState(Vehicle vehicle, ConnectionState state, int rssiValue) {
             viewStatusBar.animate().cancel();
             if (activeAnimator != null) {
                 activeAnimator.cancel();
@@ -209,7 +229,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             int parentWidth = statusBarParent.getWidth();
             if (parentWidth == 0) {
-                statusBarParent.post(() -> updateConnectionState(state, rssiPercent));
+                statusBarParent.post(() -> updateConnectionState(vehicle, state, rssiValue));
                 return;
             }
 
@@ -221,29 +241,33 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             int startWidth = viewStatusBar.getWidth();
             int colorRes;
-            int targetWidth = 0;
-            long duration = 300;
 
             switch (state) {
                 case CONNECTED:
                     colorRes = R.color.status_connected;
-                    targetWidth = parentWidth;
-                    duration = 300;
-                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    animateBarWidth(startWidth, parentWidth, 300, colorRes, false);
                     break;
 
                 case DISCONNECTED:
                     colorRes = R.color.status_disconnected;
-                    targetWidth = 0;
-                    duration = 800;
-                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    animateBarWidth(startWidth, 0, 800, colorRes, false);
                     break;
 
-                case NEARBY_FAR_AWAY: // TODO- Yet to implement this
+                case NEARBY_FAR_AWAY:
                     colorRes = R.color.status_nearby;
-                    targetWidth = (int) (parentWidth * (Math.max(0, Math.min(rssiPercent, 100)) / 100f));
-                    duration = 400;
-                    animateBarWidth(startWidth, targetWidth, duration, colorRes, false);
+                    viewStatusBar.setBackgroundColor(ContextCompat.getColor(itemView.getContext(), colorRes));
+
+                    // Delegate smoothing calculation cleanly to the manager using your proven logic
+                    int smoothWidth = VehicleDistanceManager.getInstance()
+                            .getSmoothedWidth(vehicle.getMacAddress(), rssiValue, parentWidth);
+
+                    if (currentAnimatedWidth == 0f && startWidth > 0) {
+                        currentAnimatedWidth = startWidth;
+                    }
+
+                    ViewGroup.LayoutParams params = viewStatusBar.getLayoutParams();
+                    params.width = smoothWidth;
+                    viewStatusBar.setLayoutParams(params);
                     break;
 
                 case SCANNING:
@@ -288,5 +312,57 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             anim.start();
             activeAnimator = anim;
         }
+
+        // TODO: Marked for deletion, as it was moved into VehicleDistanceManager and RssiFilter
+//        private int calculateTargetWidth(int rssiValue, int parentWidth) {
+//            // Filter out invalid/empty RSSI packets
+//            if (rssiValue >= 0 || rssiValue == -999) {
+//                return lastAnimatedWidth != -1 ? lastAnimatedWidth : 0;
+//            }
+//
+//            // 1. Maintain sliding window history (Median Filter for outlier rejection)
+//            rssiHistory.add(rssiValue);
+//            if (rssiHistory.size() > MAX_HISTORY_SIZE) {
+//                rssiHistory.remove(0);
+//            }
+//
+//            List<Integer> sortedList = new ArrayList<>(rssiHistory);
+//            java.util.Collections.sort(sortedList);
+//
+//            int medianRssi;
+//            int size = sortedList.size();
+//            if (size % 2 == 0) {
+//                medianRssi = (sortedList.get((size / 2) - 1) + sortedList.get(size / 2)) / 2;
+//            } else {
+//                medianRssi = sortedList.get(size / 2);
+//            }
+//
+//            // 2. Clamping bounds (~max range cutoff vs closest range)
+//            int minRssi = -100;
+//            int maxRssi = SignalState.SUPER_STRONG.getRssiLimit();
+//
+//            if (maxRssi <= minRssi) {
+//                return 0;
+//            }
+//
+//            int clampedRssi = Math.max(minRssi, Math.min(medianRssi, maxRssi));
+//            float normalizedPercent = (float) (clampedRssi - minRssi) / (maxRssi - minRssi);
+//
+//            // 3. Perceptual curve scaling (makes medium distance scaling feel more natural)
+//            normalizedPercent = (float) Math.pow(normalizedPercent, 1.5);
+//
+//            return (int) (parentWidth * normalizedPercent);
+//        }
+
+        // TODO: Marked for deletion, as it was moved into VehicleDistanceManager and RssiFilter
+//        private int getSmoothTargetWidth(int rssiValue, int parentWidth) {
+//            int targetWidth = calculateTargetWidth(rssiValue, parentWidth);
+//
+//            // Exponential Moving Average (EMA) factor (0.15f handles fast packet arrivals smoothly)
+//            float smoothingFactor = 0.15f;
+//            currentAnimatedWidth = currentAnimatedWidth + smoothingFactor * (targetWidth - currentAnimatedWidth);
+//
+//            return (int) currentAnimatedWidth;
+//        }
     }
 }

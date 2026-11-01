@@ -8,6 +8,7 @@ import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
@@ -16,6 +17,8 @@ public class AppLogger {
     private static final String SOFT_RED = "#FF6B6B";
     private static final String SOFT_GOLD = "#F4D03F";
     private static final String LIGHT_BLUE = "#00E5FF";
+
+    private static final List<String> ERROR_KEYWORDS = List.of("System Alert", "Failure", "Error", "Disconnected");
 
     public static void logToDatabaseAndLogcat(Context context, String tag, String message) {
         long currentTime = System.currentTimeMillis();
@@ -36,7 +39,8 @@ public class AppLogger {
         SpannableString spannableLine = new SpannableString(logLine);
 
         // Apply Soft Red for safety/errors/denied
-        if (logLine.contains("System Alert") || logLine.contains("Failure") || logLine.contains("Error")) {
+        var isRedLogLine = ERROR_KEYWORDS.stream().anyMatch(logLine::contains);
+        if (isRedLogLine) {
             spannableLine.setSpan(
                     new ForegroundColorSpan(Color.parseColor(SOFT_RED)),
                     0,

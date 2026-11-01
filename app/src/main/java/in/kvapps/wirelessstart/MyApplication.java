@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ProcessLifecycleOwner;
 
 import in.kvapps.wirelessstart.ble.BleManager;
+import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 
@@ -26,6 +27,8 @@ public class MyApplication extends android.app.Application {
 
         // Centralize BleManager initialization here once at application startup
         bleManager = new BleManager(this, null);
+
+        VehicleDistanceManager.getInstance(this);
 
         // Observe when the app comes to the foreground
         ProcessLifecycleOwner.get().getLifecycle().addObserver(new DefaultLifecycleObserver() {

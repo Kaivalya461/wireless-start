@@ -82,7 +82,7 @@ public class DeviceProtocolHandler {
 
                 // Handle cancellation / empty schedule explicitly
                 if (serverEpoch == 0) {
-                    listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Cancelled");
+//                    listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Cancelled");
                     return;
                 }
 
@@ -91,7 +91,7 @@ public class DeviceProtocolHandler {
                         .withZone(java.time.ZoneId.systemDefault())
                         .format(java.time.Instant.ofEpochMilli(serverEpoch * 1000));
 
-                listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Completed -> " + formattedDate);
+//                listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Engine-Run Schedule Completed -> " + formattedDate);
 
             } catch (NumberFormatException e) {
                 if (listener != null) listener.onProtocolLog("Failed to parse schedule epoch from nRF52 [" + macAddress + "].");

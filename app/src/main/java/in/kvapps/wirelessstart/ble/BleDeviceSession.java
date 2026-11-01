@@ -17,6 +17,8 @@ public class BleDeviceSession {
     private final BluetoothGatt gatt;
     private final BluetoothGattCharacteristic commandCharacteristic;
     private final String macAddress;
+    private final Handler rssiHandler = new Handler(Looper.getMainLooper());
+    private Runnable rssiRunnable;
 
     public BleDeviceSession(Context context, BluetoothGatt gatt, BluetoothGattCharacteristic commandCharacteristic) {
         this.context = context;
@@ -140,5 +142,31 @@ public class BleDeviceSession {
                 () -> Log.d(TAG, "GET_CONFIG command sent successfully."),
                 () -> Log.e(TAG, "Failed to send GET_CONFIG command.")
         );
+    }
+
+    public void startRssiPolling() {
+        if (rssiRunnable != null) return;
+
+        rssiRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (gatt != null) {
+                    try {
+                        gatt.readRemoteRssi();
+                    } catch (SecurityException e) {
+                        Log.e(TAG, "Security Exception reading RSSI for " + macAddress);
+                    }
+                }
+                rssiHandler.postDelayed(this, 2000); // Poll every 2 seconds
+            }
+        };
+        rssiHandler.post(rssiRunnable);
+    }
+
+    public void stopRssiPolling() {
+        if (rssiHandler != null && rssiRunnable != null) {
+            rssiHandler.removeCallbacks(rssiRunnable);
+            rssiRunnable = null;
+        }
     }
 }

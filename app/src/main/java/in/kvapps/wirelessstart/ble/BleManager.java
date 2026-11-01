@@ -124,6 +124,8 @@ public class BleManager {
         if (allConnected && bleScanManager.isScanning()) {
             bleScanManager.stopScan();
             logMessage("All target vehicles connected. Stopping background scan.");
+        } else {
+            refreshVehiclesScan();
         }
     }
 
@@ -278,11 +280,13 @@ public class BleManager {
     }
 
     public void disconnect(String macAddress) {
+        VehicleDistanceManager.getInstance().removeVehicle(macAddress);
         connectingMacs.remove(macAddress);
         BleDeviceSession session = activeSessions.remove(macAddress);
 
         if (session != null && session.getGatt() != null) {
             try {
+                session.stopRssiPolling();
                 session.getGatt().disconnect();
                 session.getGatt().close();
             } catch (SecurityException e) {
@@ -337,15 +341,8 @@ public class BleManager {
                 // If auto-connect is enabled, restart background scan for remaining targets after a short delay
                 if (!preferenceManager.isAutoConnectEnabled()) {
                     logMessage("Auto-connect is disabled. Standing by.");
-                } else if (!bleScanManager.isScanning()) {
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        startMultiVehicleScan();
-                    }, 200);
-                } else if (bleScanManager.getActiveTargetMacs().contains(macAddress)) {
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        bleScanManager.stopScan();
-                        startMultiVehicleScan();
-                    }, 200);
+                } else {
+                    evaluateScanState();
                 }
             }
         }
@@ -363,6 +360,7 @@ public class BleManager {
                         // Instantiate and register the dedicated device session per vehicle MAC
                         BleDeviceSession session = new BleDeviceSession(context, gatt, characteristic);
                         activeSessions.put(macAddress, session);
+                        session.startRssiPolling();
 
                         // This ensures Multi-Vehicle Scan is stopped once all connected.
                         evaluateScanState();
@@ -389,6 +387,15 @@ public class BleManager {
             String macAddress = gatt.getDevice().getAddress();
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null) {
                 listener.onDataReceived(macAddress, value);
+            }
+        }
+
+        @Override
+        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
+            String macAddress = gatt.getDevice().getAddress();
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                // Feed live connected RSSI into the central distance manager
+                VehicleDistanceManager.getInstance().updateVehicleRssi(macAddress, rssi);
             }
         }
     };

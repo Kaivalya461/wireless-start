@@ -39,6 +39,7 @@ import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
+import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
@@ -118,7 +119,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-//        getWindow().setStatusBarColor(Color.parseColor("#121212"));
 
         initDependencies();
         initUiViews();
@@ -234,6 +234,24 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // Initialize connection manager observer
         connectionManager = new VehicleConnectionManager(this, vehicleRepository, vehicleAdapter, this);
+
+        VehicleDistanceManager.getInstance()
+                .setListener(new VehicleDistanceManager.OnClosestVehicleChangedListener() {
+                    @Override
+                    public void onClosestVehicleChanged(String newClosestMac) {
+                        if (newClosestMac == null) return;
+
+                        runOnUiThread(() -> {
+                            // Find the vehicle object corresponding to this MAC address
+                            Vehicle closestVehicle = vehicleRepository.getVehicleByMac(newClosestMac);
+                            if (closestVehicle != null) {
+                                selectedVehicle = closestVehicle;
+                                vehicleRepository.setDefaultVehicle(closestVehicle.getId());
+//                                onLog("🎯 Closest vehicle updated: " + closestVehicle.getName());
+                            }
+                        });
+                    }
+                });
     }
 
     private void setupClickListeners() {
@@ -269,7 +287,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                         () -> {
                             FeedbackUtils.triggerDoubleVibrate(this);
                             FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
-                            onLog("Connection established. Ready for control operations.");
+                            onLog("[" + vehicle.getName() + "] Ready for control.");
                         }
                 );
             }

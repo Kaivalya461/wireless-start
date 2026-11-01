@@ -25,6 +25,7 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchForegroundService;
     private SwitchCompat switchEngineSchedule;
     private SwitchCompat switchVoltage;
+    private SwitchCompat switchAutoDefaultVehicle;
 
     // Slider controls for Proximity Range
     private Slider sliderConnectionThreshold;
@@ -35,6 +36,7 @@ public class SettingsActivity extends AppCompatActivity {
     private boolean initialForegroundService;
     private boolean initialEngineSchedule;
     private boolean initialVoltage;
+    private boolean initialAutoDefaultVehicle;
     private int initialConnectionThreshold;
 
     private int currentConnectionThreshold;
@@ -63,6 +65,7 @@ public class SettingsActivity extends AppCompatActivity {
         switchForegroundService = findViewById(R.id.switch_foreground_service);
         switchEngineSchedule = findViewById(R.id.switch_engine_schedule);
         switchVoltage = findViewById(R.id.switch_voltage);
+        switchAutoDefaultVehicle = findViewById(R.id.switch_auto_default_vehicle);
 
         sliderConnectionThreshold = findViewById(R.id.slider_connection_threshold);
         txtConnectionThresholdSummary = findViewById(R.id.txt_connection_threshold_summary);
@@ -75,6 +78,7 @@ public class SettingsActivity extends AppCompatActivity {
             initialForegroundService = preferenceManager.isForegroundServiceEnabled();
             initialEngineSchedule = preferenceManager.isEngineScheduleEnabled();
             initialVoltage = preferenceManager.isTelemetryEnabled();
+            initialAutoDefaultVehicle = preferenceManager.isAutoDefaultVehicleEnabled();
             initialConnectionThreshold = preferenceManager.getConnectionThreshold();
 
             currentConnectionThreshold = initialConnectionThreshold;
@@ -84,6 +88,7 @@ public class SettingsActivity extends AppCompatActivity {
             switchForegroundService.setChecked(initialForegroundService);
             switchEngineSchedule.setChecked(initialEngineSchedule);
             switchVoltage.setChecked(initialVoltage);
+            switchAutoDefaultVehicle.setChecked(initialAutoDefaultVehicle);
 
             sliderConnectionThreshold.setValue(currentConnectionThreshold);
             updateThresholdSummary(currentConnectionThreshold);
@@ -134,6 +139,13 @@ public class SettingsActivity extends AppCompatActivity {
             if (preferenceManager != null) preferenceManager.setTelemetryEnabled(isChecked);
         });
 
+        // Auto-Select Default Vehicle Toggle Listener
+        switchAutoDefaultVehicle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (preferenceManager != null) {
+                preferenceManager.setAutoDefaultVehicleEnabled(isChecked);
+            }
+        });
+
         setupScheduledEngineRunListener();
 
         // Slider value change listener
@@ -160,6 +172,7 @@ public class SettingsActivity extends AppCompatActivity {
                 (switchForegroundService.isChecked() != initialForegroundService) ||
                 (switchEngineSchedule.isChecked() != initialEngineSchedule) ||
                 (switchVoltage.isChecked() != initialVoltage) ||
+                (switchAutoDefaultVehicle.isChecked() != initialAutoDefaultVehicle) ||
                 (currentConnectionThreshold != initialConnectionThreshold);
 
         if (hasChanges) {

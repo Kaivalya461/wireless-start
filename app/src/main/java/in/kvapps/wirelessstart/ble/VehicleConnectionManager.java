@@ -99,6 +99,8 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
                     FeedbackUtils.triggerDisconnectVibrate(context);
                     FeedbackUtils.showConnectionNotification(context, false, uptimeMillis, listener.isAppInForeground());
+
+                    listener.onLog("[" + vehicle.getName() + "] Disconnected");
                 }
                 break;
 

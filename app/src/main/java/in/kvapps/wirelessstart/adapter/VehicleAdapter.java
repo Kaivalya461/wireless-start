@@ -21,9 +21,9 @@ import java.util.List;
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
-import in.kvapps.wirelessstart.enums.SignalState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
@@ -122,8 +122,6 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
         private ValueAnimator activeAnimator;
         private final List<Integer> rssiHistory = new ArrayList<>();
-        private static final int MAX_HISTORY_SIZE = 7; // Increased size for better smoothing
-
         private float currentAnimatedWidth = 0f;
         private int lastAnimatedWidth = -1;
 
@@ -173,7 +171,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
                 currentAnimatedWidth = 0f;
             }
 
-            updateConnectionState(state, liveRssi);
+            updateConnectionState(vehicle, state, liveRssi);
 
             // Active Badge & Pulsing Glow Effect
             boolean isActive = vehicle.isDefault();
@@ -222,7 +220,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             return result;
         }
 
-        public void updateConnectionState(ConnectionState state, int rssiValue) {
+        public void updateConnectionState(Vehicle vehicle, ConnectionState state, int rssiValue) {
             viewStatusBar.animate().cancel();
             if (activeAnimator != null) {
                 activeAnimator.cancel();
@@ -231,7 +229,7 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
 
             int parentWidth = statusBarParent.getWidth();
             if (parentWidth == 0) {
-                statusBarParent.post(() -> updateConnectionState(state, rssiValue));
+                statusBarParent.post(() -> updateConnectionState(vehicle, state, rssiValue));
                 return;
             }
 
@@ -259,14 +257,9 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
                     colorRes = R.color.status_nearby;
                     viewStatusBar.setBackgroundColor(ContextCompat.getColor(itemView.getContext(), colorRes));
 
-                    // Get smoothed width using median filtering + EMA smoothing
-                    int smoothWidth = getSmoothTargetWidth(rssiValue, parentWidth);
-
-                    // Deadband check: Ignore tiny width variations (< 4 pixels) to avoid layout jiggling
-                    if (lastAnimatedWidth != -1 && Math.abs(smoothWidth - lastAnimatedWidth) < 4) {
-                        return;
-                    }
-                    lastAnimatedWidth = smoothWidth;
+                    // Delegate smoothing calculation cleanly to the manager using your proven logic
+                    int smoothWidth = VehicleDistanceManager.getInstance()
+                            .getSmoothedWidth(vehicle.getMacAddress(), rssiValue, parentWidth);
 
                     if (currentAnimatedWidth == 0f && startWidth > 0) {
                         currentAnimatedWidth = startWidth;
@@ -320,54 +313,56 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             activeAnimator = anim;
         }
 
-        private int calculateTargetWidth(int rssiValue, int parentWidth) {
-            // Filter out invalid/empty RSSI packets
-            if (rssiValue >= 0 || rssiValue == -999) {
-                return lastAnimatedWidth != -1 ? lastAnimatedWidth : 0;
-            }
+        // TODO: Marked for deletion, as it was moved into VehicleDistanceManager and RssiFilter
+//        private int calculateTargetWidth(int rssiValue, int parentWidth) {
+//            // Filter out invalid/empty RSSI packets
+//            if (rssiValue >= 0 || rssiValue == -999) {
+//                return lastAnimatedWidth != -1 ? lastAnimatedWidth : 0;
+//            }
+//
+//            // 1. Maintain sliding window history (Median Filter for outlier rejection)
+//            rssiHistory.add(rssiValue);
+//            if (rssiHistory.size() > MAX_HISTORY_SIZE) {
+//                rssiHistory.remove(0);
+//            }
+//
+//            List<Integer> sortedList = new ArrayList<>(rssiHistory);
+//            java.util.Collections.sort(sortedList);
+//
+//            int medianRssi;
+//            int size = sortedList.size();
+//            if (size % 2 == 0) {
+//                medianRssi = (sortedList.get((size / 2) - 1) + sortedList.get(size / 2)) / 2;
+//            } else {
+//                medianRssi = sortedList.get(size / 2);
+//            }
+//
+//            // 2. Clamping bounds (~max range cutoff vs closest range)
+//            int minRssi = -100;
+//            int maxRssi = SignalState.SUPER_STRONG.getRssiLimit();
+//
+//            if (maxRssi <= minRssi) {
+//                return 0;
+//            }
+//
+//            int clampedRssi = Math.max(minRssi, Math.min(medianRssi, maxRssi));
+//            float normalizedPercent = (float) (clampedRssi - minRssi) / (maxRssi - minRssi);
+//
+//            // 3. Perceptual curve scaling (makes medium distance scaling feel more natural)
+//            normalizedPercent = (float) Math.pow(normalizedPercent, 1.5);
+//
+//            return (int) (parentWidth * normalizedPercent);
+//        }
 
-            // 1. Maintain sliding window history (Median Filter for outlier rejection)
-            rssiHistory.add(rssiValue);
-            if (rssiHistory.size() > MAX_HISTORY_SIZE) {
-                rssiHistory.remove(0);
-            }
-
-            List<Integer> sortedList = new ArrayList<>(rssiHistory);
-            java.util.Collections.sort(sortedList);
-
-            int medianRssi;
-            int size = sortedList.size();
-            if (size % 2 == 0) {
-                medianRssi = (sortedList.get((size / 2) - 1) + sortedList.get(size / 2)) / 2;
-            } else {
-                medianRssi = sortedList.get(size / 2);
-            }
-
-            // 2. Clamping bounds (~max range cutoff vs closest range)
-            int minRssi = -100;
-            int maxRssi = SignalState.SUPER_STRONG.getRssiLimit();
-
-            if (maxRssi <= minRssi) {
-                return 0;
-            }
-
-            int clampedRssi = Math.max(minRssi, Math.min(medianRssi, maxRssi));
-            float normalizedPercent = (float) (clampedRssi - minRssi) / (maxRssi - minRssi);
-
-            // 3. Perceptual curve scaling (makes medium distance scaling feel more natural)
-            normalizedPercent = (float) Math.pow(normalizedPercent, 1.5);
-
-            return (int) (parentWidth * normalizedPercent);
-        }
-
-        private int getSmoothTargetWidth(int rssiValue, int parentWidth) {
-            int targetWidth = calculateTargetWidth(rssiValue, parentWidth);
-
-            // Exponential Moving Average (EMA) factor (0.15f handles fast packet arrivals smoothly)
-            float smoothingFactor = 0.15f;
-            currentAnimatedWidth = currentAnimatedWidth + smoothingFactor * (targetWidth - currentAnimatedWidth);
-
-            return (int) currentAnimatedWidth;
-        }
+        // TODO: Marked for deletion, as it was moved into VehicleDistanceManager and RssiFilter
+//        private int getSmoothTargetWidth(int rssiValue, int parentWidth) {
+//            int targetWidth = calculateTargetWidth(rssiValue, parentWidth);
+//
+//            // Exponential Moving Average (EMA) factor (0.15f handles fast packet arrivals smoothly)
+//            float smoothingFactor = 0.15f;
+//            currentAnimatedWidth = currentAnimatedWidth + smoothingFactor * (targetWidth - currentAnimatedWidth);
+//
+//            return (int) currentAnimatedWidth;
+//        }
     }
 }

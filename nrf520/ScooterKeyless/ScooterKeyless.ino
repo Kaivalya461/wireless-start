@@ -13,7 +13,10 @@ void setup() {
 
     // 2. Load Persistent Configuration from Flash
     loadConfig();
-    // burnVehicleConfig("nrf520", 1, 1, 1);   // One time execution to udpate Config on chip's Flash
+
+    // One time execution to update Config on chip's Flash.
+    // Make sure the vehicle name is <= 9 characters to stay within the default BLE ATT MTU limit of nrf52.
+    // burnVehicleConfig("nrf520", 1, 1, 1);
 
     // 3. Check if a USB cable is actively plugged in (VBUS detected)
     bool usbConnected = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk) != 0;

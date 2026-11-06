@@ -4,8 +4,8 @@
 #include <Arduino.h>
 
 // Define pins using Seeed XIAO nRF52840 silkscreen labels (D0 - D10)
-#define START_RELAY_PIN D2  // Connect to Start relay module
-#define STOP_RELAY_PIN  D3  // Connect to Stop relay module
+#define START_RELAY_PIN D5  // Connect to Start relay module
+#define STOP_RELAY_PIN  D6  // Connect to Stop relay module
 
 // Accessor flags used by state checks
 bool getIsPulseActive();

@@ -35,7 +35,7 @@ void transmitConfigToApp() {
 
     // Format properties neatly as text/JSON payload so app can parse easily:
     // Format: CONFIG:Name,StartEn(0/1),StopEn(0/1),BattEn(0/1)
-    String configPayload = "CONFIG:" + String(currentConfig.deviceName) + "," +
+    String configPayload = "CONF:" + String(currentConfig.deviceName) + "," +
                            String(currentConfig.isStartEngineEnabled ? 1 : 0) + "," +
                            String(currentConfig.isStopEngineEnabled ? 1 : 0) + "," +
                            String(currentConfig.liveBatteryVoltageEnabled ? 1 : 0);

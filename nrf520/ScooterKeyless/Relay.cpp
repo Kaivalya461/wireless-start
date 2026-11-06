@@ -50,13 +50,8 @@ unsigned long lastSchedLogTime             = 0;
 const unsigned long SCHED_LOG_INTERVAL_MS  = 30UL * 1000UL;
 
 void setRelayState(int pin, bool state) {
-    if (pin == START_RELAY_PIN) {
-        // START Relay: Active-HIGH
-        digitalWrite(pin, state ? HIGH : LOW);
-    } else if (pin == STOP_RELAY_PIN) {
-        // STOP Relay: Active-LOW
-        digitalWrite(pin, state ? LOW : HIGH);
-    }
+    // Active-HIGH for both START Relay and STOP Relay
+    digitalWrite(pin, state ? HIGH : LOW);
 }
 
 bool getIsPulseActive() {

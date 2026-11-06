@@ -1,9 +1,9 @@
 package in.kvapps.wirelessstart.enums;
 
 public enum SignalState {
-    SUPER_STRONG(-60, 2),      // >= -55 dBm (Level 2: Strong Only)
-    MEDIUM_HIGH(-80, 1),       // -51 dBm to -80 dBm (Level 1: Medium)
-    LOW_WAITING(-90, 0),     //  -81 dBm to -90 dBm (Level 0: Low)
+    SUPER_STRONG(-64, 2),      // >= -64 dBm (Level 2: Strong Only)
+    MEDIUM_HIGH(-75, 1),       // -65 dBm to -75 dBm (Level 1: Medium)
+    LOW_WAITING(-90, 0),     //  -76 dBm to -90 dBm (Level 0: Low)
     LOW_TRIGGER(-999, -1);      // < -90 dBm, never connect
 
     private final int rssiLimit;

@@ -51,7 +51,6 @@ import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
-import in.kvapps.wirelessstart.shared.model.VehicleNearbyPayload;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
@@ -246,7 +245,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         VehicleDistanceManager.getInstance()
                 .setListener(new VehicleDistanceManager.OnClosestVehicleChangedListener() {
                     @Override
-                    public void onClosestVehicleChanged(String newClosestMac, int rssi) {
+                    public void onClosestVehicleChanged(String newClosestMac) {
                         if (newClosestMac == null) return;
 
                         runOnUiThread(() -> {
@@ -255,13 +254,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                             if (closestVehicle != null) {
                                 selectedVehicle = closestVehicle;
                                 vehicleRepository.setDefaultVehicle(closestVehicle.getId());
-                                VehicleNearbyPayload payload = new VehicleNearbyPayload(
-                                        closestVehicle.getId(),
-                                        closestVehicle.getName(),
-                                        rssi,
-                                        closestVehicle.isConnected()
-                                );
-                                FeedbackUtils.sendVehicleNearbyToWatch(MainActivity.this, payload);
+//                                VehicleNearbyPayload payload = new VehicleNearbyPayload(
+//                                        closestVehicle.getId(),
+//                                        closestVehicle.getName(),
+//                                        rssi,
+//                                        closestVehicle.isConnected()
+//                                );
+//                                FeedbackUtils.sendVehicleNearbyToWatch(MainActivity.this, payload);
 //                                onLog("🎯 Closest vehicle updated: " + closestVehicle.getName());
                             }
                         });

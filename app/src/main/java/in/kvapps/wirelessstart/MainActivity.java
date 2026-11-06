@@ -280,7 +280,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                         () -> session.syncFailSafeState(savedFailSafeState),
                         session::requestScheduleFromEsp32,
                         () -> {
-                            if (pendingFirstTimeConfigVehicles.contains(vehicle.getMacAddress())) {
+                            if (pendingFirstTimeConfigVehicles.contains(vehicle.getId())) {
                                 session.fetchVehicleConfig();
                             }
                         },

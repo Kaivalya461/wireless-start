@@ -38,7 +38,7 @@ public class DeviceProtocolHandler {
         String payloadString = new String(data).trim();
 
         // 1. Handle Vehicle Configuration Response (CONFIG:Name,StartEn,StopEn,BattEn)
-        if (payloadString.startsWith("CONFIG:")) {
+        if (payloadString.startsWith("CONF:")) {
             try {
                 String configData = payloadString.substring(7);
                 String[] parts = configData.split(",");

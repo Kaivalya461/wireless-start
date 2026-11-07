@@ -39,7 +39,7 @@ public class BleManager {
     }
     private static final String TAG = "BleManager";
 
-    private static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+    public static final UUID SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
     private static final UUID CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8");
 
     // Standard BLE Client Characteristic Configuration Descriptor (CCCD) UUID
@@ -163,6 +163,7 @@ public class BleManager {
                     case BluetoothAdapter.STATE_OFF:
                         logMessage("System Alert: Phone Bluetooth was turned off.");
                         disconnectAll();
+                        stopMultiVehicleScan();
                         break;
                 }
             }

@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
@@ -15,11 +16,13 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelUuid;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -64,6 +67,7 @@ public class EditConfigActivity extends AppCompatActivity {
 
     private final ArrayList<BluetoothDevice> scannedDevices = new ArrayList<>();
     private AlertDialog scanDialog;
+    private View scanDialogView;
     private PreferenceManager prefs;
     private VehicleRepository vehicleRepository;
     private BleManager bleManager;
@@ -75,6 +79,20 @@ public class EditConfigActivity extends AppCompatActivity {
     private float startSliderMin, stopSliderMin;
     private float startSliderDefault, stopSliderDefault;
     private static final int REQUEST_CODE_PERMISSIONS = 101;
+
+    // Runnable to handle the 10-second timeout
+    private final Runnable scanTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            stopBleScan();
+            if (scanDialog != null && scanDialog.isShowing() && scanDialogView != null) {
+                ProgressBar progressBar = scanDialogView.findViewById(R.id.progress_bar_scan);
+                TextView scanTitleText = scanDialogView.findViewById(R.id.text_scan_title);
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (scanTitleText != null) scanTitleText.setText("Scan Finished.");
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -382,8 +400,13 @@ public class EditConfigActivity extends AppCompatActivity {
         scannedDevices.clear();
         scanAdapter = new ScannedDeviceAdapter(this, scannedDevices);
 
+        scanDialogView = LayoutInflater.from(this).inflate(R.layout.dialog_scan_progress, null);
+        ProgressBar progressBar = scanDialogView.findViewById(R.id.progress_bar_scan);
+        TextView scanTitleText = scanDialogView.findViewById(R.id.text_scan_title);
+        progressBar.setVisibility(View.VISIBLE);
+
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-        builder.setTitle("Select Device");
+        builder.setCustomTitle(scanDialogView);
         builder.setAdapter(scanAdapter, (dialog, which) -> {
             BluetoothDevice selectedDevice = scannedDevices.get(which);
             try {
@@ -396,33 +419,91 @@ public class EditConfigActivity extends AppCompatActivity {
             }
             stopBleScan();
         });
+
+        // Add Neutral button for Rescan (set to null initially to avoid auto-dismissing)
+        builder.setNeutralButton("Rescan", null);
         builder.setOnCancelListener(dialog -> stopBleScan());
 
         scanDialog = builder.create();
         scanDialog.show();
+
+        // Override the Rescan button click listener post-show so it doesn't dismiss the dialog
+        scanDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            handler.removeCallbacks(scanTimeoutRunnable);
+            stopBleScan();
+
+            scannedDevices.clear();
+            if (scanAdapter != null) {
+                scanAdapter.notifyDataSetChanged();
+            }
+
+            if (scanDialogView != null) {
+                ProgressBar pb = scanDialogView.findViewById(R.id.progress_bar_scan);
+                TextView title = scanDialogView.findViewById(R.id.text_scan_title);
+                if (pb != null) pb.setVisibility(View.VISIBLE);
+                if (title != null) title.setText("Scanning for new vehicles...");
+            }
+
+            isScanning = true;
+            ScanSettings settings = new ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build();
+
+            List<ScanFilter> filters = new ArrayList<>();
+            ScanFilter filter = new ScanFilter.Builder()
+                    .setServiceUuid(new ParcelUuid(BleManager.SERVICE_UUID))
+                    .build();
+            filters.add(filter);
+
+            try {
+                bluetoothLeScanner.startScan(filters, settings, scanCallback);
+            } catch (SecurityException e) {
+                Toast.makeText(this, "Bluetooth scan permission denied", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            handler.postDelayed(scanTimeoutRunnable, 10000);
+        });
 
         isScanning = true;
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
 
+        List<ScanFilter> filters = new ArrayList<>();
+        ScanFilter filter = new ScanFilter.Builder()
+                .setServiceUuid(new ParcelUuid(BleManager.SERVICE_UUID))
+                .build();
+        filters.add(filter);
+
         try {
-            bluetoothLeScanner.startScan(null, settings, scanCallback);
+            bluetoothLeScanner.startScan(filters, settings, scanCallback);
         } catch (SecurityException e) {
             Toast.makeText(this, "Bluetooth scan permission denied", Toast.LENGTH_SHORT).show();
+            stopBleScan();
             return;
         }
 
-        handler.postDelayed(this::stopBleScan, 10000);
+        handler.postDelayed(scanTimeoutRunnable, 10000);
     }
 
     private void stopBleScan() {
+        handler.removeCallbacks(scanTimeoutRunnable);
         if (isScanning && bluetoothLeScanner != null) {
             isScanning = false;
             try {
                 bluetoothLeScanner.stopScan(scanCallback);
             } catch (SecurityException e) {
                 Log.e("BLE_SCAN", "Security exception stopping scan", e);
+            }
+        }
+
+        if (scanDialogView != null) {
+            ProgressBar progressBar = scanDialogView.findViewById(R.id.progress_bar_scan);
+            TextView scanTitleText = scanDialogView.findViewById(R.id.text_scan_title);
+            if (progressBar != null) progressBar.setVisibility(View.GONE);
+            if (scanTitleText != null && !scanTitleText.getText().toString().contains("10s")) {
+                scanTitleText.setText("Select Device");
             }
         }
     }

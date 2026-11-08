@@ -9,6 +9,7 @@ public class Constants {
     public static final String TARGET_DEVICE_CONNECTION_STATUS = "/dio/target_device_connection_status";
     public static final String ENGINE_SCHEDULE_PATH = "/dio/schedule_engine_path";
     public static final String SYNC_ENGINE_SCHEDULE_PATH = "/dio/sync_schedule_engine_path";
+    public static final String VEHICLE_NEARBY_PATH = "dio/vehicle_nearby_path";
 
     // Common Tags or Shared Extras if needed
     public static final String WEAR_DATA_LAYER_TAG = "DioWearDataLayer";

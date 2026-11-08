@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -27,7 +26,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -41,7 +39,6 @@ import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
-import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
@@ -241,31 +238,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
         // Initialize connection manager observer
         connectionManager = new VehicleConnectionManager(this, vehicleRepository, vehicleAdapter, this);
-
-        VehicleDistanceManager.getInstance()
-                .setListener(new VehicleDistanceManager.OnClosestVehicleChangedListener() {
-                    @Override
-                    public void onClosestVehicleChanged(String newClosestMac) {
-                        if (newClosestMac == null) return;
-
-                        runOnUiThread(() -> {
-                            // Find the vehicle object corresponding to this MAC address
-                            Vehicle closestVehicle = vehicleRepository.getVehicleByMac(newClosestMac);
-                            if (closestVehicle != null) {
-                                selectedVehicle = closestVehicle;
-                                vehicleRepository.setDefaultVehicle(closestVehicle.getId());
-//                                VehicleNearbyPayload payload = new VehicleNearbyPayload(
-//                                        closestVehicle.getId(),
-//                                        closestVehicle.getName(),
-//                                        rssi,
-//                                        closestVehicle.isConnected()
-//                                );
-//                                FeedbackUtils.sendVehicleNearbyToWatch(MainActivity.this, payload);
-//                                onLog("🎯 Closest vehicle updated: " + closestVehicle.getName());
-                            }
-                        });
-                    }
-                });
     }
 
     private void setupClickListeners() {
@@ -274,15 +246,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     }
 
     @Override
-    public boolean isAppInForeground() {
-        return isAppInForeground;
-    }
-
-    @Override
     public void onServicesReady(Vehicle vehicle) {
         runOnUiThread(() -> {
-            vehicleAdapter.updateVehicleConnection(vehicle.getId(), vehicle.isConnected(), vehicle.getStatusText());
-
             boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
             boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
 
@@ -346,6 +311,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
     }
 
+    @Override
     public void onLog(String message) {
         AppLogger.logToDatabaseAndLogcat(this, TAG, message);
         runOnUiThread(() -> {

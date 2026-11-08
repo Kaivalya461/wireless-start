@@ -11,4 +11,8 @@
     <!-- Timeout Red Colors -->
     <color name="timeout_core_color">#E91E63</color>
     <color name="timeout_glow_color">#E91E63</color>
+
+    <!-- Vehicle Nearby Pulse Colors -->
+    <color name="pulse_core_color">#FFB3E5FC</color> <!-- Bright Sky Blue -->
+    <color name="pulse_glow_color">#FF00F0FF</color> <!-- Deep Electric Cyan -->
 </resources>

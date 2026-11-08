@@ -10,11 +10,15 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.util.Log;
+
 import androidx.core.app.NotificationCompat.*;
 
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
+import com.google.gson.Gson;
 
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -22,6 +26,7 @@ import java.util.Locale;
 import in.kvapps.wirelessstart.MainActivity;
 import in.kvapps.wirelessstart.R;
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.shared.model.VehicleNearbyPayload;
 
 public class FeedbackUtils {
     private static final String VIBRATE_MESSAGE_PATH = Constants.VIBRATE_PATH;
@@ -95,6 +100,30 @@ public class FeedbackUtils {
                 Wearable.getMessageClient(context).sendMessage(
                         node.getId(),
                         Constants.START_COMMAND_RESULT_PATH,
+                        payload);
+            }
+        });
+    }
+
+    /**
+     * Informs the watch that the user is nearby a vehicle, passing rich vehicle details.
+     *
+     * @param context The application context
+     * @param payloadObj The VehicleNearbyPayload container object
+     */
+    public static void sendVehicleNearbyToWatch(Context context, VehicleNearbyPayload payloadObj) {
+        if (payloadObj == null) return;
+
+        // Serialize the container object into a JSON string, then to bytes
+        Log.i("sendVehicleNearbyToWatch", "Triggered, vehicleName: " + payloadObj.getVehicleName() + ", Rssi: " + payloadObj.getRssi());
+        String jsonPayload = new Gson().toJson(payloadObj);
+        byte[] payload = jsonPayload.getBytes(StandardCharsets.UTF_8);
+
+        Wearable.getNodeClient(context).getConnectedNodes().addOnSuccessListener(nodes -> {
+            for (Node node : nodes) {
+                Wearable.getMessageClient(context).sendMessage(
+                        node.getId(),
+                        Constants.VEHICLE_NEARBY_PATH,
                         payload);
             }
         });

@@ -6,16 +6,17 @@ import android.os.Looper;
 import android.util.Log;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
+import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.enums.VehicleEventType;
 import in.kvapps.wirelessstart.model.Vehicle;
-import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class VehicleConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener {
+public class VehicleConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener, VehicleEventRepository.VehicleEventListener {
     private static final String TAG = "VehicleConnectionMgr";
     private static final long RSSI_TIMEOUT_MS = 8000;
 
@@ -30,7 +31,6 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
     public interface ConnectionLifecycleListener {
         void onServicesReady(Vehicle vehicle);
-        boolean isAppInForeground();
         void onLog(String message);
     }
 
@@ -44,14 +44,19 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
     public void register() {
         ConnectionStateRepository.getInstance().addListener(this);
+        VehicleEventRepository.getInstance().addListener(this);
     }
 
     public void unregister() {
         ConnectionStateRepository.getInstance().removeListener(this);
+        VehicleEventRepository.getInstance().removeListener(this);
         mainHandler.removeCallbacksAndMessages(null);
         rssiTimeoutRunnables.clear();
     }
 
+    /*
+    * Manages all the MainActivity UI States
+    * */
     @Override
     public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
         // Ensure all state processing and UI updates run strictly on the Main Thread
@@ -73,49 +78,47 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
         });
     }
 
+    /*
+     * Manages the vehicle connection events to trigger one time actions like initialization sequence, updating system-activity-log screen with CONN updates.
+     * */
+    @Override
+    public void onVehicleEvent(String macAddress, VehicleEventType vehicleEventType, VehicleEventData vehicleEventData) {
+        mainHandler.post(() -> {
+            Vehicle vehicle = vehicleRepository.getVehicleByMac(macAddress);
+            if (vehicle == null) {
+                listener.onLog("onVehicleEvent() -> Missing Vehicle object for vehicleEventType: " + vehicleEventType + ", MAC: " + macAddress);
+                return;
+            }
+
+            switch (vehicleEventType) {
+                case CONNECTION_SUCCESS:
+                    listener.onServicesReady(vehicle);
+                    break;
+                case LINK_LOSS_DISCONNECT:
+                    FeedbackUtils.triggerDisconnectVibrate(context);
+                    listener.onLog("[" + vehicle.getName() + "] Disconnected");
+                    break;
+                case ENTERED_NEARBY:
+                case EXITED_NEARBY:
+                    // Do nothing in MainActivity
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+
     private void handleStateTransition(Vehicle vehicle, String macAddress,
                                        ConnectionState currentState,
                                        ConnectionState previousState,
                                        ConnectionStateRepository.DeviceConnectionState newState) {
         switch (currentState) {
             case CONNECTED:
-                cancelRssiTimeout(macAddress);
-                if (previousState != ConnectionState.CONNECTED) {
-                    Log.i(TAG, "SSOT StateChanged: Newly Connected for " + macAddress);
-                    mainHandler.postDelayed(() -> listener.onServicesReady(vehicle), 50);
-                }
-                break;
-
             case DISCONNECTED:
-                cancelRssiTimeout(macAddress);
-                if (previousState != ConnectionState.DISCONNECTED) {
-                    Log.i(TAG, "SSOT StateChanged: Offline for " + vehicle.getMacAddress());
-                    updateConnectionUi(vehicle);
-
-                    long uptimeMillis = 0;
-                    if (newState.getConnectedAtTime() > 0) {
-                        uptimeMillis = System.currentTimeMillis() - newState.getConnectedAtTime();
-                    }
-
-                    FeedbackUtils.triggerDisconnectVibrate(context);
-                    FeedbackUtils.showConnectionNotification(context, false, uptimeMillis, listener.isAppInForeground());
-
-                    listener.onLog("[" + vehicle.getName() + "] Disconnected");
-                }
-                break;
-
             case SCANNING:
-                cancelRssiTimeout(macAddress);
-                if (previousState != ConnectionState.SCANNING) {
-                    updateConnectionUi(vehicle);
-                }
-                break;
-
             case RECONNECTING:
+                updateConnectionUi(vehicle);
                 cancelRssiTimeout(macAddress);
-                if (previousState != ConnectionState.RECONNECTING) {
-                    updateConnectionUi(vehicle);
-                }
                 break;
 
             case NEARBY_FAR_AWAY:
@@ -127,8 +130,8 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
 
             case DISCOVERING:
             default:
-                cancelRssiTimeout(macAddress);
                 updateConnectionUi(vehicle);
+                cancelRssiTimeout(macAddress);
                 break;
         }
     }

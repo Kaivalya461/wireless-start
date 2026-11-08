@@ -60,7 +60,7 @@ public class ConnectionStateRepository {
     }
 
     /**
-     * Backward-compatible overload defaulting RSSI to -61 dBm.
+     * Backward-compatible overload defaulting RSSI to -999 dBm.
      */
     public void updateState(String macAddress, ConnectionState state, String statusText) {
         updateState(macAddress, state, statusText, -999);

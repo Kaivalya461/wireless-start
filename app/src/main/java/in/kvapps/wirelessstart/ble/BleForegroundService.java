@@ -104,8 +104,6 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             case CONNECTED:
                 if (previousState != ConnectionState.CONNECTED) {
                     updateForegroundNotification(ScanHealth.HEALTHY);
-                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_CONNECT);
                 }
                 break;
             case DISCOVERING:
@@ -114,8 +112,6 @@ public class BleForegroundService extends Service implements ConnectionStateRepo
             case DISCONNECTED:
                 if (previousState != ConnectionState.DISCONNECTED) {
                     updateForegroundNotification(ScanHealth.HEALTHY);
-                    WearSyncUtils.syncBleStatusToWatch(this, newState.isConnected(), newState.getStatusText());
-                    FeedbackUtils.sendHapticToWatch(this, Constants.HAPTIC_DISCONNECT);
                 }
                 break;
             case NEARBY_FAR_AWAY:

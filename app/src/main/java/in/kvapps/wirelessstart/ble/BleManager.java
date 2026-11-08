@@ -17,7 +17,6 @@ import android.bluetooth.BluetoothProfile;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +30,7 @@ import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.util.AppLogger;
+import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class BleManager {
 
@@ -219,8 +219,7 @@ public class BleManager {
                     .stream()
                     .filter(mac -> !isConnected(mac))
                     .forEach(disconnectedMac ->
-                            ConnectionStateRepository.getInstance()
-                                    .updateState(disconnectedMac, ConnectionState.DISCONNECTED, "Offline")
+                            updateConnStateAndEvent(disconnectedMac, ConnectionState.DISCONNECTED, "Offline")
                     );
             logMessage("Stopped multi-vehicle background scan.");
         }
@@ -294,7 +293,7 @@ public class BleManager {
                 logMessage("Security Error disconnecting GATT.");
             }
         }
-        ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCONNECTED, "Offline");
+        updateConnStateAndEvent(macAddress, ConnectionState.DISCONNECTED, "Offline");
     }
 
     public void disconnectAll() {
@@ -321,7 +320,7 @@ public class BleManager {
             connectingMacs.remove(macAddress); // Clear connecting lock
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.DISCOVERING, "Discovering...");
+                updateConnStateAndEvent(macAddress, ConnectionState.DISCOVERING, ConnectionState.DISCOVERING.getDisplayName());
 
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -367,8 +366,7 @@ public class BleManager {
                         evaluateScanState();
 
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-//                            if (listener != null) listener.onServicesReady(macAddress);
-                            ConnectionStateRepository.getInstance().updateState(macAddress, ConnectionState.CONNECTED, "Connected");
+                            updateConnStateAndEvent(macAddress, ConnectionState.CONNECTED, ConnectionState.CONNECTED.getDisplayName());
                         }, 50);
                     }
                 }
@@ -396,8 +394,18 @@ public class BleManager {
             String macAddress = gatt.getDevice().getAddress();
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 // Feed live connected RSSI into the central distance manager
-                VehicleDistanceManager.getInstance().updateVehicleRssi(macAddress, rssi);
+                VehicleDistanceManager.getInstance().updateVehicleRssi(macAddress, true, rssi);
             }
         }
     };
+
+    private void updateConnStateAndEvent(String mac, ConnectionState connectionState, String statusText) {
+        ConnectionStateRepository.getInstance()
+                .updateState(mac, connectionState, statusText);
+
+        var vehicleEventTypeOpt = VehicleUtils.getVehicleEventType(connectionState);
+        vehicleEventTypeOpt
+                .ifPresent(vehicleEventType ->
+                        VehicleEventRepository.getInstance().emitEvent(mac, vehicleEventType));
+    }
 }

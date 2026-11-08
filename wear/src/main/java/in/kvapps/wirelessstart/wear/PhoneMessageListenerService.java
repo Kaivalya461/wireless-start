@@ -2,6 +2,7 @@ package in.kvapps.wirelessstart.wear;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.VibrationEffect;
@@ -16,9 +17,14 @@ import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
+import com.google.gson.Gson;
+
+import java.nio.charset.StandardCharsets;
 
 import in.kvapps.wirelessstart.shared.Constants;
+import in.kvapps.wirelessstart.shared.model.VehicleNearbyPayload;
 import in.kvapps.wirelessstart.wear.complication.WirelessStartComplicationService;
+import in.kvapps.wirelessstart.wear.pubsub.NearbyVehicleEventBus;
 import in.kvapps.wirelessstart.wear.pubsub.StartEventBus;
 
 // Listener to consume messages sent by Phone App
@@ -49,9 +55,14 @@ public class PhoneMessageListenerService extends WearableListenerService {
 
                 // Notify UI Screen
                 StartEventBus.notifySuccess();
+                NearbyVehicleEventBus.notifyStopPulseEffect();
             } else if (Constants.COMMAND_FAILURE.equals(command)) {
                 StartEventBus.notifyFailure();
             }
+        }
+
+        if (Constants.VEHICLE_NEARBY_PATH.equals(messageEvent.getPath())) {
+            handleVehicleNearbyMessage(messageEvent);
         }
     }
 
@@ -121,6 +132,34 @@ public class PhoneMessageListenerService extends WearableListenerService {
             long[] timings = {0, 70, 50, 40};
             int[] amplitudes = {0, 255, 0, 120};
             vibrator.vibrate(android.os.VibrationEffect.createWaveform(timings, amplitudes, -1));
+        }
+    }
+
+    private void handleVehicleNearbyMessage(MessageEvent messageEvent) {
+        Log.d(TAG, "Vehicle nearby message received from phone.");
+        try {
+            String jsonPayload = new String(messageEvent.getData(), StandardCharsets.UTF_8);
+            VehicleNearbyPayload nearbyVehicle = new Gson().fromJson(jsonPayload, VehicleNearbyPayload.class);
+
+            // Check if payload is valid, connected,
+            // If enteredNearby is true and received within the last 2 seconds -> Start the NearbyVehiclePulse Animation
+            // else enteredNearby is false -> Notify to stop the NearbyVehiclePulse Animation
+            if (nearbyVehicle != null && nearbyVehicle.isConnected()) {
+                Log.d(TAG, "Nearby Vehicle: " + nearbyVehicle.getVehicleName() + " (RSSI: " + nearbyVehicle.getRssi() + ")");
+                long currentTime = System.currentTimeMillis();
+                if (nearbyVehicle.isEnteredNearby() && (currentTime - nearbyVehicle.getTimestamp() <= 2000L)) {
+                    // Trigger animation activity on connection
+                    Intent intent = new Intent(this, NearbyVehicleActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(intent);
+                } else if (!nearbyVehicle.isEnteredNearby()) {
+                    NearbyVehicleEventBus.notifyStopPulseEffect();
+                }
+            } else {
+                Log.d(TAG, "Vehicle nearby event ignored: either null, disconnected, or expired (>2s old).");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to parse vehicle nearby payload", e);
         }
     }
 }

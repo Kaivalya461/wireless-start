@@ -43,8 +43,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
@@ -59,6 +59,7 @@ dependencies {
     implementation libs.lifecycle.process
     implementation libs.androidx.room.runtime
     annotationProcessor libs.androidx.room.compiler
+    implementation libs.gson
 
     // Google Wearable Sync Data Pipeline API
     implementation 'com.google.android.gms:play-services-wearable:19.0.0'

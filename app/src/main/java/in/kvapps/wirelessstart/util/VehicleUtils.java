@@ -3,10 +3,11 @@ package in.kvapps.wirelessstart.util;
 import android.util.Log;
 
 import java.util.List;
+import java.util.Optional;
 
-import in.kvapps.wirelessstart.ble.BleDeviceSession;
-import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.enums.VehicleEventType;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
@@ -68,5 +69,13 @@ public class VehicleUtils {
         boolean isStart = "START".equalsIgnoreCase(action);
         long duration = isStart ? settings.getStartPulseDuration() : settings.getStopPulseDuration();
         return action + ":" + duration;
+    }
+
+    public static Optional<VehicleEventType> getVehicleEventType(ConnectionState connectionState) {
+        return Optional.ofNullable(switch (connectionState) {
+            case CONNECTED -> VehicleEventType.CONNECTION_SUCCESS;
+            case DISCONNECTED -> VehicleEventType.LINK_LOSS_DISCONNECT;
+            default -> null;
+        });
     }
 }

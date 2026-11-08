@@ -7,6 +7,7 @@ import android.content.Context;
 import android.util.Log;
 
 import in.kvapps.wirelessstart.ble.VehicleEventRepository;
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.enums.VehicleEventType;
 import in.kvapps.wirelessstart.model.Vehicle;
@@ -21,10 +22,13 @@ public class WearSyncManager implements VehicleEventRepository.VehicleEventListe
     private static WearSyncManager instance;
     private final Context context;
     private final VehicleRepository vehicleRepository;
+    private final PreferenceManager preferenceManager;
 
     private WearSyncManager(Context context) {
         this.context = context.getApplicationContext();
-        this.vehicleRepository = ((MyApplication) context.getApplicationContext()).getVehicleRepository();
+        MyApplication app = (MyApplication) context.getApplicationContext();
+        this.vehicleRepository = app.getVehicleRepository();
+        this.preferenceManager = app.getPreferenceManager();
         VehicleEventRepository.getInstance().addListener(this);
     }
 
@@ -38,6 +42,11 @@ public class WearSyncManager implements VehicleEventRepository.VehicleEventListe
 
     @Override
     public void onVehicleEvent(String macAddress, VehicleEventType vehicleEventType, VehicleEventData vehicleEventData) {
+        // Guard check: Exit immediately if the user has disabled syncing events to the watch
+        if (preferenceManager == null || !preferenceManager.isWatchSyncEnabled()) {
+            return;
+        }
+
         Log.i(TAG, "Received vehicle event for MAC: " + macAddress + " | Event: " + vehicleEventType);
 
         // React based on the event type for Wear OS syncing

@@ -14,8 +14,8 @@ android {
         applicationId = "in.kvapps.wirelessstart"
         minSdk = 30
         targetSdk = 36
-        versionCode = 3
-        versionName = "2.6.0"
+        versionCode = 4
+        versionName = "3.3.0"
 
     }
 

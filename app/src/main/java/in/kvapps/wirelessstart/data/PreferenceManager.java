@@ -12,6 +12,7 @@ public class PreferenceManager {
     private static final String KEY_ENGINE_SCHEDULE_ENABLED = "pref_engine_schedule_enabled";
     public static final String KEY_CONNECTION_THRESHOLD = "key_connection_threshold";
     private static final String KEY_AUTO_DEFAULT_VEHICLE = "pref_auto_default_vehicle";
+    private static final String KEY_WATCH_SYNC = "pref_watch_sync";
 
     private final SharedPreferences prefs;
     private final Context context;
@@ -96,5 +97,13 @@ public class PreferenceManager {
 
     public void setAutoDefaultVehicleEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_AUTO_DEFAULT_VEHICLE, enabled).apply();
+    }
+
+    public boolean isWatchSyncEnabled() {
+        return prefs.getBoolean("KEY_WATCH_SYNC", false);
+    }
+
+    public void setWatchSyncEnabled(boolean enabled) {
+        prefs.edit().putBoolean("KEY_WATCH_SYNC", enabled).apply();
     }
 }

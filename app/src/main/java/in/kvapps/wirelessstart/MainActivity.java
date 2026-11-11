@@ -179,10 +179,10 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             }
 
             @Override
-            public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled) {
+            public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled) {
                 var vehicle = vehicleRepository.getVehicleByMac(macAddress);
                 if (vehicle != null) {
-                    vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled);
+                    vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled, powerSwitchEnabled);
                     pendingFirstTimeConfigVehicles.remove(vehicle.getId());
                 }
             }
@@ -219,6 +219,11 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             @Override
             public void onVoltageClick(Vehicle vehicle, int position) {
                 startActivity(new Intent(MainActivity.this, VoltageHistoryActivity.class));
+            }
+
+            @Override
+            public void onPowerClick(Vehicle vehicle, boolean isChecked, int position) {
+                handlePowerSwitchAction(vehicle, isChecked);
             }
         });
 
@@ -329,27 +334,27 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     // --- Actions & Helpers ---
     private void handleStartAction(Vehicle vehicle) {
-        executeCommand(vehicle, "START", 3000, false);
+        var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+        var action = VehicleUtils.getVehicleActionText(vehicleSettings, true);
+        executeCommand(vehicle, vehicleSettings, action, 3000, false);
     }
 
     private void handleStopAction(Vehicle vehicle) {
-        executeCommand(vehicle, "STOP", 2000, false);
+        var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+        var action = VehicleUtils.getVehicleActionText(vehicleSettings, false);
+        executeCommand(vehicle, vehicleSettings, action, 2000, false);
     }
 
-    private void executeCommand(Vehicle vehicle, String action, long cooldown, boolean isWatch) {
+    private void handlePowerSwitchAction(Vehicle vehicle, boolean switchState) {
+        String command = switchState ? "PWR:ON" : "PWR:OFF";
+        executeCommandEnhanced(vehicle, command, 0, false);
+    }
+
+    private void executeCommand(Vehicle vehicle, VehicleSettings vehicleSettings, String action, long cooldown, boolean isWatch) {
         List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
         if (currentList.isEmpty()) return;
 
-        // Find corresponding VehicleSettings for this vehicle
-        VehicleSettings settings = null;
-        for (VehicleWithSettings item : currentList) {
-            if (item.getVehicle() != null && item.getVehicle().getId().equals(vehicle.getId())) {
-                settings = item.getVehicleSettings();
-                break;
-            }
-        }
-
-        var command = VehicleUtils.getFormattedCommand(action, settings);
+        var command = VehicleUtils.getFormattedCommand(action, vehicleSettings);
         vehicleAdapter.triggerCooldown(vehicle, cooldown);
         commandStartTime = System.currentTimeMillis();
 
@@ -362,6 +367,25 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             );
         } else {
             handleCommandResult(command, Constants.COMMAND_FAILURE, isWatch);
+        }
+    }
+
+    private void executeCommandEnhanced(Vehicle vehicle, String action, long cooldown, boolean isWatch) {
+        List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
+        if (currentList.isEmpty()) return;
+
+        vehicleAdapter.triggerCooldown(vehicle, cooldown);
+        commandStartTime = System.currentTimeMillis();
+
+        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
+        if (session != null && session.isConnected()) {
+            session.sendBleCommand(
+                    action,
+                    () -> handleCommandResult(action, Constants.COMMAND_SUCCESS, isWatch),
+                    () -> handleCommandResult(action, Constants.COMMAND_FAILURE, isWatch)
+            );
+        } else {
+            handleCommandResult(action, Constants.COMMAND_SYSTEM_FAILURE, isWatch);
         }
     }
 
@@ -427,7 +451,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 String cmd = intent.getStringExtra("COMMAND");
                 Log.i(TAG, "Setting from DB, command -> " + cmd);
                 if (cmd != null && selectedVehicle != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                    executeCommand(selectedVehicle, cmd, 3000, true);
+                    var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+                    executeCommand(selectedVehicle, vehicleSettings, cmd, 3000, true);
                     setResultCode(Activity.RESULT_OK);
                 }
             }

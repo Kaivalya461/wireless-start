@@ -10,8 +10,10 @@ import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.ToggleButton;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListAdapter;
@@ -27,6 +29,7 @@ import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.enums.VehicleControlType;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
@@ -45,6 +48,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
         void onStopClick(Vehicle vehicle, int position);
         void onReconnectClick(Vehicle vehicle, int position);
         void onVoltageClick(Vehicle vehicle, int position);
+        void onPowerClick(Vehicle vehicle, boolean isChecked, int position);
     }
 
     public VehicleAdapter(VehicleActionListener listener) {
@@ -78,7 +82,8 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
                 areSettingsSame = false;
             } else {
                 areSettingsSame = s1.isStartEngineEnabled() == s2.isStartEngineEnabled() &&
-                        s1.isStopEngineEnabled() == s2.isStopEngineEnabled();
+                        s1.isStopEngineEnabled() == s2.isStopEngineEnabled() &&
+                        s1.isPowerSwitchEnabled() == s2.isPowerSwitchEnabled();
             }
 
             return v1.isConnected() == v2.isConnected() &&
@@ -176,8 +181,8 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
         private final ViewGroup statusBarParent;
         private final ImageButton btnReconnect;
         private final Button btnStart, btnStop;
-        private final View panelVoltage;
-
+        private final View panelVoltage, panelPower;
+        public SwitchCompat btnPower;
         private ValueAnimator activeAnimator;
         private final List<Integer> rssiHistory = new ArrayList<>();
         private float currentAnimatedWidth = 0f;
@@ -191,6 +196,8 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
             btnReconnect = itemView.findViewById(R.id.btn_reconnect);
             btnStart = itemView.findViewById(R.id.btn_start);
             btnStop = itemView.findViewById(R.id.btn_stop);
+            btnPower = itemView.findViewById(R.id.btn_power);
+            panelPower = itemView.findViewById(R.id.panel_power);
             panelVoltage = itemView.findViewById(R.id.panel_voltage);
             txtVoltageValue = itemView.findViewById(R.id.txt_voltage_value);
             txtActiveBadge = itemView.findViewById(R.id.txt_active_badge);
@@ -200,6 +207,19 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
 
         public void bind(Vehicle vehicle, VehicleSettings settings, VehicleActionListener listener, int position) {
             txtVehicleName.setText(vehicle.getName() != null ? vehicle.getName() : "Unit #" + vehicle.getId());
+
+            VehicleControlType controlType = VehicleControlType.START_STOP; // default fallback
+            if (settings != null && settings.getControlType() != null) {
+                try {
+                    controlType = VehicleControlType.valueOf(settings.getControlType());
+                } catch (IllegalArgumentException e) {
+                    // Fallback if an invalid string is found in the database
+                }
+            }
+
+            // Set button texts dynamically from the enum
+            btnStart.setText(controlType.getPrimaryActionText());
+            btnStop.setText(controlType.getSecondaryActionText());
 
             MyApplication app = (MyApplication) itemView.getContext().getApplicationContext();
             PreferenceManager preferenceManager = app.getPreferenceManager();
@@ -233,20 +253,44 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
 
             boolean isStartEnabledSetting = settings != null && settings.isStartEngineEnabled();
             boolean isStopEnabledSetting = settings != null && settings.isStopEngineEnabled();
+            boolean isPowerEnabledSetting = settings != null && settings.isPowerSwitchEnabled();
             boolean canClick = isConnected && !isBusy;
 
+            // Start Button
             btnStart.setVisibility(isStartEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStartEnabledSetting) {
                 UiUtils.setButtonState(btnStart, canClick, canClick ? 1.0f : 0.5f);
             }
 
+            // Stop Button
             btnStop.setVisibility(isStopEnabledSetting ? View.VISIBLE : View.GONE);
             if (isStopEnabledSetting) {
                 UiUtils.setButtonState(btnStop, canClick, canClick ? 1.0f : 0.5f);
             }
 
+            // Power Toggle Button Visibility & State
+            panelPower.setVisibility(isPowerEnabledSetting ? View.VISIBLE : View.GONE);
+            if (isPowerEnabledSetting) {
+                // Temporarily remove listener to prevent triggering loops while binding checked state
+                btnPower.setOnCheckedChangeListener(null);
+
+                // Set based on vehicle power state (e.g., vehicle.isPoweredOn())
+                // btnPower.setChecked(vehicle.isPoweredOn());
+
+                btnPower.setEnabled(canClick);
+                btnPower.setAlpha(canClick ? 1.0f : 0.5f);
+
+                // Re-attach checked change listener
+                btnPower.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    if (listener != null) {
+                        listener.onPowerClick(vehicle, isChecked, position);
+                    }
+                });
+            }
+
             txtVoltageValue.setText(vehicle.getVoltage());
 
+            // Click Listeners
             btnStart.setOnClickListener(v -> { if (listener != null) listener.onStartClick(vehicle, position); });
             btnStop.setOnClickListener(v -> { if (listener != null) listener.onStopClick(vehicle, position); });
             btnReconnect.setOnClickListener(v -> { if (listener != null) listener.onReconnectClick(vehicle, position); });

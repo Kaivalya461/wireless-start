@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.enums.VehicleControlType;
 import in.kvapps.wirelessstart.enums.VehicleEventType;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
@@ -66,9 +67,19 @@ public class VehicleUtils {
      * Resolves active pulse duration string for a given action.
      */
     public static String getFormattedCommand(String action, VehicleSettings settings) {
-        boolean isStart = "START".equalsIgnoreCase(action);
-        long duration = isStart ? settings.getStartPulseDuration() : settings.getStopPulseDuration();
-        return action + ":" + duration;
+        if (action == null) return "";
+
+        long duration = 0;
+        if (settings != null) {
+            duration = switch (action.toUpperCase()) {
+                case "START" -> settings.getStartPulseDuration();
+                case "STOP" -> settings.getStopPulseDuration();
+                case "UNLOCK", "LOCK" -> 500; // Default to 500 for these
+                default -> 1000; // Fallback default duration
+            };
+        }
+
+        return action.toUpperCase() + ":" + duration;
     }
 
     public static Optional<VehicleEventType> getVehicleEventType(ConnectionState connectionState) {
@@ -77,5 +88,12 @@ public class VehicleUtils {
             case DISCONNECTED -> VehicleEventType.LINK_LOSS_DISCONNECT;
             default -> null;
         });
+    }
+
+    public static String getVehicleActionText(VehicleSettings vehicleSettings, boolean isPrimary) {
+        if (vehicleSettings == null) return null;
+
+        var controlType = VehicleControlType.valueOf(vehicleSettings.getControlType());
+        return isPrimary ? controlType.getPrimaryActionText() : controlType.getSecondaryActionText();
     }
 }

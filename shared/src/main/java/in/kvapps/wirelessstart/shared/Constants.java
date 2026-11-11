@@ -24,6 +24,7 @@ public class Constants {
     // Start Command Result Types
     public static final String COMMAND_SUCCESS = "Command_Success";
     public static final String COMMAND_FAILURE = "Command_Failure";
+    public static final String COMMAND_SYSTEM_FAILURE = "Command_System_Failure";
 
     // Target Device CONNECTION STATUS Types
     public static final String TARGET_DEVICE_CONNECTED = "TARGET_DEVICE_CONNECTED";

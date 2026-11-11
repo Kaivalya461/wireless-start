@@ -160,7 +160,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="20dp">
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -350,12 +351,13 @@
                         android:background="#2A2A2A"
                         android:layout_marginBottom="20dp" />
 
-                    <!-- 6. Telemetry / Voltage Panel Setting (Moved Here) -->
+                    <!-- 6. Telemetry / Voltage Panel Setting -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="20dp">
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -386,13 +388,19 @@
                             android:layout_height="wrap_content" />
                     </LinearLayout>
 
+                    <!-- Divider added here between item 6 and item 7 -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#2A2A2A"
+                        android:layout_marginBottom="20dp" />
+
                     <!-- 7. Auto-Select Default Vehicle Setting (New) -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="20dp">
+                        android:gravity="center_vertical">
 
                         <LinearLayout
                             android:layout_width="0dp"

@@ -41,4 +41,19 @@ public class DatabaseMigrations {
             database.execSQL("ALTER TABLE vehicles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0");
         }
     };
+
+    public static final Migration MIGRATION_4_5 = new Migration(4, 5) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // Add the new isPowerSwitchEnabled column with a default value of 0 (false)
+            database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN isPowerSwitchEnabled INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
+    public static final Migration MIGRATION_5_6 = new Migration(5, 6) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN controlType TEXT NOT NULL DEFAULT 'START_STOP'");
+        }
+    };
 }

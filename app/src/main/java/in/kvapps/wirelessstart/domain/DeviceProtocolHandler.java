@@ -18,7 +18,7 @@ public class DeviceProtocolHandler {
         void onVoltageReady(String macAddress, float voltage);
         void onProtocolLog(String message);
         // Added callback when vehicle configuration is received from nRF52
-        void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled);
+        void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled);
     }
 
     public DeviceProtocolHandler(Context context, ProtocolListener listener) {
@@ -37,10 +37,10 @@ public class DeviceProtocolHandler {
 
         String payloadString = new String(data).trim();
 
-        // 1. Handle Vehicle Configuration Response (CONFIG:Name,StartEn,StopEn,BattEn)
+        // 1. Handle Vehicle Configuration Response (CONFIG:Name,StartEn,StopEn,BattEn,PowerSwitchEn)
         if (payloadString.startsWith("CONF:")) {
             try {
-                String configData = payloadString.substring(7);
+                String configData = payloadString.substring(5);
                 String[] parts = configData.split(",");
 
                 if (parts.length >= 4) {
@@ -48,10 +48,12 @@ public class DeviceProtocolHandler {
                     boolean startEnabled = parts[1].equals("1");
                     boolean stopEnabled = parts[2].equals("1");
                     boolean battEnabled = parts[3].equals("1");
+                    boolean powerSwitchEnabled = parts[4].equals("1");
 
                     if (listener != null) {
-                        listener.onVehicleConfigReceived(macAddress, deviceName, startEnabled, stopEnabled, battEnabled);
+                        listener.onVehicleConfigReceived(macAddress, deviceName, startEnabled, stopEnabled, battEnabled, powerSwitchEnabled);
                         listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Config Synced -> Name: " + deviceName);
+                        listener.onProtocolLog("Config from target device: " + deviceName + ", Raw String -> " + payloadString);
                     }
                 }
             } catch (Exception e) {

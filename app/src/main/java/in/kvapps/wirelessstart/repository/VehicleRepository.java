@@ -11,6 +11,7 @@ import java.util.Map;
 
 import in.kvapps.wirelessstart.BuildConfig;
 import in.kvapps.wirelessstart.db.AppDatabase;
+import in.kvapps.wirelessstart.enums.VehicleControlType;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
@@ -150,11 +151,15 @@ public class VehicleRepository {
         }
     }
 
-    public void saveVehicleConfigSettings(String vehicleId, boolean startEn, boolean stopEn) {
+    public void saveVehicleConfigSettings(String vehicleId, boolean startEn, boolean stopEn, boolean powerEn) {
         VehicleSettings settings = db.vehicleSettingsDao().getSettingsForVehicle(vehicleId);
         if (settings != null) {
             settings.setStartEngineEnabled(startEn);
             settings.setStopEngineEnabled(stopEn);
+            settings.setPowerSwitchEnabled(powerEn);
+            if (powerEn) {
+                settings.setControlType(VehicleControlType.LOCK_UNLOCK.name());
+            }
             db.vehicleSettingsDao().updateSettings(settings);
         }
     }

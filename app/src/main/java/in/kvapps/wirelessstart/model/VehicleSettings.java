@@ -35,21 +35,36 @@ public class VehicleSettings {
     @ColumnInfo(defaultValue = "0")
     private boolean isStopEngineEnabled = false; // Defaults to false here
 
-    // 1. Full constructor used by Room when reading/writing from the database
-    public VehicleSettings(@NonNull String vehicleId, int startPulseDuration, int stopPulseDuration, boolean isStartEngineEnabled, boolean isStopEngineEnabled) {
+    @ColumnInfo(defaultValue = "0")
+    private boolean isPowerSwitchEnabled = false;
+
+    @NonNull
+    @ColumnInfo(defaultValue = "START_STOP")
+    private String controlType = "START_STOP";
+
+    // 1. Full constructor for Room
+    public VehicleSettings(@NonNull String vehicleId, int startPulseDuration, int stopPulseDuration,
+                           boolean isStartEngineEnabled, boolean isStopEngineEnabled,
+                           boolean isPowerSwitchEnabled, @NonNull String controlType) {
         this.vehicleId = vehicleId;
         this.startPulseDuration = startPulseDuration;
         this.stopPulseDuration = stopPulseDuration;
         this.isStartEngineEnabled = isStartEngineEnabled;
         this.isStopEngineEnabled = isStopEngineEnabled;
+        this.isPowerSwitchEnabled = isPowerSwitchEnabled;
+        this.controlType = controlType;
     }
 
-    // 2. Overloaded constructor for your existing app code (defaults flags to false)
+    // 2. Overloaded constructor for legacy code
     @Ignore
     public VehicleSettings(@NonNull String vehicleId, int startPulseDuration, int stopPulseDuration) {
         this.vehicleId = vehicleId;
         this.startPulseDuration = startPulseDuration;
         this.stopPulseDuration = stopPulseDuration;
+        this.isStartEngineEnabled = true;
+        this.isStopEngineEnabled = false;
+        this.isPowerSwitchEnabled = false;
+        this.controlType = "START_STOP";
     }
 
     // Getters and Setters
@@ -71,4 +86,11 @@ public class VehicleSettings {
 
     public boolean isStopEngineEnabled() { return isStopEngineEnabled; }
     public void setStopEngineEnabled(boolean stopEngineEnabled) { isStopEngineEnabled = stopEngineEnabled; }
+
+    public boolean isPowerSwitchEnabled() { return isPowerSwitchEnabled; }
+    public void setPowerSwitchEnabled(boolean powerSwitchEnabled) { isPowerSwitchEnabled = powerSwitchEnabled; }
+
+    @NonNull
+    public String getControlType() { return controlType; }
+    public void setControlType(@NonNull String controlType) { this.controlType = controlType; }
 }

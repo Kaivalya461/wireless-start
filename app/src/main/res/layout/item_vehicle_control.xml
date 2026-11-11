@@ -134,7 +134,7 @@
                 android:background="#2A2A2A"
                 android:layout_marginBottom="12dp" />
 
-            <!-- START, STOP, and Voltage Telemetry Row -->
+            <!-- START, STOP, POWER, and Voltage Telemetry Row -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -166,6 +166,32 @@
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
                     android:backgroundTint="#E53935" />
+
+                <LinearLayout
+                    android:id="@+id/panel_power"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:layout_marginHorizontal="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PWR"
+                        android:textColor="#AAAAAA"
+                        android:textSize="9sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="2dp" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/btn_power"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:showText="false"
+                        app:trackTint="@color/selector_switch_track"
+                        app:thumbTint="#FFFFFF" />
+                </LinearLayout>
 
                 <!-- Integrated Voltage Reading Telemetry Badge -->
                 <LinearLayout

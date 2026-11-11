@@ -334,13 +334,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     // --- Actions & Helpers ---
     private void handleStartAction(Vehicle vehicle) {
-        var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+        var vehicleSettings = vehicleRepository.getSettingsForVehicle(vehicle.getId());
         var action = VehicleUtils.getVehicleActionText(vehicleSettings, true);
         executeCommand(vehicle, vehicleSettings, action, 3000, false);
     }
 
     private void handleStopAction(Vehicle vehicle) {
-        var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
+        var vehicleSettings = vehicleRepository.getSettingsForVehicle(vehicle.getId());
         var action = VehicleUtils.getVehicleActionText(vehicleSettings, false);
         executeCommand(vehicle, vehicleSettings, action, 2000, false);
     }

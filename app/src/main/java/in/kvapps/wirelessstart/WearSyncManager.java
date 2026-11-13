@@ -52,6 +52,9 @@ public class WearSyncManager implements VehicleEventRepository.VehicleEventListe
         // React based on the event type for Wear OS syncing
         switch (vehicleEventType) {
             case CONNECTION_SUCCESS:
+                // Do Nothing
+                break;
+            case READY_FOR_CONTROL:
                 WearSyncUtils.syncBleStatusToWatch(context, true, CONNECTED.getDisplayName());
                 FeedbackUtils.sendHapticToWatch(context, Constants.HAPTIC_CONNECT);
                 break;

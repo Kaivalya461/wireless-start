@@ -31,4 +31,7 @@ public interface VehicleSettingsDao {
 
     @Query("SELECT * FROM vehicle_settings")
     List<VehicleSettings> getAllSettings();
+
+    @Query("SELECT vs.supportsAck FROM vehicle_settings vs INNER JOIN vehicles v ON vs.vehicleId = v.id WHERE v.macAddress = :macAddress")
+    boolean doesVehicleSupportAck(String macAddress);
 }

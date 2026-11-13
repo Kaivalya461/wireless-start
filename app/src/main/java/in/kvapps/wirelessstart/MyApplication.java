@@ -5,6 +5,7 @@ import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ProcessLifecycleOwner;
 
+import in.kvapps.wirelessstart.ble.BleCommandManager;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.ble.BackgroundVehicleEventManager;
@@ -18,6 +19,7 @@ public class MyApplication extends android.app.Application {
     private VehicleRepository vehicleRepository;
     private WearSyncManager wearSyncManager;
     private BackgroundVehicleEventManager backgroundVehicleEventManager;
+    private BleCommandManager bleCommandManager;
 
     @Override
     public void onCreate() {
@@ -33,6 +35,9 @@ public class MyApplication extends android.app.Application {
 
         // Initialize BackgroundVehicleEventManager as a single instance app-wide
         backgroundVehicleEventManager = BackgroundVehicleEventManager.getInstance(this);
+
+        // Initialize BleCommandManager as a single instance app-wide
+        bleCommandManager = BleCommandManager.getInstance(this);
 
         // Initialize WearSyncManager as a single instance app-wide
         wearSyncManager = WearSyncManager.getInstance(this);
@@ -70,5 +75,12 @@ public class MyApplication extends android.app.Application {
 
     public WearSyncManager getWearSyncManager() {
         return wearSyncManager;
+    }
+
+    public BackgroundVehicleEventManager getBackgroundVehicleEventManager() {
+        return backgroundVehicleEventManager;
+    }
+    public BleCommandManager getBleCommandManager() {
+        return bleCommandManager;
     }
 }

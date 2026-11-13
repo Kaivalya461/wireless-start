@@ -17,8 +17,9 @@ public class DeviceProtocolHandler {
     public interface ProtocolListener {
         void onVoltageReady(String macAddress, float voltage);
         void onProtocolLog(String message);
-        // Added callback when vehicle configuration is received from nRF52
-        void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled);
+        void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled,
+                                     boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled,
+                                     boolean supportsAck);
     }
 
     public DeviceProtocolHandler(Context context, ProtocolListener listener) {
@@ -37,7 +38,7 @@ public class DeviceProtocolHandler {
 
         String payloadString = new String(data).trim();
 
-        // 1. Handle Vehicle Configuration Response (CONFIG:Name,StartEn,StopEn,BattEn,PowerSwitchEn)
+        // 1. Handle Vehicle Configuration Response (CONF:Name,StartEn,StopEn,BattEn,PowerSwitchEn,SupportsAck)
         if (payloadString.startsWith("CONF:")) {
             try {
                 String configData = payloadString.substring(5);
@@ -48,11 +49,18 @@ public class DeviceProtocolHandler {
                     boolean startEnabled = parts[1].equals("1");
                     boolean stopEnabled = parts[2].equals("1");
                     boolean battEnabled = parts[3].equals("1");
-                    boolean powerSwitchEnabled = parts[4].equals("1");
+
+                    // Optional PowerSwitchEn (default to false if legacy firmware omitted it)
+                    boolean powerSwitchEnabled = (parts.length > 4) && parts[4].equals("1");
+
+                    // Optional SupportsAck (default to false if legacy firmware omitted it)
+                    boolean supportsAck = (parts.length > 5) && parts[5].equals("1");
 
                     if (listener != null) {
-                        listener.onVehicleConfigReceived(macAddress, deviceName, startEnabled, stopEnabled, battEnabled, powerSwitchEnabled);
-                        listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Config Synced -> Name: " + deviceName);
+                        listener.onVehicleConfigReceived(macAddress, deviceName, startEnabled,
+                                stopEnabled, battEnabled, powerSwitchEnabled,
+                                supportsAck);
+//                        listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Config Synced -> Name: " + deviceName + " | SupportsAck: " + supportsAck);
                         listener.onProtocolLog("Config from target device: " + deviceName + ", Raw String -> " + payloadString);
                     }
                 }

@@ -99,21 +99,6 @@ public class VehicleRepository {
     // ==========================================
 
     /**
-     * Fetches all vehicle settings mapped by their vehicleId for quick lookup.
-     */
-    public Map<String, VehicleSettings> getAllVehicleSettingsMap() {
-        List<VehicleSettings> settingsList = db.vehicleSettingsDao().getAllSettings();
-
-        Map<String, VehicleSettings> settingsMap = new HashMap<>();
-        if (settingsList != null) {
-            for (VehicleSettings setting : settingsList) {
-                settingsMap.put(setting.getVehicleId(), setting);
-            }
-        }
-        return settingsMap;
-    }
-
-    /**
      * Fetches settings for a specific vehicle.
      */
     public VehicleSettings getSettingsForVehicle(String vehicleId) {
@@ -151,7 +136,7 @@ public class VehicleRepository {
         }
     }
 
-    public void saveVehicleConfigSettings(String vehicleId, boolean startEn, boolean stopEn, boolean powerEn) {
+    public void saveVehicleConfigSettings(String vehicleId, boolean startEn, boolean stopEn, boolean powerEn, boolean supportsAck) {
         VehicleSettings settings = db.vehicleSettingsDao().getSettingsForVehicle(vehicleId);
         if (settings != null) {
             settings.setStartEngineEnabled(startEn);
@@ -160,6 +145,7 @@ public class VehicleRepository {
             if (powerEn) {
                 settings.setControlType(VehicleControlType.LOCK_UNLOCK.name());
             }
+            settings.setSupportsAck(supportsAck);
             db.vehicleSettingsDao().updateSettings(settings);
         }
     }
@@ -175,5 +161,10 @@ public class VehicleRepository {
                 setDefaultVehicle(remainingVehicles.get(0).getId());
             }
         }
+    }
+
+    public boolean doesVehicleSupportAck(String macAddress) {
+        if (macAddress == null) return false;
+        return db.vehicleSettingsDao().doesVehicleSupportAck(macAddress);
     }
 }

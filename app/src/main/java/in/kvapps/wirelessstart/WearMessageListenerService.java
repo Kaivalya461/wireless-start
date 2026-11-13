@@ -1,8 +1,5 @@
 package in.kvapps.wirelessstart;
 
-import android.app.Activity;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,25 +13,23 @@ import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
+import in.kvapps.wirelessstart.ble.BleCommandManager;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleForegroundService;
 import in.kvapps.wirelessstart.ble.BleManager;
-import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.CommandActionType;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
-import in.kvapps.wirelessstart.util.VehicleUtils;
 
 // Listener to consume messages sent by Wear App
-public class WearMessageListenerService extends WearableListenerService implements ConnectionStateRepository.OnConnectionStateChangedListener {
+public class WearMessageListenerService extends WearableListenerService {
     private static final String TAG = Constants.WEAR_DATA_LAYER_TAG;
     private BleManager bleManager;
     private VehicleRepository vehicleRepository;
     private PreferenceManager preferenceManager;
-    private String pendingCommandToSend; // Store the intended command
-    private long commandStartTime = 0;
 
     @Override
     public void onCreate() {
@@ -44,15 +39,10 @@ public class WearMessageListenerService extends WearableListenerService implemen
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
         vehicleRepository = app.getVehicleRepository();
-
-        // Register to the ConnectionStateRepository SSOT
-        ConnectionStateRepository.getInstance().addListener(this);
     }
 
     @Override
     public void onDestroy() {
-        // Unregister from the repository to prevent memory leaks
-        ConnectionStateRepository.getInstance().removeListener(this);
         super.onDestroy();
     }
 
@@ -61,39 +51,33 @@ public class WearMessageListenerService extends WearableListenerService implemen
         String path = messageEvent.getPath();
         Log.d(TAG, "Received watch route path: " + path);
 
-        String action;
+        CommandActionType action;
         if (Constants.START_PATH.equals(path)) {
-            action = "START";
+            action = CommandActionType.PRIMARY; // START or UNLOCK
         } else if (Constants.STOP_PATH.equals(path)) {
-            action = "STOP";
+            action = CommandActionType.SECONDARY; // STOP or LOCK
         } else {
-            action = null;
+            return;
         }
 
-        if (action != null) {
-            Intent broadCastIntent = new Intent("DIO_HARDWARE_TRIGGER");
-            broadCastIntent.putExtra("COMMAND", action);
+//        AppLogger.logToDatabaseAndLogcat(this, TAG, "Watch command received");
 
-            sendOrderedBroadcast(broadCastIntent, null, new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    int resultCode = getResultCode();
-                    boolean wasHandledByActivity = (resultCode == Activity.RESULT_OK);
+        var selectedVehicle = vehicleRepository.getDefaultVehicle();
+        if (selectedVehicle != null && selectedVehicle.getMacAddress() != null) {
+            BleCommandManager.getInstance(this).sendCommand(
+                    selectedVehicle.getMacAddress(),
+                    action,
+                    resultPayload -> FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload.getResult()),
+                    true // flag indicating it came from watch
+            );
+        } else {
+            AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] No target vehicle found for watch command.");
+            FeedbackUtils.sendCmdResultAckToWatch(this, Constants.COMMAND_FAILURE);
+        }
 
-                    if (wasHandledByActivity) {
-                        AppLogger.logToDatabaseAndLogcat(context, TAG, "Command handled directly by open MainActivity UI.");
-                    } else {
-                        AppLogger.logToDatabaseAndLogcat(context, TAG, "MainActivity is closed. Executing background BLE write.");
-                        executeBackgroundBleCommand(action);
-                    }
-                }
-            }, null, Activity.RESULT_CANCELED, null, null);
-
-            PreferenceManager prefManager = new PreferenceManager(this);
-            if (prefManager.isForegroundServiceEnabled()) {
-                Intent serviceIntent = new Intent(this, BleForegroundService.class);
-                startForegroundService(serviceIntent);
-            }
+        if (preferenceManager.isForegroundServiceEnabled()) {
+            Intent serviceIntent = new Intent(this, BleForegroundService.class);
+            startForegroundService(serviceIntent);
         }
     }
 
@@ -115,83 +99,6 @@ public class WearMessageListenerService extends WearableListenerService implemen
                     }
                 }
             }
-        }
-    }
-
-    private void executeBackgroundBleCommand(String command) {
-        this.pendingCommandToSend = command;
-        this.commandStartTime = System.currentTimeMillis();
-
-        if (bleManager != null) {
-            var selectedVehicle = vehicleRepository.getDefaultVehicle();
-            if (selectedVehicle == null || selectedVehicle.getMacAddress() == null) {
-                AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] No target vehicle found for background command.");
-                handleCommandResult(command, Constants.COMMAND_FAILURE);
-                return;
-            }
-
-            if (bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                // Already connected (e.g., foreground service kept it alive)
-                sendPendingCommandNow();
-            } else {
-                // Not connected, initiate connection using the shared manager
-                bleManager.connect(selectedVehicle.getMacAddress(), false);
-            }
-        }
-    }
-
-    // --- ConnectionStateRepository Observer Callback (SSOT) ---
-    @Override
-    public void onStateChanged(String macAddress, ConnectionStateRepository.DeviceConnectionState newState) {
-        var selectedVehicle = vehicleRepository.getDefaultVehicle();
-        if (selectedVehicle != null && macAddress.equalsIgnoreCase(selectedVehicle.getMacAddress())) {
-            Log.d(TAG, "[BLE STATE] " + newState.getStatusText() + ", MAC-> " + macAddress);
-
-            if (newState.isConnected()) {
-                // If we were waiting to send a command in the background, trigger it now upon successful connection and service readiness
-                if (pendingCommandToSend != null) {
-                    sendPendingCommandNow();
-                }
-            } else {
-                if (pendingCommandToSend != null) {
-                    AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Connection lost while trying to execute background command.");
-                    handleCommandResult(pendingCommandToSend, Constants.COMMAND_FAILURE);
-                }
-            }
-        }
-    }
-
-    private void handleCommandResult(String executedCommand, String resultPayload) {
-        long timeTaken = System.currentTimeMillis() - commandStartTime;
-
-        AppLogger.logToDatabaseAndLogcat(this, TAG, "[WATCH RX] Command: " + executedCommand + " | " + resultPayload + " | TimeTaken: " + timeTaken + "ms");
-
-        FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload);
-
-        // Reset timer
-        commandStartTime = 0;
-        pendingCommandToSend = null;
-    }
-
-    private void sendPendingCommandNow() {
-        var selectedVehicle = vehicleRepository.getDefaultVehicle();
-        if (pendingCommandToSend != null && bleManager != null && selectedVehicle != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-            final String executedCommand = pendingCommandToSend;
-            var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
-            String formattedCommand = VehicleUtils.getFormattedCommand(executedCommand, vehicleSettings);
-            AppLogger.logToDatabaseAndLogcat(this, TAG, "[BLE BACKGROUND] Transmitting background action command: " + formattedCommand);
-
-            BleDeviceSession session = bleManager.getSession(selectedVehicle.getMacAddress());
-            if (session != null && session.isConnected()) {
-                session.sendBleCommand(
-                        formattedCommand,
-                        () -> handleCommandResult(formattedCommand, Constants.COMMAND_SUCCESS),
-                        () -> handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE)
-                );
-            } else {
-                handleCommandResult(formattedCommand, Constants.COMMAND_FAILURE);
-            }
-            pendingCommandToSend = null;
         }
     }
 

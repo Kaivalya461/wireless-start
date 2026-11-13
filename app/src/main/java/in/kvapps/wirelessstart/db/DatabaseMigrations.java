@@ -56,4 +56,11 @@ public class DatabaseMigrations {
             database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN controlType TEXT NOT NULL DEFAULT 'START_STOP'");
         }
     };
+
+    static final Migration MIGRATION_6_7 = new Migration(6, 7) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN supportsAck INTEGER NOT NULL DEFAULT 0");
+        }
+    };
 }

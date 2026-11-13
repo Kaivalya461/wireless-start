@@ -68,6 +68,7 @@ public class VehicleUtils {
      */
     public static String getFormattedCommand(String action, VehicleSettings settings) {
         if (action == null) return "";
+        if (action.startsWith("PWR")) return action; // No need to add duration for PWR commands
 
         long duration = 0;
         if (settings != null) {
@@ -80,6 +81,10 @@ public class VehicleUtils {
         }
 
         return action.toUpperCase() + ":" + duration;
+    }
+
+    public static String getVehicleTertiaryActionText(boolean powerState) {
+        return powerState ? "PWR:ON" : "PWR:OFF";
     }
 
     public static Optional<VehicleEventType> getVehicleEventType(ConnectionState connectionState) {

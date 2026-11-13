@@ -1,8 +1,12 @@
 package in.kvapps.wirelessstart.ble;
 
+import static in.kvapps.wirelessstart.enums.VehicleEventType.*;
+
 import android.content.Context;
 import android.util.Log;
 
+import in.kvapps.wirelessstart.MyApplication;
+import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.enums.VehicleEventType;
 import in.kvapps.wirelessstart.model.Vehicle;
@@ -13,11 +17,16 @@ public class BackgroundVehicleEventManager implements VehicleEventRepository.Veh
     private static BackgroundVehicleEventManager instance;
 
     private final Context context;
+    private BleManager bleManager;
     private final VehicleRepository vehicleRepository;
+    private PreferenceManager preferenceManager;
 
     private BackgroundVehicleEventManager(Context context) {
         this.context = context.getApplicationContext();
-        this.vehicleRepository = new VehicleRepository(this.context);
+        MyApplication app = (MyApplication) this.context;
+        this.bleManager = app.getBleManager();
+        this.vehicleRepository = app.getVehicleRepository();
+        preferenceManager = app.getPreferenceManager();
         // Register permanently at the application level
         VehicleEventRepository.getInstance().addListener(this);
     }
@@ -48,8 +57,29 @@ public class BackgroundVehicleEventManager implements VehicleEventRepository.Veh
                 // Do Nothing
                 break;
 
+            case CONNECTION_SUCCESS:
+                startOnConnectInitSequence(macAddress);
+                break;
+
             default:
                 break;
+        }
+    }
+
+    private void startOnConnectInitSequence(String macAddress) {
+        BleDeviceSession session = bleManager.getSession(macAddress);
+
+        if (session != null) {
+            boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
+            boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
+
+            session.syncInitializationSequence(
+                    session::sendAutoTimeSync,
+                    () -> session.syncTelemetryState(savedTelemetryState),
+                    () -> session.syncFailSafeState(savedFailSafeState),
+                    () -> session.requestScheduleFromEsp32(),
+                    () -> VehicleEventRepository.getInstance().emitEvent(macAddress, READY_FOR_CONTROL)
+            );
         }
     }
 }

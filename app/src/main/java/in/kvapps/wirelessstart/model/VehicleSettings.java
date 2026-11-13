@@ -30,10 +30,10 @@ public class VehicleSettings {
     private int stopPulseDuration;  // in milliseconds
 
     @ColumnInfo(defaultValue = "1")
-    private boolean isStartEngineEnabled = true; // Defaults to true here
+    private boolean isStartEngineEnabled = true;
 
     @ColumnInfo(defaultValue = "0")
-    private boolean isStopEngineEnabled = false; // Defaults to false here
+    private boolean isStopEngineEnabled = false;
 
     @ColumnInfo(defaultValue = "0")
     private boolean isPowerSwitchEnabled = false;
@@ -42,10 +42,13 @@ public class VehicleSettings {
     @ColumnInfo(defaultValue = "START_STOP")
     private String controlType = "START_STOP";
 
+    @ColumnInfo(defaultValue = "0")
+    private boolean supportsAck = false;
+
     // 1. Full constructor for Room
     public VehicleSettings(@NonNull String vehicleId, int startPulseDuration, int stopPulseDuration,
                            boolean isStartEngineEnabled, boolean isStopEngineEnabled,
-                           boolean isPowerSwitchEnabled, @NonNull String controlType) {
+                           boolean isPowerSwitchEnabled, @NonNull String controlType, boolean supportsAck) {
         this.vehicleId = vehicleId;
         this.startPulseDuration = startPulseDuration;
         this.stopPulseDuration = stopPulseDuration;
@@ -53,6 +56,7 @@ public class VehicleSettings {
         this.isStopEngineEnabled = isStopEngineEnabled;
         this.isPowerSwitchEnabled = isPowerSwitchEnabled;
         this.controlType = controlType;
+        this.supportsAck = supportsAck;
     }
 
     // 2. Overloaded constructor for legacy code
@@ -65,6 +69,7 @@ public class VehicleSettings {
         this.isStopEngineEnabled = false;
         this.isPowerSwitchEnabled = false;
         this.controlType = "START_STOP";
+        this.supportsAck = false;
     }
 
     // Getters and Setters
@@ -93,4 +98,7 @@ public class VehicleSettings {
     @NonNull
     public String getControlType() { return controlType; }
     public void setControlType(@NonNull String controlType) { this.controlType = controlType; }
+
+    public boolean isSupportsAck() { return supportsAck; }
+    public void setSupportsAck(boolean supportsAck) { this.supportsAck = supportsAck; }
 }

@@ -1,18 +1,11 @@
 package in.kvapps.wirelessstart;
 
-import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
-import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ScrollView;
@@ -35,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import in.kvapps.wirelessstart.adapter.VehicleAdapter;
+import in.kvapps.wirelessstart.ble.BleCommandManager;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
@@ -42,16 +36,16 @@ import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
+import in.kvapps.wirelessstart.dto.CmdExecResultData;
+import in.kvapps.wirelessstart.enums.CommandActionType;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
-import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
-import in.kvapps.wirelessstart.util.VehicleUtils;
 
 public class MainActivity extends AppCompatActivity implements BleManager.BleListener, VehicleConnectionManager.ConnectionLifecycleListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
@@ -71,9 +65,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
     private VehicleConnectionManager connectionManager;
-    private BroadcastReceiver watchCommandReceiver;
+    private BleCommandManager bleCommandManager;
     private boolean isTelemetryEnabled = false;
-    private long commandStartTime = 0;
     private static boolean isAppInForeground = false;
     private Vehicle selectedVehicle;
     private final Set<String> pendingFirstTimeConfigVehicles = new HashSet<>();
@@ -123,7 +116,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         initUiViews();
         loadStoredLogsForToday();
         setupClickListeners();
-        registerReceivers();
 
         pruneOldDatabaseRecords();
         checkPermissionsAndConnect();
@@ -137,6 +129,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         preferenceManager = app.getPreferenceManager();
         bleManager = app.getBleManager();
         vehicleRepository = app.getVehicleRepository();
+        bleCommandManager = app.getBleCommandManager();
         isTelemetryEnabled = preferenceManager.isTelemetryEnabled();
 
         if (bleManager != null) {
@@ -179,11 +172,13 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             }
 
             @Override
-            public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled) {
+            public void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled, boolean stopEnabled,
+                                                boolean battEnabled, boolean powerSwitchEnabled, boolean supportsAck) {
                 var vehicle = vehicleRepository.getVehicleByMac(macAddress);
                 if (vehicle != null) {
-                    vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled, powerSwitchEnabled);
+                    vehicleRepository.saveVehicleConfigSettings(vehicle.getId(), startEnabled, stopEnabled, powerSwitchEnabled, supportsAck);
                     pendingFirstTimeConfigVehicles.remove(vehicle.getId());
+                    handleReconnect(vehicle);
                 }
             }
         });
@@ -253,28 +248,14 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     @Override
     public void onServicesReady(Vehicle vehicle) {
         runOnUiThread(() -> {
-            boolean savedTelemetryState = preferenceManager.isTelemetryEnabled();
-            boolean savedFailSafeState = preferenceManager.isFailSafeEnabled();
-
             BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-            if (session != null) {
-                session.syncInitializationSequence(
-                        session::sendAutoTimeSync,
-                        () -> session.syncTelemetryState(savedTelemetryState),
-                        () -> session.syncFailSafeState(savedFailSafeState),
-                        session::requestScheduleFromEsp32,
-                        () -> {
-                            if (pendingFirstTimeConfigVehicles.contains(vehicle.getId())) {
-                                session.fetchVehicleConfig();
-                            }
-                        },
-                        () -> {
-                            FeedbackUtils.triggerDoubleVibrate(this);
-                            FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
-                            onLog("[" + vehicle.getName() + "] Ready for control.");
-                        }
-                );
+            if (session != null && pendingFirstTimeConfigVehicles.contains(vehicle.getId())) {
+                session.fetchVehicleConfig();
             }
+
+            FeedbackUtils.triggerDoubleVibrate(this);
+            FeedbackUtils.showConnectionNotification(this, true, 0L, isAppInForeground);
+            onLog("[" + vehicle.getName() + "] Ready for control.");
         });
     }
 
@@ -308,7 +289,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     protected void onDestroy() {
         super.onDestroy();
         backgroundExecutor.shutdown();
-        if (watchCommandReceiver != null) unregisterReceiver(watchCommandReceiver);
         if (dbHelper != null) dbHelper.close();
 
         if (bleManager != null) {
@@ -334,77 +314,53 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     // --- Actions & Helpers ---
     private void handleStartAction(Vehicle vehicle) {
-        var vehicleSettings = vehicleRepository.getSettingsForVehicle(vehicle.getId());
-        var action = VehicleUtils.getVehicleActionText(vehicleSettings, true);
-        executeCommand(vehicle, vehicleSettings, action, 3000, false);
+        vehicleAdapter.triggerCooldown(vehicle, 3000);
+
+        bleCommandManager.sendCommand(
+                vehicle.getMacAddress(),
+                CommandActionType.PRIMARY,
+                resultPayload -> handleCommandResult(resultPayload, false),
+                false
+        );
     }
 
     private void handleStopAction(Vehicle vehicle) {
-        var vehicleSettings = vehicleRepository.getSettingsForVehicle(vehicle.getId());
-        var action = VehicleUtils.getVehicleActionText(vehicleSettings, false);
-        executeCommand(vehicle, vehicleSettings, action, 2000, false);
+        vehicleAdapter.triggerCooldown(vehicle, 2000);
+
+        bleCommandManager.sendCommand(
+                vehicle.getMacAddress(),
+                CommandActionType.SECONDARY,
+                resultPayload -> handleCommandResult(resultPayload, false),
+                false
+        );
     }
 
     private void handlePowerSwitchAction(Vehicle vehicle, boolean switchState) {
-        String command = switchState ? "PWR:ON" : "PWR:OFF";
-        executeCommandEnhanced(vehicle, command, 0, false);
+        bleCommandManager.sendCommand(
+                vehicle.getMacAddress(),
+                CommandActionType.TERTIARY,
+                switchState,
+                resultPayload -> handleCommandResult(resultPayload, false),
+                false
+        );
     }
 
-    private void executeCommand(Vehicle vehicle, VehicleSettings vehicleSettings, String action, long cooldown, boolean isWatch) {
-        List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
-        if (currentList.isEmpty()) return;
-
-        var command = VehicleUtils.getFormattedCommand(action, vehicleSettings);
-        vehicleAdapter.triggerCooldown(vehicle, cooldown);
-        commandStartTime = System.currentTimeMillis();
-
-        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-        if (session != null && session.isConnected()) {
-            session.sendBleCommand(
-                    command,
-                    () -> handleCommandResult(command, Constants.COMMAND_SUCCESS, isWatch),
-                    () -> handleCommandResult(command, Constants.COMMAND_FAILURE, isWatch)
-            );
-        } else {
-            handleCommandResult(command, Constants.COMMAND_FAILURE, isWatch);
-        }
-    }
-
-    private void executeCommandEnhanced(Vehicle vehicle, String action, long cooldown, boolean isWatch) {
-        List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
-        if (currentList.isEmpty()) return;
-
-        vehicleAdapter.triggerCooldown(vehicle, cooldown);
-        commandStartTime = System.currentTimeMillis();
-
-        BleDeviceSession session = bleManager.getSession(vehicle.getMacAddress());
-        if (session != null && session.isConnected()) {
-            session.sendBleCommand(
-                    action,
-                    () -> handleCommandResult(action, Constants.COMMAND_SUCCESS, isWatch),
-                    () -> handleCommandResult(action, Constants.COMMAND_FAILURE, isWatch)
-            );
-        } else {
-            handleCommandResult(action, Constants.COMMAND_SYSTEM_FAILURE, isWatch);
-        }
-    }
-
-    private void handleCommandResult(String command, String result, boolean isWatch) {
-        long timeTaken = System.currentTimeMillis() - commandStartTime;
-        onLog((isWatch ? "[WATCH RX] " : "") + "Command: " + command + " | " + result + " | TimeTaken: " + timeTaken + "ms");
+    private void handleCommandResult(CmdExecResultData resultPayload, boolean isWatch) {
+        onLog((isWatch ? "[WATCH RX] " : "") + "Command: " + resultPayload.getExecutedCommand() + " | " + resultPayload.getResult() + " | TimeTaken: " + resultPayload.getTimeTaken() + "ms");
 
         if (isWatch) {
-            FeedbackUtils.sendCmdResultAckToWatch(this, result);
-        } else if (Constants.COMMAND_SUCCESS.equals(result)) {
+            FeedbackUtils.sendCmdResultAckToWatch(this, resultPayload.getResult());
+        } else if (Constants.COMMAND_SUCCESS.equals(resultPayload.getResult())) {
             FeedbackUtils.triggerDoubleVibrate(this);
         }
-        commandStartTime = 0;
     }
 
     private void handleReconnect(Vehicle vehicle) {
         onLog("Manual reconnect requested...");
         ConnectionStateRepository.getInstance().updateState(vehicle.getMacAddress(), ConnectionState.RECONNECTING, "Reconnecting");
+        bleManager.disconnect(vehicle.getMacAddress());
         bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
+        bleManager.refreshVehiclesScan();
     }
 
     private void handleTelemetryToggle(boolean isChecked) {
@@ -439,34 +395,6 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         }
         if (!preferenceManager.isForegroundServiceEnabled()) {
             bleManager.startMultiVehicleScan();
-        }
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerReceivers() {
-        // Watch Command Receiver
-        watchCommandReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String cmd = intent.getStringExtra("COMMAND");
-                Log.i(TAG, "Setting from DB, command -> " + cmd);
-                if (cmd != null && selectedVehicle != null && bleManager != null && bleManager.isConnected(selectedVehicle.getMacAddress())) {
-                    var vehicleSettings = vehicleRepository.getSettingsForVehicle(selectedVehicle.getId());
-                    executeCommand(selectedVehicle, vehicleSettings, cmd, 3000, true);
-                    setResultCode(Activity.RESULT_OK);
-                }
-            }
-        };
-        IntentFilter watchFilter = new IntentFilter("DIO_HARDWARE_TRIGGER");
-        registerReceiverCompat(watchCommandReceiver, watchFilter);
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerReceiverCompat(BroadcastReceiver receiver, IntentFilter filter) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(receiver, filter);
         }
     }
 

@@ -358,7 +358,8 @@ public class BleManager {
                         enableNotifications(gatt, characteristic);
 
                         // Instantiate and register the dedicated device session per vehicle MAC
-                        BleDeviceSession session = new BleDeviceSession(context, gatt, characteristic);
+                        boolean supportsAck = vehicleRepository.doesVehicleSupportAck(macAddress);
+                        BleDeviceSession session = new BleDeviceSession(context, gatt, characteristic, supportsAck);
                         activeSessions.put(macAddress, session);
                         session.startRssiPolling();
 
@@ -376,8 +377,20 @@ public class BleManager {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             String macAddress = gatt.getDevice().getAddress();
-            if (listener != null && CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
-                listener.onDataReceived(macAddress, characteristic.getValue());
+            if (CHARACTERISTIC_UUID.equals(characteristic.getUuid())) {
+                byte[] rawValue = characteristic.getValue();
+                if (rawValue != null) {
+                    // 1. Route to BleDeviceSession for ACK tracking (v4.X firmware)
+                    BleDeviceSession session = activeSessions.get(macAddress);
+                    if (session != null) {
+                        session.handleIncomingAck(rawValue);
+                    }
+
+                    // 2. Forward to external listener if registered (e.g., telemetry/config streams)
+                    if (listener != null) {
+                        listener.onDataReceived(macAddress, rawValue);
+                    }
+                }
             }
         }
 
@@ -385,7 +398,16 @@ public class BleManager {
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
             String macAddress = gatt.getDevice().getAddress();
             if (CHARACTERISTIC_UUID.equals(characteristic.getUuid()) && value != null) {
-                listener.onDataReceived(macAddress, value);
+                // 1. Route to BleDeviceSession for ACK tracking (v4.X firmware)
+                BleDeviceSession session = activeSessions.get(macAddress);
+                if (session != null) {
+                    session.handleIncomingAck(value);
+                }
+
+                // 2. Forward to external listener if registered
+                if (listener != null) {
+                    listener.onDataReceived(macAddress, value);
+                }
             }
         }
 

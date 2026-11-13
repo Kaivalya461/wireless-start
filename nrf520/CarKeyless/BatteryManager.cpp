@@ -2,10 +2,10 @@
 #define BATTERY_MANAGER_H
 
 #include "ConfigManager.h"
-#include "BleManager.h" // Ensure your BleManager is included so BLE send functions are available
+#include "BleManager.h"
 
 // Note: PIN_VBAT is already defined by the Seeed nRF52 board package as (32).
-// We use digital pin 14 to control the voltage divider enable pin (P0.14).
+// Digital pin 14 controls the voltage divider enable pin (P0.14).
 #define PIN_VBAT_ENABLE 14
 
 // Variables for non-blocking battery tracking
@@ -20,8 +20,8 @@ void initBatteryMonitor() {
 }
 
 float readBatteryVoltage() {
-    digitalWrite(PIN_VBAT_ENABLE, LOW);
-    delayMicroseconds(500);
+    digitalWrite(PIN_VBAT_ENABLE, LOW); // Enable voltage divider
+    delayMicroseconds(500);             // Allow capacitor to charge / stabilize
 
     analogReference(AR_INTERNAL_3_0);
     analogReadResolution(12);
@@ -30,9 +30,14 @@ float readBatteryVoltage() {
     delayMicroseconds(10);
 
     int rawValue = analogRead(PIN_VBAT);
-    digitalWrite(PIN_VBAT_ENABLE, HIGH);
+    digitalWrite(PIN_VBAT_ENABLE, HIGH); // Disable voltage divider to save power
 
-    float measuredV = (rawValue / 4095.0) * 3.0 * 2.94;
+    // 1. Calculate base voltage at the ADC pin using the 3.0V reference
+    float measuredV = (rawValue / 4095.0) * 3.0;
+
+    // 2. Multiply by the hardware voltage divider ratio (3.0 for Seeed nRF52 boards)
+    measuredV = measuredV * 3.0;
+
     return measuredV;
 }
 
@@ -73,7 +78,7 @@ void updateBatteryTask() {
         // 1. Print over Serial if USB debug is connected
         if (usbConnected) {
             Serial.print("Battery Telemetry: ");
-            Serial.print(currentBatteryVoltage);
+            Serial.print(currentBatteryVoltage, 2);
             Serial.print("V (");
             Serial.print(currentBatteryPercent);
             Serial.print("%) -> ");

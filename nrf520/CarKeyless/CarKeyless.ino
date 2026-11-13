@@ -33,7 +33,7 @@ void setup() {
 
     // NOW burn the config safely after Serial is ready to print messages
     // Make sure the vehicle name is <= 9 characters to stay within the default BLE ATT MTU limit of nrf52.
-    // burnVehicleConfig("Car", 1, 1, 1, 1);
+    // burnVehicleConfig("Car", 1, 1, 1, 1, 1);
 
     // 4. Initialize sub-components
     initRelays();
@@ -42,7 +42,7 @@ void setup() {
 
     if (usbConnected) {
         Serial.print("Loaded Device Name: "); Serial.println(currentConfig.deviceName);
-        Serial.println(">>> Modular Keyless Controller Initialized (Low Power Mode Ready)!");
+        Serial.println(">>> Modular Keyless Controller Initialized (Low Power Mode Ready)! ---> (v4.0)");
     }
 }
 

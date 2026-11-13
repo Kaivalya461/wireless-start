@@ -1,7 +1,7 @@
 #include "BleManager.h"
 #include <bluefruit.h>
 #include "Relay.h"
-#include "ConfigManager.h" // Include your persistent storage manager
+#include "ConfigManager.h"
 #include <time.h>
 #include "BatteryManager.h"
 
@@ -26,6 +26,20 @@ String getStoredDeviceName() {
 // Forward declaration
 void handleIncomingCommand(const uint8_t* data, size_t length);
 
+// Helper function to send ACK back to the app via notification
+void sendAppAck(uint8_t cmdId, uint8_t seqId, uint8_t status) {
+    if (!bleConnected || seqId == 0) return;
+
+    uint8_t ackPayload[3] = { cmdId, seqId, status }; // 0x00 = SUCCESS, 0x01 = FAILED
+    customCharacteristic.notify(ackPayload, sizeof(ackPayload));
+
+    if (Serial) {
+        Serial.print("Sent ACK -> Cmd: 0x"); Serial.print(cmdId, HEX);
+        Serial.print(" | Seq: "); Serial.print(seqId);
+        Serial.print(" | Status: "); Serial.println(status == 0x00 ? "SUCCESS" : "FAILED");
+    }
+}
+
 // Corrected Adafruit write callback signature
 void characteristic_write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t length) {
     handleIncomingCommand(data, length);
@@ -35,12 +49,13 @@ void transmitConfigToApp() {
     if (!bleConnected) return;
 
     // Format properties neatly as text/JSON payload so app can parse easily:
-    // Format: CONF:Name,UnlockEn(0/1),LockEn(0/1),BattEn(0/1),PowerEn(0/1)
+    // Format: CONF:Name,UnlockEn(0/1),LockEn(0/1),BattEn(0/1),PowerEn(0/1),SupportsAck(0/1)
     String configPayload = "CONF:" + String(currentConfig.deviceName) + "," +
                            String(currentConfig.isUnlockEnabled ? 1 : 0) + "," +
                            String(currentConfig.isLockEnabled ? 1 : 0) + "," +
                            String(currentConfig.liveBatteryVoltageEnabled ? 1 : 0) + "," +
-                           String(currentConfig.isPowerSwitchEnabled ? 1 : 0);
+                           String(currentConfig.isPowerSwitchEnabled ? 1 : 0) + "," +
+                           String(currentConfig.ackNotificationsEnabled ? 1 : 0);
 
     customCharacteristic.notify((const uint8_t*)configPayload.c_str(), configPayload.length());
 
@@ -53,72 +68,114 @@ void transmitConfigToApp() {
 void handleIncomingCommand(const uint8_t* data, size_t length) {
     if (length == 0) return;
 
-    if (length == 1) {
-        uint8_t commandByte = data[0];
-        if (commandByte == 0x02) {
-            if (Serial) Serial.println(">>> App Command: Battery Telemetry Stream DISABLED.");
-            setTelemetryActive(false); // Live Battery Voltage
-            return;
-        } else if (commandByte == 0x03) {
-            if (Serial) Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
-            setTelemetryActive(true); // Live Battery Voltage
-            return;
-        }
+    uint8_t cmdId = 0;
+    uint8_t seqId = 0;
+    bool isStructuredAckPacket = false;
+
+    // Check if this is a modern ACK-tracked packet format: [cmdId, seqId, ...payload]
+    if (length >= 2 && data[0] >= 0x01 && data[0] <= 0x15) {
+        cmdId = data[0];
+        seqId = data[1];
+        isStructuredAckPacket = true;
     }
 
+    // Extract command string based on packet type
     String command = "";
-    for (size_t i = 0; i < length; i++) {
+    size_t startIndex = isStructuredAckPacket ? 2 : 0;
+    for (size_t i = startIndex; i < length; i++) {
         command += (char)data[i];
     }
     command.trim();
 
-    if (command.length() == 0) return;
-
     if (Serial) {
         Serial.print("Received Command: ");
-        Serial.println(command);
+        if (isStructuredAckPacket) {
+            Serial.print("[Structured CmdID: 0x"); Serial.print(cmdId, HEX); Serial.print("] ");
+        } else {
+            Serial.print("[Legacy Plain Text] ");
+        }
+        Serial.print(command);
+        if (isStructuredAckPacket) {
+            Serial.print(" [SeqId: "); Serial.print(seqId); Serial.print("]");
+        }
+        Serial.println();
     }
 
-    if (command.startsWith("TIME:")) {
-        unsigned long epoch = command.substring(5).toInt();
-        setenv("TZ", "IST-5:30", 1);
-        tzset();
-        syncTime(epoch);
-    }
-    else if (command.equals("GET_CONFIG")) {
-        // App requests to fetch all persistent properties
-        transmitConfigToApp();
-    }
-    else if (command.startsWith("UNLOCK")) {
-        if (!currentConfig.isUnlockEnabled) {
-            if (Serial) Serial.println(">>> Ignored: Unlock is disabled via config.");
-            return;
+    bool executionSuccess = true;
+
+    if (isStructuredAckPacket) {
+        // --- STRUCTURED ACK COMMANDS ---
+        switch (cmdId) {
+            case 0x01: // UNLOCK
+                if (!currentConfig.isUnlockEnabled) {
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_UNLOCK_PULSE_MS;
+                    if (command.startsWith("UNLOCK:")) {
+                        duration = getValidatedDuration(command.substring(7).toInt());
+                    }
+                    requestRelayPulse(UNLOCK_RELAY_PIN, duration);
+                }
+                break;
+
+            case 0x02: // LOCK
+                if (!currentConfig.isLockEnabled) {
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_LOCK_PULSE_MS;
+                    if (command.startsWith("LOCK:")) {
+                        duration = getValidatedDuration(command.substring(5).toInt());
+                    }
+                    requestRelayPulse(LOCK_RELAY_PIN, duration);
+                }
+                break;
+
+            case 0x03: // POWER_STATE
+                if (command.equals("PWR:ON")) {
+                    setRelayState(POWER_RELAY_PIN, true);
+                } else if (command.equals("PWR:OFF")) {
+                    setRelayState(POWER_RELAY_PIN, false);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x10: // TIME SYNC
+                if (command.startsWith("TIME:")) {
+                    unsigned long epoch = command.substring(5).toInt();
+                    setenv("TZ", "IST-5:30", 1);
+                    tzset();
+                    syncTime(epoch);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x14: // GET CONFIG
+                if (command.equals("GET_CONFIG")) {
+                    transmitConfigToApp();
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            default:
+                executionSuccess = false;
+                break;
         }
-        unsigned long duration = DEFAULT_UNLOCK_PULSE_MS;
-        if (command.startsWith("UNLOCK:")) {
-            duration = getValidatedDuration(command.substring(7).toInt());
+
+        // Send ACK back for structured commands
+        uint8_t statusCode = executionSuccess ? 0x00 : 0x01;
+        sendAppAck(cmdId, seqId, statusCode);
+
+    } else {
+        // --- LEGACY PLAIN TEXT FALLBACK (Bootstrapping / Initial Handshake) ---
+        if (command.equals("GET_CONFIG")) {
+            transmitConfigToApp();
+            if (Serial) Serial.println(">>> Handshake: Transmitted config via plain text GET_CONFIG request.");
+        } else {
+            if (Serial) Serial.println(">>> Ignored unknown plain text command.");
         }
-        requestRelayPulse(UNLOCK_RELAY_PIN, duration);
-    }
-    else if (command.startsWith("LOCK")) {
-        if (!currentConfig.isLockEnabled) {
-            if (Serial) Serial.println(">>> Ignored: Lock is disabled via config.");
-            return;
-        }
-        unsigned long duration = DEFAULT_LOCK_PULSE_MS;
-        if (command.startsWith("LOCK:")) {
-            duration = getValidatedDuration(command.substring(5).toInt());
-        }
-        requestRelayPulse(LOCK_RELAY_PIN, duration);
-    }
-    // Power Relay Pin
-    else if (command.equals("PWR:ON")) {
-        setRelayState(POWER_RELAY_PIN, true);
-        if (Serial) Serial.println(">>> App Command: Power Relay ON.");
-    }
-    else if (command.equals("PWR:OFF")) {
-        setRelayState(POWER_RELAY_PIN, false);
-        if (Serial) Serial.println(">>> App Command: Power Relay OFF.");
     }
 }
 

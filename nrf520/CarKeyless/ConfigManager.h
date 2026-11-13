@@ -8,24 +8,29 @@
 // Bring LittleFS classes into scope so 'File' and flags are recognized directly
 using namespace Adafruit_LittleFS_Namespace;
 
-// Define your persistent configuration structure
+// Define your updated persistent configuration structure
 struct DeviceConfig {
     char deviceName[32];
     bool isUnlockEnabled;
     bool isLockEnabled;
     bool liveBatteryVoltageEnabled;
     bool isPowerSwitchEnabled;
-    uint32_t magic_header; // Used to check if flash has been initialized before
+    bool ackNotificationsEnabled; // <-- NEW FLAG: Controls whether this unit emits ACK notifications
+    uint32_t magic_header;        // Updated magic header to handle struct size migration
 };
+
+// Updated Magic Header to invalidate old flash layouts cleanly
+const uint32_t CONFIG_MAGIC_HEADER = 0xCAFEB001;
 
 // Default configuration values
 const DeviceConfig DEFAULT_CONFIG = {
-    "CarKeyless",               // Default BLE Name
-    true,                       // isUnlockEnabled
-    true,                       // isLockEnabled
-    true,                       // liveBatteryVoltageEnabled
-    true,                       // isPowerSwitchEnabled (Defaults to true)
-    0xCAFEBABE                  // Magic number verification
+    "CarKeyless",                 // Default BLE Name
+    true,                         // isUnlockEnabled
+    true,                         // isLockEnabled
+    true,                         // liveBatteryVoltageEnabled
+    true,                         // isPowerSwitchEnabled
+    true,                         // ackNotificationsEnabled (Default to true for new builds)
+    CONFIG_MAGIC_HEADER           // Magic number verification
 };
 
 // Global instance declaration compatible with older C++ standards
@@ -52,11 +57,17 @@ inline void loadConfig() {
 
     File file = InternalFS.open("/config.dat", FILE_O_READ);
     if (file) {
-        file.read((uint8_t*)&currentConfig, sizeof(DeviceConfig));
+        // Ensure file size matches current struct size to prevent partial reads
+        if (file.size() == sizeof(DeviceConfig)) {
+            file.read((uint8_t*)&currentConfig, sizeof(DeviceConfig));
+        } else {
+            // Size mismatch (old struct version) -> force defaults reset
+            currentConfig.magic_header = 0;
+        }
         file.close();
 
-        // Check if magic header matches
-        if (currentConfig.magic_header != 0xCAFEBABE) {
+        // Check if magic header matches the new version
+        if (currentConfig.magic_header != CONFIG_MAGIC_HEADER) {
             currentConfig = DEFAULT_CONFIG;
             saveConfig(); // Uses the safe saveConfig() with remove()
         }
@@ -67,7 +78,7 @@ inline void loadConfig() {
     }
 }
 
-inline void burnVehicleConfig(const char* name, bool unlockEn, bool lockEn, bool battEn, bool powerEn) {
+inline void burnVehicleConfig(const char* name, bool unlockEn, bool lockEn, bool battEn, bool powerEn, bool ackEn) {
     InternalFS.begin();
 
     // Populate the global config struct
@@ -77,7 +88,8 @@ inline void burnVehicleConfig(const char* name, bool unlockEn, bool lockEn, bool
     currentConfig.isLockEnabled = lockEn;
     currentConfig.liveBatteryVoltageEnabled = battEn;
     currentConfig.isPowerSwitchEnabled = powerEn;
-    currentConfig.magic_header = 0xCAFEBABE;
+    currentConfig.ackNotificationsEnabled = ackEn;
+    currentConfig.magic_header = CONFIG_MAGIC_HEADER;
 
     saveConfig(); // Uses the safe saveConfig() with remove()
 
@@ -89,6 +101,7 @@ inline void burnVehicleConfig(const char* name, bool unlockEn, bool lockEn, bool
         Serial.print("    Lock   : "); Serial.println(currentConfig.isLockEnabled ? "ENABLED" : "DISABLED");
         Serial.print("    Batt   : "); Serial.println(currentConfig.liveBatteryVoltageEnabled ? "ENABLED" : "DISABLED");
         Serial.print("    Power  : "); Serial.println(currentConfig.isPowerSwitchEnabled ? "ENABLED" : "DISABLED");
+        Serial.print("    ACK Notif: "); Serial.println(currentConfig.ackNotificationsEnabled ? "ENABLED" : "DISABLED");
         Serial.println("----------------------------------------");
     }
 }

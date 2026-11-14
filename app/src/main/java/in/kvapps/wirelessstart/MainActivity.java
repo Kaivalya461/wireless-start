@@ -32,7 +32,7 @@ import in.kvapps.wirelessstart.ble.BleCommandManager;
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
-import in.kvapps.wirelessstart.ble.VehicleConnectionManager;
+import in.kvapps.wirelessstart.ble.VehicleUiConnectionManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.db.VoltageDbHelper;
 import in.kvapps.wirelessstart.domain.DeviceProtocolHandler;
@@ -47,7 +47,7 @@ import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.FeedbackUtils;
 import in.kvapps.wirelessstart.util.PermissionUtils;
 
-public class MainActivity extends AppCompatActivity implements BleManager.BleListener, VehicleConnectionManager.ConnectionLifecycleListener {
+public class MainActivity extends AppCompatActivity implements BleManager.BleListener, VehicleUiConnectionManager.ConnectionLifecycleListener {
     private static final String TAG = Constants.PHONE_MAIN_ACTIVITY_TAG;
 
     // UI Controls
@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
     private VehicleRepository vehicleRepository;
     private DeviceProtocolHandler protocolHandler;
     private PreferenceManager preferenceManager;
-    private VehicleConnectionManager connectionManager;
+    private VehicleUiConnectionManager connectionManager;
     private BleCommandManager bleCommandManager;
     private boolean isTelemetryEnabled = false;
     private static boolean isAppInForeground = false;
@@ -237,7 +237,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         selectedVehicle = vehicleRepository.getDefaultVehicle();
 
         // Initialize connection manager observer
-        connectionManager = new VehicleConnectionManager(this, vehicleRepository, vehicleAdapter, this);
+        connectionManager = new VehicleUiConnectionManager(this, vehicleRepository, vehicleAdapter, this);
     }
 
     private void setupClickListeners() {

@@ -45,6 +45,7 @@ import java.util.Locale;
 import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
+import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.VehicleControlType;
 import in.kvapps.wirelessstart.model.Vehicle;
@@ -410,6 +411,9 @@ public class EditConfigActivity extends AppCompatActivity {
         int disconnectRssi = (int) sliderDisconnectRssi.getValue();
 
         vehicleRepository.saveVehicleSettings(selectedVehicleId, startMs, stopMs, connectRssi, disconnectRssi);
+
+        // Clear Data which holds db values in their local caches
+        VehicleDistanceManager.getInstance().clearAllVehicleCacheData();
 
         // Update baselines to current values and disable button until next change
         initialStartValue = sliderStart.getValue();

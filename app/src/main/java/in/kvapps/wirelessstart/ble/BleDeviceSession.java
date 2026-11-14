@@ -247,7 +247,7 @@ public class BleDeviceSession {
                 if (gatt != null) {
                     try { gatt.readRemoteRssi(); } catch (SecurityException ignored) {}
                 }
-                rssiHandler.postDelayed(this, 1000);
+                rssiHandler.postDelayed(this, 800);
             }
         };
         rssiHandler.post(rssiRunnable);

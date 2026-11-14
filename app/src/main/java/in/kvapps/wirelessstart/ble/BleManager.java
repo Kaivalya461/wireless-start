@@ -112,7 +112,11 @@ public class BleManager {
         }
     }
 
-    private void evaluateScanState() {
+    private void evaluateScanState(boolean autoConnectEn) {
+        if (!autoConnectEn) {
+            logMessage("Auto-connect is disabled. Standing by.");
+        }
+
         List<String> allTargets = vehicleRepository.getAllTargetMacAddresses();
         boolean allConnected = true;
 
@@ -224,6 +228,7 @@ public class BleManager {
                     .stream()
                     .filter(mac -> !isConnected(mac))
                     .forEach(disconnectedMac ->
+                            // Update the listener chain with DISCONNECTED state. (SCANNING -> DISCONNECTED)
                             updateConnStateAndEvent(disconnectedMac, ConnectionState.DISCONNECTED, "Offline")
                     );
             logMessage("Stopped multi-vehicle background scan.");
@@ -299,6 +304,9 @@ public class BleManager {
             }
         }
         updateConnStateAndEvent(macAddress, ConnectionState.DISCONNECTED, "Offline");
+
+        // This ensures if BleScan is started/updated back again for this disconnected Mac Add.
+        evaluateScanState(preferenceManager.isAutoConnectEnabled());
     }
 
     public void disconnectAll() {
@@ -343,12 +351,8 @@ public class BleManager {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 disconnect(macAddress);
 
-                // If auto-connect is enabled, restart background scan for remaining targets after a short delay
-                if (!preferenceManager.isAutoConnectEnabled()) {
-                    logMessage("Auto-connect is disabled. Standing by.");
-                } else {
-                    evaluateScanState();
-                }
+                // This ensures if BleScan is started/updated back again for this disconnected Mac Add.
+                evaluateScanState(preferenceManager.isAutoConnectEnabled());
             }
         }
 
@@ -369,7 +373,7 @@ public class BleManager {
                         session.startRssiPolling();
 
                         // This ensures Multi-Vehicle Scan is stopped once all connected.
-                        evaluateScanState();
+                        evaluateScanState(preferenceManager.isAutoConnectEnabled());
 
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             updateConnStateAndEvent(macAddress, ConnectionState.CONNECTED, ConnectionState.CONNECTED.getDisplayName());

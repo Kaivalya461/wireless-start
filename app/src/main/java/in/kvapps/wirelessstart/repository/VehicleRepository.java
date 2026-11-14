@@ -192,4 +192,16 @@ public class VehicleRepository {
 
         return thresholdMap;
     }
+
+    public int getDisconnectThreshold(String macAddress) {
+        if (macAddress == null) return -999; // Default fallback
+        Vehicle vehicle = db.vehicleDao().getVehicleByMac(macAddress);
+        if (vehicle != null) {
+            VehicleSettings settings = db.vehicleSettingsDao().getSettingsForVehicle(vehicle.getId());
+            if (settings != null) {
+                return settings.getDisconnectRssiThreshold();
+            }
+        }
+        return -999; // Default fallback if settings aren't found
+    }
 }

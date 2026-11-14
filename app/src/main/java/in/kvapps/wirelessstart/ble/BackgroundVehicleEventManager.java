@@ -61,6 +61,14 @@ public class BackgroundVehicleEventManager implements VehicleEventRepository.Veh
                 startOnConnectInitSequence(macAddress);
                 break;
 
+            case DISCONNECT_THRESHOLD_EXCEEDED:
+                String vehicleName = (vehicle != null) ? vehicle.getName() : macAddress;
+                Log.w(TAG, "Force disconnecting [" + vehicleName + "] due to persistent low RSSI threshold breach.");
+
+                // Command BleManager to drop the gatt connection cleanly
+                bleManager.disconnect(macAddress);
+                break;
+
             default:
                 break;
         }

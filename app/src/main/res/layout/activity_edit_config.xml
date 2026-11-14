@@ -493,7 +493,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:valueFrom="-95"
-                            android:valueTo="-70"
+                            android:valueTo="-65"
                             android:stepSize="1"
                             android:value="-85" />
                     </LinearLayout>

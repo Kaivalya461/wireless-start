@@ -45,7 +45,7 @@ Components:
 4. VehicleDistanceManager - BleManager feeds rssi values for the connected vehicles into VehicleDistanceManager, which then keeps track of the closest vehicle and emits the update to the callback listener. VehicleDistanceManager allows a single callback listener named onClosestVehicleChanged() which is at the moment integrated with MainActivity. In MainActivity layout, I start a glow animation for the selected vehicle card for the choosen vehicle by the onClosestVehicleChanged().
 5. VehicleEventRepository - SSOT for all vehicle events like connection, entered nearby and closest vehicle updates.
 6. BackgroundVehicleEventManager - Global listener for maintaining accuracy for all vehicle updates even when MainActivity is unavailable (killed by OS)
-7. VehicleConnectionManager - Listens to ConnectionStatusRepository for state updates and VehicleEventRepository to vehicle event (like the one time execution actions)
+7. VehicleUiConnectionManager - Listens to ConnectionStatusRepository for state updates and VehicleEventRepository for vehicle event (like the one time execution actions) to manage MainActivity UI.
 8. MainActivity - The main screen layout for my PhoneApp, which shows card of configured vehicles and follows VehicleConnectionManager
 9. WearSyncManager - Single instance in MyApp for centralized feed of all vehicle updates to Wear layer to support seamless communication even without MainActivity opened.
 

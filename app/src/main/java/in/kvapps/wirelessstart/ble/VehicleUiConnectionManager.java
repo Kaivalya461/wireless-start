@@ -16,7 +16,7 @@ import in.kvapps.wirelessstart.util.FeedbackUtils;
 import java.util.HashMap;
 import java.util.Map;
 
-public class VehicleConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener, VehicleEventRepository.VehicleEventListener {
+public class VehicleUiConnectionManager implements ConnectionStateRepository.OnConnectionStateChangedListener, VehicleEventRepository.VehicleEventListener {
     private static final String TAG = "VehicleConnectionMgr";
     private static final long RSSI_TIMEOUT_MS = 8000;
 
@@ -34,8 +34,8 @@ public class VehicleConnectionManager implements ConnectionStateRepository.OnCon
         void onLog(String message);
     }
 
-    public VehicleConnectionManager(Context context, VehicleRepository vehicleRepository,
-                                    VehicleAdapter vehicleAdapter, ConnectionLifecycleListener listener) {
+    public VehicleUiConnectionManager(Context context, VehicleRepository vehicleRepository,
+                                      VehicleAdapter vehicleAdapter, ConnectionLifecycleListener listener) {
         this.context = context;
         this.vehicleRepository = vehicleRepository;
         this.vehicleAdapter = vehicleAdapter;

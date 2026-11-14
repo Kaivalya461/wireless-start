@@ -6,8 +6,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import in.kvapps.wirelessstart.data.PreferenceManager;
@@ -16,6 +18,7 @@ import in.kvapps.wirelessstart.enums.SignalState;
 public class BleScanReceiver extends BroadcastReceiver {
 
     public static Set<String> targetMacAddresses = new HashSet<>();
+    public static Map<String, Integer> connectThresholds = new HashMap<>();
     public static ScanEventCallback callback = null;
 
     public interface ScanEventCallback {
@@ -29,7 +32,6 @@ public class BleScanReceiver extends BroadcastReceiver {
         List<ScanResult> results = intent.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT);
         if (results != null && !results.isEmpty()) {
             PreferenceManager prefMgr = new PreferenceManager(context);
-            int userThreshold = prefMgr.getConnectionThreshold();
 
             for (ScanResult result : results) {
                 if (result.getDevice() != null) {
@@ -50,8 +52,14 @@ public class BleScanReceiver extends BroadcastReceiver {
                         int rssi = result.getRssi();
                         prefMgr.saveLastSeenTimestamp(foundMac, System.currentTimeMillis());
 
-                        // Evaluate current signal state dynamically based on user's threshold setting
-                        SignalState currentState = SignalState.evaluate(rssi, userThreshold);
+                        // Retrieve the specific per-vehicle connect threshold (default to SignalState.MEDIUM_HIGH if not found)
+                        int vehicleConnectThreshold = SignalState.MEDIUM_HIGH.getRssiLimit();
+                        if (connectThresholds != null && connectThresholds.containsKey(foundMac)) {
+                            vehicleConnectThreshold = connectThresholds.get(foundMac);
+                        }
+
+                        // Evaluate current signal state dynamically based on this vehicle's threshold
+                        SignalState currentState = SignalState.evaluate(rssi, vehicleConnectThreshold);
 
                         // Always emit the latest RSSI and state so the UI proximity bar updates live
                         if (callback != null) {

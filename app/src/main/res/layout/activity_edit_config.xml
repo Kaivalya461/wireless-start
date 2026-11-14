@@ -244,8 +244,9 @@
                             android:textStyle="bold" />
                     </LinearLayout>
 
-                    <!-- Start Pulse Duration Slider -->
+                    <!-- Start Pulse Duration Slider Container -->
                     <LinearLayout
+                        android:id="@+id/layout_start_pulse_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
@@ -303,17 +304,19 @@
                     </LinearLayout>
 
                     <View
+                        android:id="@+id/divider_start"
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
                         android:background="?attr/colorOutlineVariant"
                         android:layout_marginBottom="16dp" />
 
-                    <!-- Stop Pulse Duration Slider -->
+                    <!-- Stop Pulse Duration Slider Container -->
                     <LinearLayout
+                        android:id="@+id/layout_stop_pulse_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:layout_marginBottom="20dp">
+                        android:layout_marginBottom="16dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -364,6 +367,135 @@
                             android:valueTo="@dimen/stop_slider_max_value"
                             android:stepSize="@dimen/slider_step_size"
                             android:value="@dimen/stop_slider_default_value" />
+                    </LinearLayout>
+
+                    <View
+                        android:id="@+id/divider_stop"
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="?attr/colorOutlineVariant"
+                        android:layout_marginBottom="16dp" />
+
+                    <!-- Connect RSSI Threshold Slider -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="16dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="6dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:layout_marginEnd="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Connect Signal Threshold"
+                                    android:textColor="?attr/colorOnSurface"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/setting_connect_rssi_desc"
+                                    android:textColor="?attr/colorOnSurfaceVariant"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/txt_connect_rssi_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="-75 dBm"
+                                android:textColor="?attr/colorPrimary"
+                                android:textSize="16sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace" />
+                        </LinearLayout>
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/slider_connect_rssi"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:valueFrom="-80"
+                            android:valueTo="-55"
+                            android:stepSize="1"
+                            android:value="-75" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="?attr/colorOutlineVariant"
+                        android:layout_marginBottom="16dp" />
+
+                    <!-- Disconnect RSSI Threshold Slider -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="20dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="6dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:layout_marginEnd="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Disconnect Signal Threshold"
+                                    android:textColor="?attr/colorOnSurface"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/setting_disconnect_rssi_desc"
+                                    android:textColor="?attr/colorOnSurfaceVariant"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/txt_disconnect_rssi_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="-85 dBm"
+                                android:textColor="?attr/colorPrimary"
+                                android:textSize="16sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace" />
+                        </LinearLayout>
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/slider_disconnect_rssi"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:valueFrom="-95"
+                            android:valueTo="-70"
+                            android:stepSize="1"
+                            android:value="-85" />
                     </LinearLayout>
 
                     <!-- Save Settings Button -->

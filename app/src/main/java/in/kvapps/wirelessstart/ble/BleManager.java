@@ -19,6 +19,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import in.kvapps.wirelessstart.MyApplication;
 import in.kvapps.wirelessstart.data.PreferenceManager;
 import in.kvapps.wirelessstart.enums.ConnectionState;
+import in.kvapps.wirelessstart.model.Vehicle;
+import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.util.AppLogger;
 import in.kvapps.wirelessstart.util.VehicleUtils;
@@ -180,8 +183,8 @@ public class BleManager {
     }
 
     /**
-     * Starts background/foreground scanning for all registered vehicles simultaneously
-     * without needing to specify a single MAC address.
+     * Starts background/foreground scanning for all registered vehicles simultaneously,
+     * packaging each vehicle's configured connect RSSI threshold.
      */
     public void startMultiVehicleScan() {
         if (!isBluetoothEnabled()) {
@@ -190,19 +193,21 @@ public class BleManager {
         }
 
         if (bleScanManager != null && !bleScanManager.isScanning()) {
-            // Check if all are already connected first so we don't scan needlessly
-            List<String> allTargets = vehicleRepository.getAllTargetMacAddresses();
-            List<String> disconnectMacs = new ArrayList<>();
-            boolean allConnected = true;
-            for (String mac : allTargets) {
+            // 1. Fetch all vehicle thresholds in a single optimized DB call
+            Map<String, Integer> allThresholds = vehicleRepository.getConnectThresholdMap();
+            Map<String, Integer> unconnectedThresholdMap = new HashMap<>();
+
+            // 2. Filter out vehicles that are already connected
+            for (Map.Entry<String, Integer> entry : allThresholds.entrySet()) {
+                String mac = entry.getKey();
                 if (!isConnected(mac)) {
-                    allConnected = false;
-                    disconnectMacs.add(mac);
+                    unconnectedThresholdMap.put(mac, entry.getValue());
                 }
             }
 
-            if (!allConnected) {
-                bleScanManager.startScan(disconnectMacs);
+            // 3. Start scan if there are disconnected vehicles
+            if (!unconnectedThresholdMap.isEmpty()) {
+                bleScanManager.startScan(unconnectedThresholdMap);
             } else {
                 logMessage("All target vehicles are already connected. Skipping scan.");
             }

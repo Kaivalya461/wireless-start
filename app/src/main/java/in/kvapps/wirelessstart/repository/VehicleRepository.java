@@ -40,7 +40,7 @@ public class VehicleRepository {
      * Fetches vehicles with settings as LiveData, and enriches them with live BLE connection states.
      */
     public LiveData<List<VehicleWithSettings>> getAllVehiclesWithSettingsAndLiveState(String tag) {
-        LiveData<List<VehicleWithSettings>> rawLiveData = db.vehicleDao().getAllVehiclesWithSettings();
+        LiveData<List<VehicleWithSettings>> rawLiveData = db.vehicleDao().getAllVehiclesWithSettingsLiveData();
 
         return Transformations.map(rawLiveData, vehicleWithSettingsList -> {
             // Enriches the transient fields (isConnected, statusText) on the fly
@@ -124,7 +124,7 @@ public class VehicleRepository {
     }
 
     // Handles updating vehicle settings
-    public void saveVehicleSettings(String vehicleId, int startMs, int stopMs) {
+    public void saveVehicleSettings(String vehicleId, int startMs, int stopMs, int connectRssiThreshold, int disconnectRssiThreshold) {
         VehicleSettings settings = db.vehicleSettingsDao().getSettingsForVehicle(vehicleId);
         if (settings == null) {
             settings = new VehicleSettings(vehicleId, startMs, stopMs);
@@ -132,6 +132,8 @@ public class VehicleRepository {
         } else {
             settings.setStartPulseDuration(startMs);
             settings.setStopPulseDuration(stopMs);
+            settings.setConnectRssiThreshold(connectRssiThreshold);
+            settings.setDisconnectRssiThreshold(disconnectRssiThreshold);
             db.vehicleSettingsDao().updateSettings(settings);
         }
     }
@@ -166,5 +168,28 @@ public class VehicleRepository {
     public boolean doesVehicleSupportAck(String macAddress) {
         if (macAddress == null) return false;
         return db.vehicleSettingsDao().doesVehicleSupportAck(macAddress);
+    }
+
+    /**
+     * Fetches all vehicle MAC addresses mapped to their respective connect RSSI thresholds.
+     * Fallbacks to BuildConfig.ESP32_MAC if no vehicles exist.
+     */
+    public Map<String, Integer> getConnectThresholdMap() {
+        Map<String, Integer> thresholdMap = new HashMap<>();
+
+        // Single database query fetching vehicles and settings together
+        List<VehicleWithSettings> vehiclesWithSettings = db.vehicleDao().getAllVehiclesWithSettings();
+
+        if (vehiclesWithSettings != null) {
+            for (VehicleWithSettings vws : vehiclesWithSettings) {
+                if (vws.getVehicle() != null && vws.getVehicle().getMacAddress() != null) {
+                    String mac = vws.getVehicle().getMacAddress();
+                    int threshold = (vws.getVehicleSettings() != null) ? vws.getVehicleSettings().getConnectRssiThreshold() : -999;
+                    thresholdMap.put(mac, threshold);
+                }
+            }
+        }
+
+        return thresholdMap;
     }
 }

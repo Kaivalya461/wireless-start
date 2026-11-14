@@ -14,8 +14,11 @@ import android.os.ParcelUuid;
 import android.util.Log;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import in.kvapps.wirelessstart.enums.ConnectionState;
@@ -88,7 +91,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         }
     }
 
-    public void startScan(List<String> targetMacs) {
+    public void startScan(Map<String, Integer> targetMacsWithThresholds) {
         if (bluetoothLeScanner == null || isScanning) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -100,8 +103,10 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
 
         lastScanStartTimestamp = System.currentTimeMillis();
 
-        // Reset the receiver's state memory when starting a brand new scan
+        // Inject the passed configuration directly into the receiver
+        Set<String> targetMacs = targetMacsWithThresholds.keySet();
         BleScanReceiver.targetMacAddresses = new HashSet<>(targetMacs);
+        BleScanReceiver.connectThresholds = new HashMap<>(targetMacsWithThresholds);
         BleScanReceiver.callback = this;
 
         // Use a distinct request code (e.g., 1001) to prevent PendingIntent recycling issues over long spans
@@ -123,7 +128,7 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
                 }
                 filters.add(builder.build());
             }
-            sendScanningEvent(targetMacs);
+            sendScanningEvent(new ArrayList<>(targetMacs));
         } else if (serviceUuid != null) {
             // Fallback if no specific MACs are provided yet, match by Service UUID globally
             filters.add(new ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(serviceUuid.toString())).build());

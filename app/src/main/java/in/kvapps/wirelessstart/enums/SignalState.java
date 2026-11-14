@@ -24,27 +24,19 @@ public enum SignalState {
 
     /**
      * Evaluates the signal state dynamically based on measured RSSI
-     * and the user's configured 3-step connection threshold level (0, 1, or 2).
+     * and the vehicle's specific configured connect threshold (in dBm).
      *
      * @param rssi              The measured RSSI value from the advertisement packet.
-     * @param userThreshold     The user setting (0 = Always Connect, 1 = Medium, 2 = Strong Only).
+     * @param connectThreshold  The vehicle's configured connect RSSI threshold (e.g. -75 dBm).
      * @return                  The corresponding SignalState.
      */
-    public static SignalState evaluate(int rssi, int userThreshold) {
-        if (rssi >= SUPER_STRONG.rssiLimit) {
-            return SUPER_STRONG; // Always passes Level 2, 1, and 0
-        } else if (rssi >= MEDIUM_HIGH.rssiLimit) {
-            // Passes Level 0 (Always) and Level 1 (Medium).
-            // If user selected Level 2 (Strong Only), treat as waiting.
-            return (userThreshold >= 2) ? LOW_WAITING : MEDIUM_HIGH;
-        } else if (rssi >= LOW_WAITING.rssiLimit) {
-            // Weak signal
-            // Only Level 0 (Always Connect) allows connecting here.
-            // Levels 1 and 2 will wait.
-            return (userThreshold == 0) ? LOW_TRIGGER : LOW_WAITING;
+    public static SignalState evaluate(int rssi, int connectThreshold) {
+        if (rssi >= connectThreshold) {
+            // Signal meets or exceeds the vehicle's connect requirement -> Trigger connection
+            return SignalState.MEDIUM_HIGH;
         } else {
-            // For Signal lower than -90 (eg: -95), never connect
-            return LOW_WAITING;
+            // Signal is weaker than the required connect threshold -> Wait for signal to improve
+            return SignalState.LOW_WAITING;
         }
     }
 }

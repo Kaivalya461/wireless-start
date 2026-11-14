@@ -8,6 +8,8 @@ import androidx.room.Ignore;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
+import in.kvapps.wirelessstart.enums.SignalState;
+
 @Entity(
         tableName = "vehicle_settings",
         foreignKeys = @ForeignKey(
@@ -45,10 +47,17 @@ public class VehicleSettings {
     @ColumnInfo(defaultValue = "0")
     private boolean supportsAck = false;
 
+    @ColumnInfo(name = "connect_rssi_threshold", defaultValue = "-75")
+    private int connectRssiThreshold = SignalState.MEDIUM_HIGH.getRssiLimit();
+
+    @ColumnInfo(name = "disconnect_rssi_threshold", defaultValue = "-85")
+    private int disconnectRssiThreshold = SignalState.MEDIUM_HIGH.getRssiLimit() - 10; // e.g. MEDIUM_HIGH (-75 - 10) = -85;
+
     // 1. Full constructor for Room
     public VehicleSettings(@NonNull String vehicleId, int startPulseDuration, int stopPulseDuration,
                            boolean isStartEngineEnabled, boolean isStopEngineEnabled,
-                           boolean isPowerSwitchEnabled, @NonNull String controlType, boolean supportsAck) {
+                           boolean isPowerSwitchEnabled, @NonNull String controlType, boolean supportsAck,
+                           int connectRssiThreshold, int disconnectRssiThreshold) {
         this.vehicleId = vehicleId;
         this.startPulseDuration = startPulseDuration;
         this.stopPulseDuration = stopPulseDuration;
@@ -57,6 +66,8 @@ public class VehicleSettings {
         this.isPowerSwitchEnabled = isPowerSwitchEnabled;
         this.controlType = controlType;
         this.supportsAck = supportsAck;
+        this.connectRssiThreshold = connectRssiThreshold;
+        this.disconnectRssiThreshold = disconnectRssiThreshold;
     }
 
     // 2. Overloaded constructor for legacy code
@@ -101,4 +112,10 @@ public class VehicleSettings {
 
     public boolean isSupportsAck() { return supportsAck; }
     public void setSupportsAck(boolean supportsAck) { this.supportsAck = supportsAck; }
+
+    public int getConnectRssiThreshold() { return connectRssiThreshold; }
+    public void setConnectRssiThreshold(int connectRssiThreshold) { this.connectRssiThreshold = connectRssiThreshold; }
+
+    public int getDisconnectRssiThreshold() { return disconnectRssiThreshold; }
+    public void setDisconnectRssiThreshold(int disconnectRssiThreshold) { this.disconnectRssiThreshold = disconnectRssiThreshold; }
 }

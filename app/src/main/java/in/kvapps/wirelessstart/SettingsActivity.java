@@ -2,11 +2,8 @@ package in.kvapps.wirelessstart;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
-
-import com.google.android.material.slider.Slider;
 
 import in.kvapps.wirelessstart.ble.BleDeviceSession;
 import in.kvapps.wirelessstart.ble.BleManager;
@@ -28,10 +25,6 @@ public class SettingsActivity extends AppCompatActivity {
     private SwitchCompat switchAutoDefaultVehicle;
     private SwitchCompat switchSyncWatch; // New: Sync Vehicle events to Watch
 
-    // Slider controls for Proximity Range
-    private Slider sliderConnectionThreshold;
-    private TextView txtConnectionThresholdSummary;
-
     private boolean initialAutoConnect;
     private boolean initialFailSafe;
     private boolean initialForegroundService;
@@ -39,9 +32,6 @@ public class SettingsActivity extends AppCompatActivity {
     private boolean initialVoltage;
     private boolean initialAutoDefaultVehicle;
     private boolean initialSyncWatch; // New: Track initial state for result checking
-    private int initialConnectionThreshold;
-
-    private int currentConnectionThreshold;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -69,9 +59,6 @@ public class SettingsActivity extends AppCompatActivity {
         switchVoltage = findViewById(R.id.switch_voltage);
         switchAutoDefaultVehicle = findViewById(R.id.switch_auto_default_vehicle);
         switchSyncWatch = findViewById(R.id.switch_sync_watch); // New: Initialize view
-
-        sliderConnectionThreshold = findViewById(R.id.slider_connection_threshold);
-        txtConnectionThresholdSummary = findViewById(R.id.txt_connection_threshold_summary);
     }
 
     private void loadStoredPreferences() {
@@ -83,9 +70,6 @@ public class SettingsActivity extends AppCompatActivity {
             initialVoltage = preferenceManager.isTelemetryEnabled();
             initialAutoDefaultVehicle = preferenceManager.isAutoDefaultVehicleEnabled();
             initialSyncWatch = preferenceManager.isWatchSyncEnabled(); // New: Load preference
-            initialConnectionThreshold = preferenceManager.getConnectionThreshold();
-
-            currentConnectionThreshold = initialConnectionThreshold;
 
             switchAutoConnect.setChecked(initialAutoConnect);
             switchFailSafe.setChecked(initialFailSafe);
@@ -94,20 +78,6 @@ public class SettingsActivity extends AppCompatActivity {
             switchVoltage.setChecked(initialVoltage);
             switchAutoDefaultVehicle.setChecked(initialAutoDefaultVehicle);
             switchSyncWatch.setChecked(initialSyncWatch); // New: Apply state to switch
-
-            sliderConnectionThreshold.setValue(currentConnectionThreshold);
-            updateThresholdSummary(currentConnectionThreshold);
-        }
-    }
-
-    private void updateThresholdSummary(int threshold) {
-        String[] descriptions = {
-                "Long Range (If you want to connect from far away.)",
-                "Medium Range (You are around the vehicle.) Default",
-                "Strong Only (You are right on the vehicle!)"
-        };
-        if (threshold >= 0 && threshold < descriptions.length) {
-            txtConnectionThresholdSummary.setText(descriptions[threshold]);
         }
     }
 
@@ -159,16 +129,6 @@ public class SettingsActivity extends AppCompatActivity {
         });
 
         setupScheduledEngineRunListener();
-
-        // Slider value change listener
-        sliderConnectionThreshold.addOnChangeListener((slider, value, fromUser) -> {
-            int threshold = (int) value;
-            currentConnectionThreshold = threshold;
-            updateThresholdSummary(threshold);
-            if (fromUser && preferenceManager != null) {
-                preferenceManager.setConnectionThreshold(threshold);
-            }
-        });
     }
 
     @Override
@@ -185,8 +145,7 @@ public class SettingsActivity extends AppCompatActivity {
                 (switchEngineSchedule.isChecked() != initialEngineSchedule) ||
                 (switchVoltage.isChecked() != initialVoltage) ||
                 (switchAutoDefaultVehicle.isChecked() != initialAutoDefaultVehicle) ||
-                (switchSyncWatch.isChecked() != initialSyncWatch) || // New: Track change
-                (currentConnectionThreshold != initialConnectionThreshold);
+                (switchSyncWatch.isChecked() != initialSyncWatch); // New: Track change
 
         if (hasChanges) {
             setResult(RESULT_OK);

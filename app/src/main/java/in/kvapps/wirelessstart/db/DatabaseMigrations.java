@@ -4,6 +4,8 @@ import androidx.annotation.NonNull;
 import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 
+import in.kvapps.wirelessstart.enums.SignalState;
+
 public class DatabaseMigrations {
 
     // Migration from version 1 to version 2 (adds the vehicle_settings table)
@@ -61,6 +63,14 @@ public class DatabaseMigrations {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {
             database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN supportsAck INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
+    public static final Migration MIGRATION_7_8 = new Migration(7, 8) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN connect_rssi_threshold INTEGER NOT NULL DEFAULT -75");
+            database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN disconnect_rssi_threshold INTEGER NOT NULL DEFAULT -85");
         }
     };
 }

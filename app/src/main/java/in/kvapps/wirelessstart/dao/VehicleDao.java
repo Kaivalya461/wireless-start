@@ -56,5 +56,9 @@ public interface VehicleDao {
 
     @Transaction
     @Query("SELECT * FROM vehicles")
-    LiveData<List<VehicleWithSettings>> getAllVehiclesWithSettings();
+    LiveData<List<VehicleWithSettings>> getAllVehiclesWithSettingsLiveData();
+
+    @Transaction
+    @Query("SELECT * FROM vehicles")
+    List<VehicleWithSettings> getAllVehiclesWithSettings();
 }

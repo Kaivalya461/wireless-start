@@ -105,57 +105,7 @@
                         android:background="#2A2A2A"
                         android:layout_marginBottom="20dp" />
 
-                    <!-- 2. Connection Proximity Range Setting (Slider) -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:layout_marginBottom="20dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:layout_marginBottom="8dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Auto-Connect Signal Threshold"
-                                android:textColor="#FFFFFF"
-                                android:textSize="15sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/txt_connection_threshold_summary"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Always Connect (Bypass range check)"
-                                android:textColor="#777777"
-                                android:textSize="12sp"
-                                android:layout_marginTop="2dp" />
-                        </LinearLayout>
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/slider_connection_threshold"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:valueFrom="0"
-                            android:valueTo="2"
-                            android:stepSize="1"
-                            app:tickVisible="true"
-                            app:trackColorActive="#3D5AFE"
-                            app:trackColorInactive="#333333"
-                            app:thumbColor="#FFFFFF" />
-                    </LinearLayout>
-
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="#2A2A2A"
-                        android:layout_marginBottom="20dp" />
-
-                    <!-- 3. 24/7 Foreground Service Setting -->
+                    <!-- 2. 24/7 Foreground Service Setting -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -198,7 +148,7 @@
                         android:background="#2A2A2A"
                         android:layout_marginBottom="20dp" />
 
-                    <!-- 4. Sync Vehicle Events to Watch Setting (New) -->
+                    <!-- 3. Sync Vehicle Events to Watch Setting (New) -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

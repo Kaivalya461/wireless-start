@@ -22,6 +22,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -45,6 +46,7 @@ import in.kvapps.wirelessstart.adapter.VehicleConfigAdapter;
 import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.ConnectionStateRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.enums.VehicleControlType;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
@@ -55,8 +57,10 @@ public class EditConfigActivity extends AppCompatActivity {
     private TextInputEditText inputName, inputMac;
     private MaterialButton btnScan, btnSave, btnAddVehicle, btnSaveSettings;
     private TextView tvCancelAction, tvSelectedVehicleName;
-    private TextView txtStartVal, txtStopVal;
-    private Slider sliderStart, sliderStop;
+    private TextView txtStartVal, txtStopVal, txtConnectRssiVal, txtDisconnectRssiVal;
+    private Slider sliderStart, sliderStop, sliderConnectRssi, sliderDisconnectRssi;
+    private LinearLayout layoutStartPulseContainer, layoutStopPulseContainer;
+    private View dividerStart, dividerStop;
     private NestedScrollView nestedScrollView;
     private MaterialCardView cardActiveConfig, cardVehicleSettings;
     private RecyclerView recyclerViewVehicles;
@@ -76,6 +80,7 @@ public class EditConfigActivity extends AppCompatActivity {
 
     private String selectedVehicleId = null;
     private float initialStartValue, initialStopValue;
+    private float initialConnectRssiValue, initialDisconnectRssiValue;
     private float startSliderMin, stopSliderMin;
     private float startSliderDefault, stopSliderDefault;
     private static final int REQUEST_CODE_PERMISSIONS = 101;
@@ -118,12 +123,24 @@ public class EditConfigActivity extends AppCompatActivity {
         recyclerViewVehicles = findViewById(R.id.recycler_vehicles);
         nestedScrollView = findViewById(R.id.nested_scroll_view);
 
+        // Containers & dividers for conditional visibility
+        layoutStartPulseContainer = findViewById(R.id.layout_start_pulse_container);
+        layoutStopPulseContainer = findViewById(R.id.layout_stop_pulse_container);
+        dividerStart = findViewById(R.id.divider_start);
+        dividerStop = findViewById(R.id.divider_stop);
+
         // Settings card components
         tvSelectedVehicleName = findViewById(R.id.tv_selected_vehicle_name);
         sliderStart = findViewById(R.id.slider_start);
         sliderStop = findViewById(R.id.slider_stop);
+        sliderConnectRssi = findViewById(R.id.slider_connect_rssi);
+        sliderDisconnectRssi = findViewById(R.id.slider_disconnect_rssi);
+
         txtStartVal = findViewById(R.id.txt_start_duration_value);
         txtStopVal = findViewById(R.id.txt_stop_duration_value);
+        txtConnectRssiVal = findViewById(R.id.txt_connect_rssi_value);
+        txtDisconnectRssiVal = findViewById(R.id.txt_disconnect_rssi_value);
+
         btnSaveSettings = findViewById(R.id.btn_save_settings);
 
         // Hide add config form by default on launch
@@ -162,6 +179,20 @@ public class EditConfigActivity extends AppCompatActivity {
             }
         });
 
+        sliderConnectRssi.addOnChangeListener((slider, value, fromUser) -> {
+            updateRssiLabel(txtConnectRssiVal, value);
+            if (fromUser) {
+                updateSaveSettingsButtonState();
+            }
+        });
+
+        sliderDisconnectRssi.addOnChangeListener((slider, value, fromUser) -> {
+            updateRssiLabel(txtDisconnectRssiVal, value);
+            if (fromUser) {
+                updateSaveSettingsButtonState();
+            }
+        });
+
         // Focus listener to scroll down when typing in input fields
         View.OnFocusChangeListener scrollListener = (v, hasFocus) -> {
             if (hasFocus && nestedScrollView != null) {
@@ -177,6 +208,10 @@ public class EditConfigActivity extends AppCompatActivity {
     private void updateDurationLabel(TextView label, float valueMs) {
         float seconds = valueMs / 1000f;
         label.setText(String.format(Locale.getDefault(), "%.1fs", seconds));
+    }
+
+    private void updateRssiLabel(TextView label, float valueDbm) {
+        label.setText(String.format(Locale.getDefault(), "%d dBm", (int) valueDbm));
     }
 
     private void loadInitialSelection() {
@@ -270,16 +305,43 @@ public class EditConfigActivity extends AppCompatActivity {
 
         VehicleSettings settings = vehicleRepository.getSettingsForVehicle(selectedVehicleId);
 
-        // Load saved millisecond values (defaulting to 1.0s if not set)
-        initialStartValue = settings.getStartPulseDuration();
-        if (initialStartValue < startSliderMin) initialStartValue = startSliderDefault;
-        sliderStart.setValue(initialStartValue);
-        updateDurationLabel(txtStartVal, initialStartValue);
+        // Conditional visibility for Start Pulse based on isStartEngineEnabled
+        VehicleControlType vehicleControlType = VehicleControlType.valueOf(settings.getControlType());
+        boolean isStartEnabled = settings.isStartEngineEnabled() && VehicleControlType.START_STOP.equals(vehicleControlType);
+        layoutStartPulseContainer.setVisibility(isStartEnabled ? View.VISIBLE : View.GONE);
+        if (dividerStart != null) {
+            dividerStart.setVisibility(isStartEnabled ? View.VISIBLE : View.GONE);
+        }
 
-        initialStopValue = settings.getStopPulseDuration();
-        if (initialStopValue < stopSliderMin) initialStopValue = stopSliderDefault;
-        sliderStop.setValue(initialStopValue);
-        updateDurationLabel(txtStopVal, initialStopValue);
+        if (isStartEnabled) {
+            initialStartValue = settings.getStartPulseDuration();
+            if (initialStartValue < startSliderMin) initialStartValue = startSliderDefault;
+            sliderStart.setValue(initialStartValue);
+            updateDurationLabel(txtStartVal, initialStartValue);
+        }
+
+        // Conditional visibility for Stop Pulse based on isStopEngineEnabled
+        boolean isStopEnabled = settings.isStopEngineEnabled() && VehicleControlType.START_STOP.equals(vehicleControlType);
+        layoutStopPulseContainer.setVisibility(isStopEnabled ? View.VISIBLE : View.GONE);
+        if (dividerStop != null) {
+            dividerStop.setVisibility(isStopEnabled ? View.VISIBLE : View.GONE);
+        }
+
+        if (isStopEnabled) {
+            initialStopValue = settings.getStopPulseDuration();
+            if (initialStopValue < stopSliderMin) initialStopValue = stopSliderDefault;
+            sliderStop.setValue(initialStopValue);
+            updateDurationLabel(txtStopVal, initialStopValue);
+        }
+
+        // Load RSSI threshold values
+        initialConnectRssiValue = settings.getConnectRssiThreshold();
+        sliderConnectRssi.setValue(initialConnectRssiValue);
+        updateRssiLabel(txtConnectRssiVal, initialConnectRssiValue);
+
+        initialDisconnectRssiValue = settings.getDisconnectRssiThreshold();
+        sliderDisconnectRssi.setValue(initialDisconnectRssiValue);
+        updateRssiLabel(txtDisconnectRssiVal, initialDisconnectRssiValue);
 
         // Update button state after setting values
         updateSaveSettingsButtonState();
@@ -296,7 +358,7 @@ public class EditConfigActivity extends AppCompatActivity {
                 return;
             }
 
-            // Add vehicle and default settings (1.0s / 1000ms each) via Repository
+            // Add vehicle and default settings via Repository
             String newVehicleId = vehicleRepository.addVehicleWithSettings(name, mac, (int) startSliderDefault, (int) stopSliderDefault);
 
             Toast.makeText(this, "New Vehicle Added!", Toast.LENGTH_SHORT).show();
@@ -333,14 +395,28 @@ public class EditConfigActivity extends AppCompatActivity {
             return;
         }
 
-        int startMs = (int) sliderStart.getValue();
-        int stopMs = (int) sliderStop.getValue();
+        VehicleSettings currentSettings = vehicleRepository.getSettingsForVehicle(selectedVehicleId);
 
-        vehicleRepository.saveVehicleSettings(selectedVehicleId, startMs, stopMs);
+        // If a section is hidden, preserve its existing DB value instead of writing unadjusted slider data
+        int startMs = (layoutStartPulseContainer.getVisibility() == View.VISIBLE)
+                ? (int) sliderStart.getValue()
+                : (currentSettings != null ? currentSettings.getStartPulseDuration() : (int) startSliderDefault);
 
-        // Update baseline to current values and disable button until next change
+        int stopMs = (layoutStopPulseContainer.getVisibility() == View.VISIBLE)
+                ? (int) sliderStop.getValue()
+                : (currentSettings != null ? currentSettings.getStopPulseDuration() : (int) stopSliderDefault);
+
+        int connectRssi = (int) sliderConnectRssi.getValue();
+        int disconnectRssi = (int) sliderDisconnectRssi.getValue();
+
+        vehicleRepository.saveVehicleSettings(selectedVehicleId, startMs, stopMs, connectRssi, disconnectRssi);
+
+        // Update baselines to current values and disable button until next change
         initialStartValue = sliderStart.getValue();
         initialStopValue = sliderStop.getValue();
+        initialConnectRssiValue = sliderConnectRssi.getValue();
+        initialDisconnectRssiValue = sliderDisconnectRssi.getValue();
+
         updateSaveSettingsButtonState();
 
         Toast.makeText(this, "Vehicle settings saved!", Toast.LENGTH_SHORT).show();
@@ -420,14 +496,13 @@ public class EditConfigActivity extends AppCompatActivity {
             stopBleScan();
         });
 
-        // Add Neutral button for Rescan (set to null initially to avoid auto-dismissing)
+        // Add Neutral button for Rescan
         builder.setNeutralButton("Rescan", null);
         builder.setOnCancelListener(dialog -> stopBleScan());
 
         scanDialog = builder.create();
         scanDialog.show();
 
-        // Override the Rescan button click listener post-show so it doesn't dismiss the dialog
         scanDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
             handler.removeCallbacks(scanTimeoutRunnable);
             stopBleScan();
@@ -509,11 +584,14 @@ public class EditConfigActivity extends AppCompatActivity {
     }
 
     private void updateSaveSettingsButtonState() {
-        boolean hasChanged = (sliderStart.getValue() != initialStartValue) ||
+        boolean startChanged = (layoutStartPulseContainer.getVisibility() == View.VISIBLE) &&
+                (sliderStart.getValue() != initialStartValue);
+        boolean stopChanged = (layoutStopPulseContainer.getVisibility() == View.VISIBLE) &&
                 (sliderStop.getValue() != initialStopValue);
+        boolean connectChanged = sliderConnectRssi.getValue() != initialConnectRssiValue;
+        boolean disconnectChanged = sliderDisconnectRssi.getValue() != initialDisconnectRssiValue;
 
-        // Material 3 automatically handles the disabled dimming/styling
-        // and enabled primary color when you use standard theme attributes.
+        boolean hasChanged = startChanged || stopChanged || connectChanged || disconnectChanged;
         btnSaveSettings.setEnabled(hasChanged);
     }
 

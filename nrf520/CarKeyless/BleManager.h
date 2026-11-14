@@ -9,5 +9,7 @@ bool isBleClientConnected();
 void updateBleAdvertisingState();
 void setDeviceName(String newName);
 void transmitConfigToApp();
+void transmitPowerStateToApp();
+void updateOnDisconnect();
 
 #endif

@@ -9,14 +9,19 @@
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
-const unsigned long DEFAULT_UNLOCK_PULSE_MS = 1700;
-const unsigned long DEFAULT_LOCK_PULSE_MS   = 1700;
+const unsigned long DEFAULT_UNLOCK_PULSE_MS = 500;
+const unsigned long DEFAULT_LOCK_PULSE_MS   = 500;
 
 // Define custom BLE Service and Characteristic using Adafruit classes
 BLEService scooterService(SERVICE_UUID);
 BLECharacteristic customCharacteristic(CHARACTERISTIC_UUID);
 
 bool bleConnected = false;
+
+// Config to Lock and set Power Relay OFF on ble disconnect
+bool pendingPowerRelayOff = false;
+unsigned long powerRelayOffTriggerTime = 0;
+const unsigned long POWER_RELAY_OFF_DELAY_MS = 1200;
 
 // Pull device name from persistent flash storage struct instead of hardcoded string
 String getStoredDeviceName() {
@@ -73,7 +78,7 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
     bool isStructuredAckPacket = false;
 
     // Check if this is a modern ACK-tracked packet format: [cmdId, seqId, ...payload]
-    if (length >= 2 && data[0] >= 0x01 && data[0] <= 0x15) {
+    if (length >= 2 && data[0] >= 0x01 && data[0] <= 0x16) {
         cmdId = data[0];
         seqId = data[1];
         isStructuredAckPacket = true;
@@ -106,7 +111,7 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
     if (isStructuredAckPacket) {
         // --- STRUCTURED ACK COMMANDS ---
         switch (cmdId) {
-            case 0x01: // UNLOCK
+            case 0x01: // UNLOCK (Atomic Power-On & Unlock Sequence)
                 if (!currentConfig.isUnlockEnabled) {
                     executionSuccess = false;
                 } else {
@@ -114,11 +119,23 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
                     if (command.startsWith("UNLOCK:")) {
                         duration = getValidatedDuration(command.substring(7).toInt());
                     }
+
+                    // 1. Ensure power is active first
+                    setRelayState(POWER_RELAY_PIN, true);
+                    transmitPowerStateToApp();
+
+                    // 2. Stabilization delay before pulsing
+                    delay(50);
+
+                    // 3. Trigger unlock pulse
                     requestRelayPulse(UNLOCK_RELAY_PIN, duration);
+
+                    // 4. Wait for physical unlock stroke to complete (Power stays ON)
+                    delay(duration + 50);
                 }
                 break;
 
-            case 0x02: // LOCK
+            case 0x02: // LOCK (Atomic Lock & Power-Down Sequence)
                 if (!currentConfig.isLockEnabled) {
                     executionSuccess = false;
                 } else {
@@ -126,15 +143,33 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
                     if (command.startsWith("LOCK:")) {
                         duration = getValidatedDuration(command.substring(5).toInt());
                     }
+
+                    // 1. Ensure power is active
+                    setRelayState(POWER_RELAY_PIN, true);
+                    transmitPowerStateToApp();
+
+                    // 2. Stabilization delay
+                    delay(50);
+
+                    // 3. Trigger lock pulse
                     requestRelayPulse(LOCK_RELAY_PIN, duration);
+
+                    // 4. Wait safely for the physical lock stroke to finish
+                    delay(duration + 100);
+
+                    // 5. Turn power OFF and broadcast state
+                    setRelayState(POWER_RELAY_PIN, false);
+                    transmitPowerStateToApp();
                 }
                 break;
 
             case 0x03: // POWER_STATE
                 if (command.equals("PWR:ON")) {
                     setRelayState(POWER_RELAY_PIN, true);
+                    transmitPowerStateToApp();
                 } else if (command.equals("PWR:OFF")) {
                     setRelayState(POWER_RELAY_PIN, false);
+                    transmitPowerStateToApp();
                 } else {
                     executionSuccess = false;
                 }
@@ -159,12 +194,20 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
                 }
                 break;
 
+            case 0x16: // GET_PWR_STATE (Querying state)
+                if (command.equals("GET_PWR_STATE")) {
+                    transmitPowerStateToApp();
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
             default:
                 executionSuccess = false;
                 break;
         }
 
-        // Send ACK back for structured commands
+        // Send ACK back for structured commands only after atomic execution finishes
         uint8_t statusCode = executionSuccess ? 0x00 : 0x01;
         sendAppAck(cmdId, seqId, statusCode);
 
@@ -186,7 +229,17 @@ void connect_callback(uint16_t conn_handle) {
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     bleConnected = false;
-    if (Serial) Serial.println(">>> App Disconnected! Restarting advertising.");
+
+    // 1. Trigger the lock pulse immediately while power is still active
+    requestRelayPulse(LOCK_RELAY_PIN, DEFAULT_LOCK_PULSE_MS);
+
+    // 2. Start the non-blocking power-off timer
+    pendingPowerRelayOff = true;
+    powerRelayOffTriggerTime = millis();
+
+    if (Serial) {
+        Serial.println(">>> App Disconnected! Lock triggered. Power relay will turn OFF in 1.2s...");
+    }
 }
 
 void initBle() {
@@ -262,5 +315,37 @@ void setDeviceName(String newName) {
     if (Serial) {
         Serial.print(">>> Device Name updated live & saved to flash: ");
         Serial.println(currentConfig.deviceName);
+    }
+}
+
+// Helper function to transmit current power state back to the app
+void transmitPowerStateToApp() {
+    if (!bleConnected) return;
+
+    // Read the actual physical state of the power relay pin
+    bool currentPowerState = digitalRead(POWER_RELAY_PIN);
+
+    // Format: PWR_STATUS:ON or PWR_STATUS:OFF
+    String powerPayload = "PWR_STATUS:" + String(currentPowerState ? "ON" : "OFF");
+
+    customCharacteristic.notify((const uint8_t*)powerPayload.c_str(), powerPayload.length());
+
+    if (Serial) {
+        Serial.print("Transmitted Power State to App: ");
+        Serial.println(powerPayload);
+    }
+}
+
+void updateOnDisconnect() {
+    if (pendingPowerRelayOff && (millis() - powerRelayOffTriggerTime >= POWER_RELAY_OFF_DELAY_MS)) {
+        pendingPowerRelayOff = false;
+
+        // Safely cut power after the lock pulse has completely finished
+        setRelayState(POWER_RELAY_PIN, false);
+        transmitPowerStateToApp();
+
+        if (Serial) {
+            Serial.println(">>> Safety Shutdown Complete: Power relay turned OFF.");
+        }
     }
 }

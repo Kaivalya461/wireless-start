@@ -56,6 +56,9 @@ void loop() {
     // 3. Update battery monitoring tasks
     updateBatteryTask();
 
+    // 4. Lock and Power Off on Disconnect
+    updateOnDisconnect();
+
     // 4. POWER OPTIMIZATION: Put the CPU to sleep until the next
     // millisecond timer tick, relay event, or Bluetooth interrupt.
     // This stops the CPU from busy-waiting and drops current dramatically.

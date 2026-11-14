@@ -36,7 +36,7 @@ Commands:
    adb connect 192.168.1.135:32933
    ```
 
-## Architecture (Phone App - v3.3.0)
+## Architecture (Phone App - v4.1.0)
 Components:
 1. BleManager(single instance in MyApplication) - Takes care of managing BLE connection for multiple devices (esp32), where all can connect simultaneously.
 2. ConnectionStatusRepository - SSOT for vehicle connection status, and mainly the BleManager feeds the connection updates. This allows multiple Listeners. In my case there are BleForegroundService and MainActivity.

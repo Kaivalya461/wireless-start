@@ -89,6 +89,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
             return v1.isConnected() == v2.isConnected() &&
                     v1.isBusy() == v2.isBusy() &&
                     v1.isDefault() == v2.isDefault() &&
+                    v1.isPoweredOn() == v2.isPoweredOn() &&
                     Objects.equals(v1.getName(), v2.getName()) &&
                     Objects.equals(v1.getVoltage(), v2.getVoltage()) &&
                     Objects.equals(v1.getStatusText(), v2.getStatusText()) &&
@@ -275,7 +276,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
                 btnPower.setOnCheckedChangeListener(null);
 
                 // Set based on vehicle power state (e.g., vehicle.isPoweredOn())
-                // btnPower.setChecked(vehicle.isPoweredOn());
+                btnPower.setChecked(vehicle.isPoweredOn());
 
                 btnPower.setEnabled(canClick);
                 btnPower.setAlpha(canClick ? 1.0f : 0.5f);

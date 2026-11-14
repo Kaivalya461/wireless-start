@@ -83,6 +83,7 @@ public class BackgroundVehicleEventManager implements VehicleEventRepository.Veh
 
             session.syncInitializationSequence(
                     session::sendAutoTimeSync,
+                    () -> session.requestPowerState(),
                     () -> session.syncTelemetryState(savedTelemetryState),
                     () -> session.syncFailSafeState(savedFailSafeState),
                     () -> session.requestScheduleFromEsp32(),

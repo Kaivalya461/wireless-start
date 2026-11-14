@@ -27,6 +27,8 @@ public class Vehicle {
     private String voltage = "--.--V";
     @Ignore
     private boolean isBusy = false;
+    @Ignore
+    private boolean isPoweredOn = false;
 
     // Primary constructor for Room
     public Vehicle(@NonNull String id, String name, String macAddress) {
@@ -62,6 +64,9 @@ public class Vehicle {
 
     public boolean isBusy() { return isBusy; }
     public void setBusy(boolean busy) { isBusy = busy; }
+
+    public boolean isPoweredOn() { return isPoweredOn; }
+    public void setPoweredOn(boolean poweredOn) { isPoweredOn = poweredOn; }
 
     @Override
     public boolean equals(Object o) {

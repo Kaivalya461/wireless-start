@@ -412,8 +412,9 @@ public class EditConfigActivity extends AppCompatActivity {
 
         vehicleRepository.saveVehicleSettings(selectedVehicleId, startMs, stopMs, connectRssi, disconnectRssi);
 
-        // Clear Data which holds db values in their local caches
+        // Clear Data which holds db values in their local caches, so scanning and disconnect logic uses updated values.
         VehicleDistanceManager.getInstance().clearAllVehicleCacheData();
+        bleManager.refreshVehiclesScan();
 
         // Update baselines to current values and disable button until next change
         initialStartValue = sliderStart.getValue();

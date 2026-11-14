@@ -1,11 +1,16 @@
 package in.kvapps.wirelessstart.domain;
 
+import static in.kvapps.wirelessstart.enums.VehicleEventType.ENTERED_NEARBY;
+import static in.kvapps.wirelessstart.enums.VehicleEventType.POWER_RELAY_STATE_EVENT;
+
 import android.content.Context;
 import android.util.Log;
 
 import java.time.format.DateTimeFormatter;
 
+import in.kvapps.wirelessstart.ble.VehicleEventRepository;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.util.WearSyncUtils;
 
 public class DeviceProtocolHandler {
@@ -20,6 +25,7 @@ public class DeviceProtocolHandler {
         void onVehicleConfigReceived(String macAddress, String deviceName, boolean startEnabled,
                                      boolean stopEnabled, boolean battEnabled, boolean powerSwitchEnabled,
                                      boolean supportsAck);
+        void onPowerStateReceived(String macAddress, boolean isPoweredOn);
     }
 
     public DeviceProtocolHandler(Context context, ProtocolListener listener) {
@@ -72,7 +78,25 @@ public class DeviceProtocolHandler {
             return;
         }
 
-        // 2. Handle Text / Command Protocol Responses (e.g. Schedule sync from ESP32/nRF52)
+        // 2. Handle Explicit Power Status Response (PWR_STATUS:ON or PWR_STATUS:OFF)
+        if (payloadString.startsWith("PWR_STATUS:")) {
+            try {
+                boolean isPoweredOn = payloadString.substring(11).trim().equalsIgnoreCase("ON");
+                var powerRelayStateData = new VehicleEventData(macAddress, true, -999, POWER_RELAY_STATE_EVENT, isPoweredOn);
+                VehicleEventRepository.getInstance().emitEvent(macAddress, POWER_RELAY_STATE_EVENT, powerRelayStateData);
+                if (listener != null) {
+                    listener.onPowerStateReceived(macAddress, isPoweredOn);
+//                    listener.onProtocolLog("[nRF52 RX][" + macAddress + "] Power State Synced -> " + (isPoweredOn ? "ON" : "OFF"));
+                }
+            } catch (Exception e) {
+                if (listener != null) {
+                    listener.onProtocolLog("Failed to parse power status payload from " + macAddress);
+                }
+            }
+            return;
+        }
+
+        // 3. Handle Text / Command Protocol Responses (e.g. Schedule sync from ESP32/nRF52)
         if (payloadString.startsWith("SCHED_IS:")) {
             // Only process schedule updates if the toggle is enabled in preferences
             if (!preferenceManager.isEngineScheduleEnabled()) {

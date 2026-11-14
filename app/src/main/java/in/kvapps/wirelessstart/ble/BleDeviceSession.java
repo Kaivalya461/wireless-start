@@ -227,6 +227,27 @@ public class BleDeviceSession {
         );
     }
 
+    /**
+     * Request the current power state from the hardware device.
+     */
+    public void requestPowerState(Runnable onSuccess, Runnable onFailure) {
+        sendCommand(BleCommand.GET_PWR_STATE.getCommandId(), "GET_PWR_STATE".getBytes(),
+                () -> {
+                    Log.d(TAG, "GET_POWER_STATE command ACKed on " + macAddress);
+                    if (onSuccess != null) onSuccess.run();
+                },
+                () -> {
+                    Log.e(TAG, "GET_POWER_STATE command failed/timed out on " + macAddress);
+                    if (onFailure != null) onFailure.run();
+                }
+        );
+    }
+
+    // Overloaded variant without explicit parameters
+    public void requestPowerState() {
+        requestPowerState(null, null);
+    }
+
     public void sendTextCommand(String commandText, Runnable onSuccess, Runnable onFailure) {
         if (commandText == null || commandText.isEmpty()) {
             if (onFailure != null) onFailure.run();

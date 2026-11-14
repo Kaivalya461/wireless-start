@@ -9,7 +9,8 @@ public enum BleCommand {
     SCHEDULED_RUN((byte) 0x12),
     GET_SCHEDULE((byte) 0x13),
     GET_CONFIG((byte) 0x14),
-    GENERIC_TEXT((byte) 0x15);
+    GENERIC_TEXT((byte) 0x15),
+    GET_PWR_STATE((byte) 0x16);
 
     private final byte commandId;
 
@@ -39,6 +40,8 @@ public enum BleCommand {
             return LOCK;
         } else if (commandText.equals("PWR:ON") || commandText.equals("PWR:OFF")) {
             return POWER_STATE;
+        } else if (commandText.equals("GET_PWR_STATE")) {
+            return GET_PWR_STATE;
         } else if (commandText.startsWith("TIME:")) {
             return TIME_SYNC;
         } else if (commandText.equals("GET_CONFIG")) {

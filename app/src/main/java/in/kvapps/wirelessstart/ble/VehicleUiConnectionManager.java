@@ -102,6 +102,9 @@ public class VehicleUiConnectionManager implements ConnectionStateRepository.OnC
                 case EXITED_NEARBY:
                     // Do nothing in MainActivity
                     break;
+                case POWER_RELAY_STATE_EVENT:
+                    vehicle.setPoweredOn(vehicleEventData.isPoweredOn());
+                    break;
                 default:
                     break;
             }

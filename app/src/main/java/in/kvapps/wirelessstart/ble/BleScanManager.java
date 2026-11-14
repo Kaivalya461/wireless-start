@@ -61,21 +61,21 @@ public class BleScanManager implements BleScanReceiver.ScanEventCallback {
         switch (state) {
             case SUPER_STRONG:
                 if (listener != null) {
-                    listener.onScanLog("🔥 SuperStrong signal for " + macAddress + "! (" + rssi + " dBm)");
+//                    listener.onScanLog("🔥 SuperStrong signal for " + macAddress + "! (" + rssi + " dBm)");
                     listener.onDeviceFound(macAddress);
                 }
                 break;
 
             case MEDIUM_HIGH:
                 if (listener != null) {
-                    listener.onScanLog("⚡ Medium-High signal for " + macAddress + " (" + rssi + " dBm)");
+//                    listener.onScanLog("⚡ Medium-High signal for " + macAddress + " (" + rssi + " dBm)");
                     listener.onDeviceFound(macAddress);
                 }
                 break;
 
             case LOW_TRIGGER:
                 if (listener != null) {
-                    listener.onScanLog("⚠️ Low signal for " + macAddress + " (" + rssi + " dBm). Connecting anyway...");
+//                    listener.onScanLog("⚠️ Low signal for " + macAddress + " (" + rssi + " dBm). Connecting anyway...");
                     listener.onDeviceFound(macAddress);
                 }
                 break;

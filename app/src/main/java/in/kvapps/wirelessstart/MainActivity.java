@@ -181,6 +181,24 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                     handleReconnect(vehicle);
                 }
             }
+
+            @Override
+            public void onPowerStateReceived(String macAddress, boolean isPoweredOn) {
+                // Update local vehicle model and target specific item UI
+                runOnUiThread(() -> {
+                    List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
+                    for (int i = 0; i < currentList.size(); i++) {
+                        VehicleWithSettings item = currentList.get(i);
+                        if (item.getVehicle() != null && macAddress.equalsIgnoreCase(item.getVehicle().getMacAddress())) {
+                            item.getVehicle().setPoweredOn(isPoweredOn);
+
+                            // Notify adapter item changed so the switch toggle updates cleanly
+                            vehicleAdapter.notifyItemChanged(i);
+                            break;
+                        }
+                    }
+                });
+            }
         });
 
         if (preferenceManager.isForegroundServiceEnabled()) {
@@ -340,7 +358,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 vehicle.getMacAddress(),
                 CommandActionType.TERTIARY,
                 switchState,
-                resultPayload -> handleCommandResult(resultPayload, false),
+                resultPayload -> handlePowerSwitchResult(vehicle, switchState, resultPayload),
                 false
         );
     }
@@ -361,6 +379,34 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
         bleManager.disconnect(vehicle.getMacAddress());
         bleManager.connect(vehicle.getMacAddress(), preferenceManager.isAutoConnectEnabled());
         bleManager.refreshVehiclesScan();
+    }
+
+    private void handlePowerSwitchResult(Vehicle vehicle, boolean attemptedState, CmdExecResultData resultPayload) {
+        // Log and handle standard vibration/logging
+        handleCommandResult(resultPayload, false);
+
+        boolean isSuccess = Constants.COMMAND_SUCCESS.equals(resultPayload.getResult());
+
+        runOnUiThread(() -> {
+            if (!isSuccess) {
+                // 2. Roll back optimistic state if the command failed or timed out
+                vehicle.setPoweredOn(!attemptedState);
+                onLog("[" + vehicle.getName() + "] Power switch command failed/timed out. Reverting toggle.");
+            } else {
+                // Confirmed success
+                vehicle.setPoweredOn(attemptedState);
+            }
+
+            // 3. Find the exact item position in the adapter and refresh the view
+            List<VehicleWithSettings> currentList = vehicleAdapter.getCurrentList();
+            for (int i = 0; i < currentList.size(); i++) {
+                VehicleWithSettings item = currentList.get(i);
+                if (item.getVehicle() != null && item.getVehicle().getId().equals(vehicle.getId())) {
+                    vehicleAdapter.notifyItemChanged(i);
+                    break;
+                }
+            }
+        });
     }
 
     private void handleTelemetryToggle(boolean isChecked) {

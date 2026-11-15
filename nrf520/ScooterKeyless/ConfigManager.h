@@ -14,56 +14,36 @@ struct DeviceConfig {
     bool isStartEngineEnabled;
     bool isStopEngineEnabled;
     bool liveBatteryVoltageEnabled;
+    bool isPowerSwitchEnabled;
+    bool ackNotificationsEnabled; // <-- NEW FLAG: Controls whether this unit emits ACK notifications
     uint32_t magic_header; // Used to check if flash has been initialized before
 };
 
+// Updated Magic Header to invalidate old flash layouts cleanly
+const uint32_t CONFIG_MAGIC_HEADER = 0xCAFEB001;
+
 // Default configuration values
 const DeviceConfig DEFAULT_CONFIG = {
-    "ScooterKeyless",            // Default BLE Name
+    "Bike",              // Default BLE Name
     true,                // isStartEngineEnabled
-    false,                // isStopEngineEnabled
-    true,                // liveBatteryVoltageEnabled
-    0xDEADBEEF           // Magic number verification
+    true,                // isStopEngineEnabled
+    false,               // liveBatteryVoltageEnabled
+    false,               // isPowerSwitchEnabled
+    true,                // ackNotificationsEnabled (Default to true for new builds)
+    CONFIG_MAGIC_HEADER  // Magic number verification
 };
 
 // Global instance declaration compatible with older C++ standards
 extern DeviceConfig currentConfig;
-inline DeviceConfig currentConfig;
 
-inline void loadConfig() {
-    // Initialize the built-in LittleFS flash file system
-    InternalFS.begin();
-
-    // Open file using Adafruit's byte mode flags
-    File file = InternalFS.open("/config.dat", FILE_O_READ);
-    if (file) {
-        file.read((uint8_t*)&currentConfig, sizeof(DeviceConfig));
-        file.close();
-
-        // Check if magic header matches (verifies flash wasn't blank/corrupted)
-        if (currentConfig.magic_header != 0xDEADBEEF) {
-            currentConfig = DEFAULT_CONFIG;
-
-            // Save defaults back to flash file using FILE_O_WRITE
-            File writeFile = InternalFS.open("/config.dat", FILE_O_WRITE);
-            if (writeFile) {
-                writeFile.write((uint8_t*)&currentConfig, sizeof(DeviceConfig));
-                writeFile.close();
-            }
-        }
-    } else {
-        // File doesn't exist yet (first boot): create and save defaults
-        currentConfig = DEFAULT_CONFIG;
-        File writeFile = InternalFS.open("/config.dat", FILE_O_WRITE);
-        if (writeFile) {
-            writeFile.write((uint8_t*)&currentConfig, sizeof(DeviceConfig));
-            writeFile.close();
-        }
-    }
-}
-
+// 1. Define saveConfig() FIRST so loadConfig() can see it
 inline void saveConfig() {
     InternalFS.begin();
+    // Always remove the old file first to guarantee a clean overwrite in LittleFS
+    if (InternalFS.exists("/config.dat")) {
+        InternalFS.remove("/config.dat");
+    }
+
     File writeFile = InternalFS.open("/config.dat", FILE_O_WRITE);
     if (writeFile) {
         writeFile.write((uint8_t*)&currentConfig, sizeof(DeviceConfig));
@@ -71,7 +51,34 @@ inline void saveConfig() {
     }
 }
 
-inline void burnVehicleConfig(const char* name, bool startEn, bool stopEn, bool battEn) {
+// 2. Now loadConfig() can safely call saveConfig()
+inline void loadConfig() {
+    InternalFS.begin();
+
+    File file = InternalFS.open("/config.dat", FILE_O_READ);
+    if (file) {
+        // Ensure file size matches current struct size to prevent partial reads
+        if (file.size() == sizeof(DeviceConfig)) {
+            file.read((uint8_t*)&currentConfig, sizeof(DeviceConfig));
+        } else {
+            // Size mismatch (old struct version) -> force defaults reset
+            currentConfig.magic_header = 0;
+        }
+        file.close();
+
+        // Check if magic header matches the new version
+        if (currentConfig.magic_header != CONFIG_MAGIC_HEADER) {
+            currentConfig = DEFAULT_CONFIG;
+            saveConfig(); // Uses the safe saveConfig() with remove()
+        }
+    } else {
+        // File doesn't exist yet (first boot)
+        currentConfig = DEFAULT_CONFIG;
+        saveConfig();
+    }
+}
+
+inline void burnVehicleConfig(const char* name, bool startEn, bool stopEn, bool battEn, bool powerEn, bool ackEn) {
     InternalFS.begin();
 
     // Populate the global config struct
@@ -80,26 +87,22 @@ inline void burnVehicleConfig(const char* name, bool startEn, bool stopEn, bool 
     currentConfig.isStartEngineEnabled = startEn;
     currentConfig.isStopEngineEnabled = stopEn;
     currentConfig.liveBatteryVoltageEnabled = battEn;
-    currentConfig.magic_header = 0xDEADBEEF; // Stamp magic number
+    currentConfig.isPowerSwitchEnabled = powerEn;
+    currentConfig.ackNotificationsEnabled = ackEn;
+    currentConfig.magic_header = CONFIG_MAGIC_HEADER;
 
-    // Force-write to internal flash file system
-    File writeFile = InternalFS.open("/config.dat", FILE_O_WRITE);
-    if (writeFile) {
-        writeFile.write((uint8_t*)&currentConfig, sizeof(DeviceConfig));
-        writeFile.close();
-        if (Serial) {
-            Serial.println("----------------------------------------");
-            Serial.println(">>> VEHICLE CONFIG BURNED SUCCESSFULLY!");
-            Serial.print("    Name : "); Serial.println(currentConfig.deviceName);
-            Serial.print("    Start: "); Serial.println(currentConfig.isStartEngineEnabled ? "ENABLED" : "DISABLED");
-            Serial.print("    Stop : "); Serial.println(currentConfig.isStopEngineEnabled ? "ENABLED" : "DISABLED");
-            Serial.print("    Batt : "); Serial.println(currentConfig.liveBatteryVoltageEnabled ? "ENABLED" : "DISABLED");
-            Serial.println("----------------------------------------");
-        }
-    } else {
-        if (Serial) {
-            Serial.println(">>> ERROR: Failed to burn configuration to flash!");
-        }
+    saveConfig(); // Uses the safe saveConfig() with remove()
+
+    if (Serial) {
+        Serial.println("----------------------------------------");
+        Serial.println(">>> VEHICLE CONFIG BURNED SUCCESSFULLY!");
+        Serial.print("    Name : "); Serial.println(currentConfig.deviceName);
+        Serial.print("    Start: "); Serial.println(currentConfig.isStartEngineEnabled ? "ENABLED" : "DISABLED");
+        Serial.print("    Stop : "); Serial.println(currentConfig.isStopEngineEnabled ? "ENABLED" : "DISABLED");
+        Serial.print("    Batt : "); Serial.println(currentConfig.liveBatteryVoltageEnabled ? "ENABLED" : "DISABLED");
+        Serial.print("    Power  : "); Serial.println(currentConfig.isPowerSwitchEnabled ? "ENABLED" : "DISABLED");
+        Serial.print("    ACK Notif: "); Serial.println(currentConfig.ackNotificationsEnabled ? "ENABLED" : "DISABLED");
+        Serial.println("----------------------------------------");
     }
 }
 

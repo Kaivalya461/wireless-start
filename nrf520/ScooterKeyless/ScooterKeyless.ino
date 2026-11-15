@@ -2,6 +2,8 @@
 #include "BleManager.h"
 #include "ConfigManager.h"
 
+DeviceConfig currentConfig;
+
 void setup() {
     // 1. Enable internal DC/DC buck converter for efficiency
     NRF_POWER->DCDCEN = 1;
@@ -11,23 +13,26 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, HIGH);
 
-    // 2. Load Persistent Configuration from Flash
-    loadConfig();
-
-    // One time execution to update Config on chip's Flash.
-    // Make sure the vehicle name is <= 9 characters to stay within the default BLE ATT MTU limit of nrf52.
-    // burnVehicleConfig("nrf520", 1, 1, 1);
-
     // 3. Check if a USB cable is actively plugged in (VBUS detected)
     bool usbConnected = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk) != 0;
 
     if (usbConnected) {
         // We are plugged into a computer for debugging / programming
         Serial.begin(115200);
-        delay(1000); // Give serial monitor time to open
+
+        // Wait up to 3 seconds for the Serial Monitor to open so you don't miss early prints
+        unsigned long startWait = millis();
+        while (!Serial && (millis() - startWait < 3000));
+
         Serial.println(">>> USB Connected: Serial Debugging Active.");
-        Serial.print("Loaded Device Name: "); Serial.println(currentConfig.deviceName);
     }
+
+    // 2. Load Persistent Configuration from Flash
+    loadConfig();
+
+    // NOW burn the config safely after Serial is ready to print messages
+    // Make sure the vehicle name is <= 9 characters to stay within the default BLE ATT MTU limit of nrf52.
+    // burnVehicleConfig("Bike", 1, 1, 0, 0, 1);
 
     // 4. Initialize sub-components (Pass currentConfig.deviceName to your BLE init)
     initRelays();

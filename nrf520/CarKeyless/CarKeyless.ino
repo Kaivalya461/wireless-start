@@ -42,7 +42,7 @@ void setup() {
 
     if (usbConnected) {
         Serial.print("Loaded Device Name: "); Serial.println(currentConfig.deviceName);
-        Serial.println(">>> Modular Keyless Controller Initialized (Low Power Mode Ready)! ---> (v4.0)");
+        Serial.println(">>> Modular Keyless Controller Initialized (Low Power Mode Ready)! ---> (v4.2)");
     }
 }
 

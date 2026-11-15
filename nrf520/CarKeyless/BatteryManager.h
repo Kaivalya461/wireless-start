@@ -3,7 +3,7 @@
 
 void initBatteryMonitor();
 float readBatteryVoltage();
-void setTelemetryActive(bool active);
+void setTelemetryActive(bool active); // Not used at the moment.
 bool isTelemetryEnabled();
 uint16_t getBatteryMilliVolts(); // For optimized 2-byte BLE notifications
 //void updateBatteryFilter();

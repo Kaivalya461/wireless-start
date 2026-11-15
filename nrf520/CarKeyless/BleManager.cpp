@@ -207,9 +207,12 @@ void handleIncomingCommand(const uint8_t* data, size_t length) {
                 break;
         }
 
-        // Send ACK back for structured commands only after atomic execution finishes
-        uint8_t statusCode = executionSuccess ? 0x00 : 0x01;
-        sendAppAck(cmdId, seqId, statusCode);
+        // Skip generic ACK for commands that transmit their own data payloads
+        if (cmdId != 0x14) {
+            // Send ACK back for structured commands only after atomic execution finishes
+            uint8_t statusCode = executionSuccess ? 0x00 : 0x81; // SUCCESS, FAILURE
+            sendAppAck(cmdId, seqId, statusCode);
+        }
 
     } else {
         // --- LEGACY PLAIN TEXT FALLBACK (Bootstrapping / Initial Handshake) ---

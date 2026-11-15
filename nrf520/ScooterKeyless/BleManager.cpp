@@ -8,6 +8,18 @@
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
+// Structured Command IDs
+#define CMD_START           0x01
+#define CMD_STOP            0x02
+#define CMD_POWER_STATE     0x03
+#define CMD_TIME_SYNC       0x10
+#define CMD_FAILSAFE        0x11
+#define CMD_SCHED_RUN       0x12
+#define CMD_GET_SCHEDULE    0x13
+#define CMD_GET_CONFIG      0x14
+#define CMD_GET_PWR_STATE   0x16
+#define CMD_BATTERY_STREAM  0x17
+
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
 const unsigned long DEFAULT_STOP_PULSE_MS = 1700;
 
@@ -25,6 +37,20 @@ String getStoredDeviceName() {
 // Forward declaration
 void handleIncomingCommand(const uint8_t* data, size_t length);
 
+// Helper function to send ACK back to the app via notification
+void sendAppAck(uint8_t cmdId, uint8_t seqId, uint8_t status) {
+    if (!bleConnected || seqId == 0) return;
+
+    uint8_t ackPayload[3] = { cmdId, seqId, status }; // 0x00 = SUCCESS, 0x01 = FAILED
+    customCharacteristic.notify(ackPayload, sizeof(ackPayload));
+
+    if (Serial) {
+        Serial.print("Sent ACK -> Cmd: 0x"); Serial.print(cmdId, HEX);
+        Serial.print(" | Seq: "); Serial.print(seqId);
+        Serial.print(" | Status: "); Serial.println(status == 0x00 ? "SUCCESS" : "FAILED");
+    }
+}
+
 // Corrected Adafruit write callback signature
 void characteristic_write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t length) {
     handleIncomingCommand(data, length);
@@ -34,11 +60,13 @@ void transmitConfigToApp() {
     if (!bleConnected) return;
 
     // Format properties neatly as text/JSON payload so app can parse easily:
-    // Format: CONFIG:Name,StartEn(0/1),StopEn(0/1),BattEn(0/1)
+    // Format: CONFIG:Name,StartEn(0/1),StopEn(0/1),BattEn(0/1),PowerEn(0/1),SupportsAck(0/1)
     String configPayload = "CONF:" + String(currentConfig.deviceName) + "," +
                            String(currentConfig.isStartEngineEnabled ? 1 : 0) + "," +
                            String(currentConfig.isStopEngineEnabled ? 1 : 0) + "," +
-                           String(currentConfig.liveBatteryVoltageEnabled ? 1 : 0);
+                           String(currentConfig.liveBatteryVoltageEnabled ? 1 : 0) + "," +
+                           String(currentConfig.isPowerSwitchEnabled ? 1 : 0) + "," +
+                           String(currentConfig.ackNotificationsEnabled ? 1 : 0);
 
     customCharacteristic.notify((const uint8_t*)configPayload.c_str(), configPayload.length());
 
@@ -51,76 +79,152 @@ void transmitConfigToApp() {
 void handleIncomingCommand(const uint8_t* data, size_t length) {
     if (length == 0) return;
 
-    if (length == 1) {
-        uint8_t commandByte = data[0];
-        if (commandByte == 0x02) {
-            if (Serial) Serial.println(">>> App Command: Battery Telemetry Stream DISABLED.");
-            return;
-        } else if (commandByte == 0x03) {
-            if (Serial) Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
-            return;
-        }
+    uint8_t cmdId = 0;
+    uint8_t seqId = 0;
+    bool isStructuredAckPacket = false;
+
+    // Check if this is a modern ACK-tracked packet format: [cmdId, seqId, ...payload]
+    // Valid command IDs range from 0x01 to 0x16 (or higher depending on your protocol)
+    if (length >= 2 && data[0] >= 0x01 && data[0] <= 0x20) {
+        cmdId = data[0];
+        seqId = data[1];
+        isStructuredAckPacket = true;
     }
 
+    // Extract command string payload based on packet type
     String command = "";
-    for (size_t i = 0; i < length; i++) {
+    size_t startIndex = isStructuredAckPacket ? 2 : 0;
+    for (size_t i = startIndex; i < length; i++) {
         command += (char)data[i];
     }
     command.trim();
 
-    if (command.length() == 0) return;
-
+    // Debug logging
     if (Serial) {
         Serial.print("Received Command: ");
-        Serial.println(command);
+        if (isStructuredAckPacket) {
+            Serial.print("[Structured CmdID: 0x"); Serial.print(cmdId, HEX); Serial.print("] ");
+        } else {
+            Serial.print("[Legacy Plain Text] ");
+        }
+        Serial.print(command);
+        if (isStructuredAckPacket) {
+            Serial.print(" [SeqId: "); Serial.print(seqId); Serial.print("]");
+        }
+        Serial.println();
     }
 
-    if (command.startsWith("TIME:")) {
-        unsigned long epoch = command.substring(5).toInt();
-        setenv("TZ", "IST-5:30", 1);
-        tzset();
-        syncTime(epoch);
-    }
-    else if (command.equals("GET_CONFIG")) {
-        // App requests to fetch all persistent properties
-        transmitConfigToApp();
-    }
-    else if (command.startsWith("START")) {
-        if (!currentConfig.isStartEngineEnabled) {
-            if (Serial) Serial.println(">>> Ignored: Start Engine is disabled via config.");
-            return;
+    bool executionSuccess = true;
+
+    if (isStructuredAckPacket) {
+        // --- STRUCTURED ACK COMMAND SWITCH ---
+        switch (cmdId) {
+
+            case CMD_START: // 0x01: START
+                if (!currentConfig.isStartEngineEnabled) {
+                    if (Serial) Serial.println(">>> Ignored: Start Engine is disabled via config.");
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_START_PULSE_MS;
+                    if (command.startsWith("START:")) {
+                        duration = getValidatedDuration(command.substring(6).toInt());
+                    }
+                    requestRelayPulse(START_RELAY_PIN, duration);
+                }
+                break;
+
+            case CMD_STOP: // 0x02: STOP ENGINE
+                if (!currentConfig.isStopEngineEnabled) {
+                    if (Serial) Serial.println(">>> Ignored: Stop Engine is disabled via config.");
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_STOP_PULSE_MS;
+                    if (command.startsWith("STOP:")) {
+                        duration = getValidatedDuration(command.substring(5).toInt());
+                    }
+                    requestRelayPulse(STOP_RELAY_PIN, duration);
+                }
+                break;
+
+            case CMD_POWER_STATE: // 0x03: POWER_STATE
+                // Not supported in here
+                break;
+
+            case CMD_TIME_SYNC: // 0x10: TIME SYNC
+                if (command.startsWith("TIME:")) {
+                    unsigned long epoch = command.substring(5).toInt();
+                    setenv("TZ", "IST-5:30", 1);
+                    tzset();
+                    syncTime(epoch);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case CMD_FAILSAFE: // 0x11: FAIL-SAFE RELAY CONTROL
+                if (command.equals("FAILSAFE:OFF")) {
+                    setStopFailSafeActive(false);
+                    if (Serial) Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED.");
+                } else if (command.equals("FAILSAFE:ON")) {
+                    setStopFailSafeActive(true);
+                    if (Serial) Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED.");
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case CMD_SCHED_RUN: // 0x12: SCHEDULE RUN EPOCH
+                if (command.startsWith("SCHED_RUN:")) {
+                    unsigned long epoch = command.substring(10).toInt();
+                    setScheduledTaskEpoch(epoch);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case CMD_GET_SCHEDULE: // 0x13: GET ENGINE SCHEDULE
+                if (command.equals("GET_ENGINE_SCHEDULE")) {
+                    transmitEngineScheduleTime(getScheduledTaskEpoch());
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case CMD_GET_CONFIG: // 0x14: GET CONFIG
+                if (command.equals("GET_CONFIG")) {
+                    transmitConfigToApp();
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case CMD_GET_PWR_STATE: // 0x16: GET_PWR_STATE
+                // Not supported in here
+                break;
+
+            case CMD_BATTERY_STREAM: // 0x17: BATTERY STREAM TOGGLE
+                // Not supported in here
+                break;
+
+            default:
+                executionSuccess = false;
+                break;
         }
-        unsigned long duration = DEFAULT_START_PULSE_MS;
-        if (command.startsWith("START:")) {
-            duration = getValidatedDuration(command.substring(6).toInt());
+
+        // Send ACK back for structured commands (Skip for GET_CONFIG / GET_SCHEDULE if they transmit custom payloads back)
+        if (cmdId != CMD_GET_CONFIG && cmdId != CMD_GET_SCHEDULE) {
+            uint8_t statusCode = executionSuccess ? 0x00 : 0x81; // 0x00 = SUCCESS, 0x81 = FAILURE
+            sendAppAck(cmdId, seqId, statusCode);
         }
-        requestRelayPulse(START_RELAY_PIN, duration);
-    }
-    else if (command.startsWith("STOP")) {
-        if (!currentConfig.isStopEngineEnabled) {
-            if (Serial) Serial.println(">>> Ignored: Stop Engine is disabled via config.");
-            return;
+
+    } else {
+        // --- LEGACY PLAIN TEXT FALLBACK (For older un-updated app clients) ---
+        if (command.equals("GET_CONFIG")) {
+            transmitConfigToApp();
+            if (Serial) Serial.println(">>> Handshake: Transmitted config via plain text GET_CONFIG request.");
+        } else {
+            if (Serial) Serial.println(">>> Ignored unknown legacy plain text command.");
         }
-        unsigned long duration = DEFAULT_STOP_PULSE_MS;
-        if (command.startsWith("STOP:")) {
-            duration = getValidatedDuration(command.substring(5).toInt());
-        }
-        requestRelayPulse(STOP_RELAY_PIN, duration);
-    }
-    else if (command.equals("FAILSAFE:OFF")) {
-        setStopFailSafeActive(false);
-        if (Serial) Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED.");
-    }
-    else if (command.equals("FAILSAFE:ON")) {
-        setStopFailSafeActive(true);
-        if (Serial) Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED.");
-    }
-    else if (command.startsWith("SCHED_RUN:")) {
-        unsigned long epoch = command.substring(10).toInt();
-        setScheduledTaskEpoch(epoch);
-    }
-    else if (command.equals("GET_ENGINE_SCHEDULE")) {
-        transmitEngineScheduleTime(getScheduledTaskEpoch());
     }
 }
 

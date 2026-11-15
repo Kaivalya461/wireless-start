@@ -1,6 +1,7 @@
 #include "Battery.h"
 #include "Relay.h"
 #include "BleManager.h"
+#include "ConfigManager.h"
 
 unsigned long lastBatteryCheckTime = 0;
 const unsigned long BATTERY_INTERVAL = 1000; // Check and push metrics every 1000s
@@ -10,14 +11,17 @@ void setup() {
     setCpuFrequencyMhz(80); // Drops the clock speed from 160MHz to 80MHz
 
     // Initialize individual sub-components independently
+    loadConfig();
     initRelays();
     initBattery();
     initBle();
 
     // setDeviceName("Vehicle001");
     // setCalibration(1.253, 0.81);
+    //                   name, startEn, stopEn, battEn, powerEn, ackEn
+    // burnVehicleConfig("Bike", 1, 1, 1, 0, 1);
 
-    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V2.6.0 (1/2 sec ECO Mode Interval)");
+    Serial.println(">>> Modular Scooter Controller Initialized successfully. Firmware V4.2 (Supports Command ACK)");
 }
 
 void loop() {

@@ -25,7 +25,7 @@ const unsigned long INACTIVITY_SLEEP_WINDOW_MS = 15UL * 60UL * 1000UL; // 15 min
 const unsigned long MIN_SAFE_PULSE_MS      = 100;
 const unsigned long MAX_SAFE_PULSE_MS      = 5000;
 const unsigned long DEFAULT_PULSE_MS       = 1500;
-const unsigned long STARTER_COOLDOWN_MS    = 3000;
+const unsigned long STARTER_COOLDOWN_MS    = 2000;
 
 // Fail-Safe Stop Relay & Debounce Configuration Variables
 const unsigned long DISCONNECT_GRACE_PERIOD_MS = 20000; // 20-second anti-stall grace period

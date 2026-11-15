@@ -1,8 +1,10 @@
+// blemanager.cpp
 #include "BleManager.h"
 #include <NimBLEDevice.h>
-#include <Preferences.h>
+#include "ConfigManager.h"
 #include "Relay.h"
 #include "Battery.h"
+#include <time.h>
 
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -10,7 +12,6 @@
 const unsigned long DEFAULT_START_PULSE_MS = 1700;
 const unsigned long DEFAULT_STOP_PULSE_MS = 1700;
 
-Preferences blePreferences;
 NimBLECharacteristic *pCharacteristic;
 bool bleConnected = false;
 
@@ -18,8 +19,13 @@ bool bleConnected = false;
 static unsigned long disconnectionTime = 0;
 static bool isFastAdvertising = true;
 const unsigned long ECO_MODE_DELAY_MS = 70UL * 60UL * 1000UL; // 70 minutes
-const unsigned long FAST_BLE_MIN_INTERVAL = 400; // 250ms
-const unsigned long FAST_BLE_MAX_INTERVAL = 800; // 500ms
+const unsigned long FAST_BLE_MIN_INTERVAL = 200; // 125ms
+const unsigned long FAST_BLE_MAX_INTERVAL = 400; // 250ms
+
+// Forward declarations
+void handleIncomingCommand(const uint8_t* data, size_t length);
+void sendAppAck(uint8_t cmdId, uint8_t seqId, uint8_t status);
+void transmitConfigToApp();
 
 class MyServerCallbacks: public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
@@ -52,86 +58,215 @@ class MyServerCallbacks: public NimBLEServerCallbacks {
 
 class MyCallbacks: public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo& connInfo) override {
-        // 1. Extract raw data as an Arduino String natively
+        // 1. Extract raw data as an Arduino std::string natively
         std::string rawValue = pCharacteristic->getValue();
         int valueLength = rawValue.length();
         if (valueLength == 0) return;
 
-        // 2. Intercept single-byte configuration toggles (0x02 or 0x03)
-        if (valueLength == 1) {
-            uint8_t commandByte = (uint8_t)rawValue[0]; // Access index 0 of the Arduino String
-
-            if (commandByte == 0x02) {
-                setTelemetryActive(false);
-                Serial.println(">>> App Command: Battery Telemetry Stream DISABLED (Power Saving Active).");
-                return; // Terminate execution block early
-            }
-            else if (commandByte == 0x03) {
-                setTelemetryActive(true);
-                Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
-                return; // Terminate execution block early
-            }
-        }
-
-        // 3. Fallback Route: Handle incoming plain-text action messages
-        String command = String(rawValue.c_str());
-        command.trim();
-
-        if (command.length() == 0) return;
-
-        Serial.print("Received Command: ");
-        Serial.println(command);
-
-        // 1. Time Sync Parsing Route
-        if (command.startsWith("TIME:")) {
-            unsigned long epoch = command.substring(5).toInt();
-            setenv("TZ", "IST-5:30", 1);
-            tzset();
-            syncTime(epoch);
-        }
-            // 2. Start Action Execution Route
-        else if (command.startsWith("START")) {
-            unsigned long duration = DEFAULT_START_PULSE_MS;
-            if (command.startsWith("START:")) {
-                duration = getValidatedDuration(command.substring(6).toInt());
-            }
-            requestRelayPulse(START_RELAY_PIN, duration);
-        }
-            // 3. Stop Action Execution Route
-        else if (command.startsWith("STOP")) {
-            unsigned long duration = DEFAULT_STOP_PULSE_MS;
-            if (command.startsWith("STOP:")) {
-                duration = getValidatedDuration(command.substring(5).toInt());
-            }
-            requestRelayPulse(STOP_RELAY_PIN, duration);
-        }
-            // 4. STOP Relay Fail-Safe toggle
-        else if (command.equals("FAILSAFE:OFF")) {
-            setStopFailSafeActive(false);
-            Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED by App.");
-            return; // Terminate execution block early
-        }
-        else if (command.equals("FAILSAFE:ON")) {
-            setStopFailSafeActive(true);
-            Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED by App.");
-            return; // Terminate execution block early
-        }
-            // 5. Scheduled Engine Start/Stop
-        else if (command.startsWith("SCHED_RUN:")) {
-            unsigned long epoch = command.substring(10).toInt();
-            setScheduledTaskEpoch(epoch);
-        }
-        else if (command.equals("GET_ENGINE_SCHEDULE")) {
-            // Respond back to phone with the currently active schedule
-            transmitEngineScheduleTime(getScheduledTaskEpoch());
-        }
+        // 2. Pass raw byte array and length to the structured command handler
+        const uint8_t* data = (const uint8_t*)rawValue.data();
+        handleIncomingCommand(data, valueLength);
     }
 };
 
+// Helper function to send ACK back to the app via notification
+void sendAppAck(uint8_t cmdId, uint8_t seqId, uint8_t status) {
+    if (!bleConnected || seqId == 0) return;
+
+    // Respect config toggle for ACK notifications if needed, or always send if requested by app seqId
+    uint8_t ackPayload[3] = { cmdId, seqId, status }; // 0x00 = SUCCESS, 0x81 = FAILED
+    pCharacteristic->setValue(ackPayload, sizeof(ackPayload));
+    pCharacteristic->notify();
+
+    if (Serial) {
+        Serial.print("Sent ACK -> Cmd: 0x"); Serial.print(cmdId, HEX);
+        Serial.print(" | Seq: "); Serial.print(seqId);
+        Serial.print(" | Status: "); Serial.println(status == 0x00 ? "SUCCESS" : "FAILED");
+    }
+}
+
+void transmitConfigToApp() {
+    if (!bleConnected) return;
+
+    // Format properties cleanly using currentConfig values from ConfigManager
+    // Format: CONF:Name,StartEn(0/1),StopEn(0/1),BattEn(0/1),PowerEn(0/1),SupportsAck(0/1)
+    String configPayload = "CONF:" + String(currentConfig.deviceName) + "," +
+                           (currentConfig.isStartEnabled ? 1 : 0) + "," +
+                           (currentConfig.isStopEnabled ? 1 : 0) + "," +
+                           (currentConfig.liveBatteryVoltageEnabled ? 1 : 0) + "," +
+                           (currentConfig.isPowerSwitchEnabled ? 1 : 0) + "," +
+                           (currentConfig.ackNotificationsEnabled ? 1 : 0);
+
+    pCharacteristic->setValue(configPayload.c_str());
+    pCharacteristic->notify();
+
+    if (Serial) {
+        Serial.print("Transmitted Config to App: ");
+        Serial.println(configPayload);
+    }
+}
+
+void handleIncomingCommand(const uint8_t* data, size_t length) {
+    if (length == 0) return;
+
+    uint8_t cmdId = 0;
+    uint8_t seqId = 0;
+    bool isStructuredAckPacket = false;
+
+    // Check if this is a modern ACK-tracked packet format: [cmdId, seqId, ...payload]
+    if (length >= 2 && data[0] >= 0x01 && data[0] <= 0x20) {
+        cmdId = data[0];
+        seqId = data[1];
+        isStructuredAckPacket = true;
+    }
+
+    // Extract command string based on packet type
+    String command = "";
+    size_t startIndex = isStructuredAckPacket ? 2 : 0;
+    for (size_t i = startIndex; i < length; i++) {
+        command += (char)data[i];
+    }
+    command.trim();
+
+    if (Serial) {
+        Serial.print("Received Command: ");
+        if (isStructuredAckPacket) {
+            Serial.print("[Structured CmdID: 0x"); Serial.print(cmdId, HEX); Serial.print("] ");
+        } else {
+            Serial.print("[Legacy Plain Text] ");
+        }
+        Serial.print(command);
+        if (isStructuredAckPacket) {
+            Serial.print(" [SeqId: "); Serial.print(seqId); Serial.print("]");
+        }
+        Serial.println();
+    }
+
+    bool executionSuccess = true;
+
+    if (isStructuredAckPacket) {
+        // --- STRUCTURED ACK COMMANDS ---
+        switch (cmdId) {
+            case 0x01: // START
+                if (!currentConfig.isStartEnabled) {
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_START_PULSE_MS;
+                    if (command.startsWith("START:")) {
+                        duration = getValidatedDuration(command.substring(6).toInt());
+                    }
+                    requestRelayPulse(START_RELAY_PIN, duration);
+                }
+                break;
+
+            case 0x02: // STOP
+                if (!currentConfig.isStopEnabled) {
+                    executionSuccess = false;
+                } else {
+                    unsigned long duration = DEFAULT_STOP_PULSE_MS;
+                    if (command.startsWith("STOP:")) {
+                        duration = getValidatedDuration(command.substring(5).toInt());
+                    }
+                    requestRelayPulse(STOP_RELAY_PIN, duration);
+                }
+                break;
+
+            case 0x03: // POWER_STATE
+                // Handle power state command if applicable
+                break;
+
+            case 0x10: // TIME_SYNC
+                if (command.startsWith("TIME:")) {
+                    unsigned long epoch = command.substring(5).toInt();
+                    setenv("TZ", "IST-5:30", 1);
+                    tzset();
+                    syncTime(epoch);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x11: // FAILSAFE_STATE
+                if (command.equals("FAILSAFE:OFF")) {
+                    setStopFailSafeActive(false);
+                    Serial.println(">>> App Command: Fail-Safe Stop Relay DISABLED.");
+                } else if (command.equals("FAILSAFE:ON")) {
+                    setStopFailSafeActive(true);
+                    Serial.println(">>> App Command: Fail-Safe Stop Relay ENABLED.");
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x12: // SCHEDULED_RUN
+                if (length >= 6) { // 2 bytes header + 4 bytes epoch
+                    uint32_t epoch = ((uint32_t)data[2] << 24) |
+                                     ((uint32_t)data[3] << 16) |
+                                     ((uint32_t)data[4] << 8)  |
+                                     (uint32_t)data[5];
+                    setScheduledTaskEpoch(epoch);
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x13: // GET_ENGINE_SCHEDULE
+                if (command.equals("GET_ENG_SCH")) {
+                    transmitEngineScheduleTime(getScheduledTaskEpoch());
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x14: // GET_CONFIG
+                if (command.equals("GET_CONFIG")) {
+                    transmitConfigToApp();
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            case 0x16: // GET_PWR_STATE
+                // Handle get power state command if applicable
+                break;
+
+            case 0x17: // TELEMETRY_STATE
+                if (command.equals("TELEMETRY:OFF")) {
+                    setTelemetryActive(false);
+                    Serial.println(">>> App Command: Battery Telemetry Stream DISABLED.");
+                } else if (command.equals("TELEMETRY:ON")) {
+                    setTelemetryActive(true);
+                    Serial.println(">>> App Command: Battery Telemetry Stream ENABLED.");
+                } else {
+                    executionSuccess = false;
+                }
+                break;
+
+            default:
+                executionSuccess = false;
+                break;
+        }
+
+        // Skip generic ACK for commands that transmit their own data payloads
+        if (cmdId != 0x13 && cmdId != 0x14) {
+            uint8_t statusCode = executionSuccess ? 0x00 : 0x81; // SUCCESS, FAILURE
+            sendAppAck(cmdId, seqId, statusCode);
+        }
+
+    } else {
+        // --- LEGACY PLAIN TEXT FALLBACK (GET_CONFIG Handshake Only) ---
+        if (command.equals("GET_CONFIG")) {
+            transmitConfigToApp();
+            if (Serial) Serial.println(">>> Handshake: Transmitted config via plain text GET_CONFIG request.");
+        } else {
+            Serial.println(">>> Ignored unknown/unsupported plain text command.");
+        }
+    }
+}
+
 void initBle() {
-    blePreferences.begin("ble_cfg", false);
-    String savedDeviceName = blePreferences.getString("device_name", "Scooter Keyless Target");
-    blePreferences.end();
+    // Read device name directly from pre-loaded ConfigManager structure
+    String savedDeviceName = String(currentConfig.deviceName);
 
     NimBLEDevice::init(savedDeviceName.c_str());
     NimBLEDevice::setPower(9);
@@ -188,8 +323,8 @@ void updateBleAdvertisingState() {
             NimBLEDevice::stopAdvertising();
             NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
             // Eco Mode BLE Advert
-            pAdvertising->setMinInterval(1600); // 1s
-            pAdvertising->setMaxInterval(3200); // 2s
+            pAdvertising->setMinInterval(1200); // 750ms
+            pAdvertising->setMaxInterval(1600); // 1s
             NimBLEDevice::startAdvertising();
         }
     }
@@ -197,6 +332,9 @@ void updateBleAdvertisingState() {
 
 void transmitBatteryTelemetry(uint16_t mvPayload) {
     if (!bleConnected) return;
+
+    // Check if live battery stream telemetry is permitted by flash configuration
+    if (!currentConfig.liveBatteryVoltageEnabled) return;
 
     // Packs 16-bit payload down into exactly two raw bytes
     uint8_t payloadBuffer[2];
@@ -221,13 +359,4 @@ void transmitEngineScheduleTime(unsigned long epochPayload) {
 
     Serial.print("Transmitted active schedule to phone: ");
     Serial.println(response);
-}
-
-void setDeviceName(String newName) {
-    blePreferences.begin("ble_cfg", false);
-    blePreferences.putString("device_name", newName);
-    blePreferences.end();
-
-    Serial.printf(">>> New Device Name Saved -> %s\n", newName.c_str());
-    Serial.println(">>> Please restart your ESP32 for the new BLE name to take effect.");
 }

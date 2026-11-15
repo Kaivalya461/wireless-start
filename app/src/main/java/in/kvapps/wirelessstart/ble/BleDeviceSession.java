@@ -180,12 +180,12 @@ public class BleDeviceSession {
         }
     }
 
-    // Force-sync telemetry state to ESP32 (0x03 = Enable, 0x02 = Disable)
+    // Force-sync telemetry state to ESP32 using structured ACK tracking
     public void syncTelemetryState(boolean isEnabled) {
-        byte commandByte = (byte) (isEnabled ? 0x03 : 0x02);
-        sendCommand(commandByte, null,
-                () -> Log.d(TAG, "Telemetry sync acknowledged"),
-                () -> Log.e(TAG, "Telemetry sync failed/timed out")
+        String command = isEnabled ? "TELEMETRY:ON" : "TELEMETRY:OFF";
+        sendCommand(BleCommand.TELEMETRY_STATE.getCommandId(), command.getBytes(),
+                () -> Log.d(TAG, "Telemetry sync transmitted & ACKed on " + macAddress),
+                () -> Log.e(TAG, "Telemetry sync failed/timed out on " + macAddress)
         );
     }
 
@@ -199,12 +199,22 @@ public class BleDeviceSession {
     // Send Fail-Safe state
     public void syncFailSafeState(boolean isEnabled) {
         String command = isEnabled ? "FAILSAFE:ON" : "FAILSAFE:OFF";
-        sendCommand(BleCommand.FAILSAFE_STATE.getCommandId(), command.getBytes(), null, null);
+        sendCommand(BleCommand.FAILSAFE_STATE.getCommandId(), command.getBytes(),
+                () -> Log.d(TAG, "syncFailSafeState transmitted & ACKed on " + macAddress),
+                () -> Log.e(TAG, "Failed syncFailSafeState to " + macAddress)
+        );
     }
 
     public void sendScheduledEpoch(long epochSeconds) {
-        String command = "SCHED_RUN:" + epochSeconds;
-        sendCommand(BleCommand.SCHEDULED_RUN.getCommandId(), command.getBytes(),
+        // Pack epoch into a 4-byte big-endian or little-endian array
+        byte[] epochBytes = new byte[4];
+        int epochInt = (int) epochSeconds;
+        epochBytes[0] = (byte) (epochInt >> 24);
+        epochBytes[1] = (byte) (epochInt >> 16);
+        epochBytes[2] = (byte) (epochInt >> 8);
+        epochBytes[3] = (byte) (epochInt);
+
+        sendCommand(BleCommand.SCHEDULED_RUN.getCommandId(), epochBytes,
                 () -> Log.d(TAG, "Scheduled Epoch transmitted & ACKed on " + macAddress),
                 () -> Log.e(TAG, "Failed to transmit Scheduled Epoch to " + macAddress)
         );
@@ -212,7 +222,7 @@ public class BleDeviceSession {
 
     public void requestScheduleFromEsp32() {
         // Send command ID 0x13 with null payload to avoid ATT MTU character truncation
-        sendCommand(BleCommand.GET_SCHEDULE.getCommandId(), null, () -> {
+        sendCommand(BleCommand.GET_SCHEDULE.getCommandId(), "GET_ENG_SCH".getBytes(), () -> {
             Log.d(TAG, "Requested active schedule acknowledged by " + macAddress);
         }, null);
     }

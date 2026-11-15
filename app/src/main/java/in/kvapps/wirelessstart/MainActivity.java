@@ -341,7 +341,7 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
 
     // --- Actions & Helpers ---
     private void handleStartAction(Vehicle vehicle) {
-        vehicleAdapter.triggerCooldown(vehicle, 3000);
+        vehicleAdapter.triggerCooldown(vehicle, 2000);
 
         bleCommandManager.sendCommand(
                 vehicle.getMacAddress(),

@@ -10,7 +10,8 @@ public enum BleCommand {
     GET_SCHEDULE((byte) 0x13),
     GET_CONFIG((byte) 0x14),
     GENERIC_TEXT((byte) 0x15),
-    GET_PWR_STATE((byte) 0x16);
+    GET_PWR_STATE((byte) 0x16),
+    TELEMETRY_STATE((byte) 0x17);
 
     private final byte commandId;
 
@@ -22,21 +23,17 @@ public enum BleCommand {
         return commandId;
     }
 
-    // Response status codes remain accessible here or as static constants
     public static final int STATUS_SUCCESS = 0x00;
-    public static final int STATUS_FAILED = 0x01;
+    public static final int STATUS_FAILED = 0x81;
 
-    /**
-     * Resolves a legacy text command string to its corresponding BleCommand enum.
-     */
     public static BleCommand resolve(String commandText) {
         if (commandText == null || commandText.isEmpty()) {
             return GENERIC_TEXT;
         }
 
-        if (commandText.startsWith("UNLOCK")) {
+        if (commandText.startsWith("UNLOCK") || commandText.startsWith("START")) {
             return UNLOCK;
-        } else if (commandText.startsWith("LOCK")) {
+        } else if (commandText.startsWith("LOCK") || commandText.startsWith("STOP")) {
             return LOCK;
         } else if (commandText.equals("PWR:ON") || commandText.equals("PWR:OFF")) {
             return POWER_STATE;
@@ -48,10 +45,12 @@ public enum BleCommand {
             return GET_CONFIG;
         } else if (commandText.startsWith("SCHED_RUN:")) {
             return SCHEDULED_RUN;
-        } else if (commandText.equals("GET_ENGINE_SCHEDULE")) {
+        } else if (commandText.equals("GET_ENG_SCH")) {
             return GET_SCHEDULE;
         } else if (commandText.startsWith("FAILSAFE:")) {
             return FAILSAFE_STATE;
+        } else if (commandText.startsWith("TELEMETRY:")) {
+            return TELEMETRY_STATE;
         }
 
         return GENERIC_TEXT;

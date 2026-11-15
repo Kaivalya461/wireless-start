@@ -3,11 +3,14 @@ package in.kvapps.wirelessstart.ble;
 import android.content.Context;
 
 import in.kvapps.wirelessstart.MyApplication;
+import in.kvapps.wirelessstart.db.AppDatabase;
 import in.kvapps.wirelessstart.dto.CmdExecResultData;
 import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.enums.CommandActionType;
 import in.kvapps.wirelessstart.enums.VehicleEventType;
+import in.kvapps.wirelessstart.model.CommandLogEntity;
 import in.kvapps.wirelessstart.model.VehicleSettings;
+import in.kvapps.wirelessstart.repository.CommandLogsRepository;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
@@ -142,7 +145,18 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
 
     private void handleResult(String executedCommand, String result) {
         long timeTaken = System.currentTimeMillis() - commandStartTime;
-//        AppLogger.logToDatabaseAndLogcat(context, TAG, "[COMMAND RESULT] " + executedCommand + " | " + result + " | Time: " + timeTaken + "ms");
+        long timestamp = System.currentTimeMillis();
+
+        if (pendingMacAddress != null) {
+            // Log using your repository
+            CommandLogsRepository.getInstance(context).insertLog(
+                    pendingMacAddress,
+                    executedCommand,
+                    result,
+                    timestamp,
+                    timeTaken
+            );
+        }
 
         if (activeCallback != null) {
             CmdExecResultData resultPayload = new CmdExecResultData(executedCommand, result, timeTaken);

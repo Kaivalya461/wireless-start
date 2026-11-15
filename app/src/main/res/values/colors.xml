@@ -16,6 +16,11 @@
     <color name="text_primary">#FFFFFF</color>
     <color name="text_secondary">#CCCCCC</color>
     <color name="text_muted">#777777</color>
+    <color name="success">#4CAF50</color>
+    <color name="failure">#E53935</color>
+    <color name="soft_red">#FF6B6B</color>
+    <color name="soft_gold">#F4D03F</color>
+    <color name="soft_blue">#00E5FF</color>
 
     <!-- Accents -->
     <color name="accent_blue">#4A90E2</color>
@@ -23,4 +28,9 @@
 
     <color name="default_core_color">#FFE0F7FF</color>
     <color name="default_glow_color">#FF00B0FF</color>
+
+    <!-- Action Button Colors -->
+    <color name="primary_action_color">#4CAF50</color>
+    <color name="secondary_action_color">#FF5252</color>
+    <color name="tertiary_action_color">#FF9800</color>
 </resources>

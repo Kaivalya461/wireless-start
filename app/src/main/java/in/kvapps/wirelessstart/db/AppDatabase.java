@@ -6,15 +6,18 @@ import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
 
+import in.kvapps.wirelessstart.dao.CommandLogDao;
 import in.kvapps.wirelessstart.dao.VehicleDao;
 import in.kvapps.wirelessstart.dao.VehicleSettingsDao;
+import in.kvapps.wirelessstart.model.CommandLogEntity;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 
-@Database(entities = {Vehicle.class, VehicleSettings.class}, version = 8, exportSchema = false)
+@Database(entities = {Vehicle.class, VehicleSettings.class, CommandLogEntity.class}, version = 9, exportSchema = false)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract VehicleDao vehicleDao();
     public abstract VehicleSettingsDao vehicleSettingsDao();
+    public abstract CommandLogDao commandLogDao();
 
     private static volatile AppDatabase INSTANCE;
 
@@ -34,7 +37,8 @@ public abstract class AppDatabase extends RoomDatabase {
                                     DatabaseMigrations.MIGRATION_4_5,
                                     DatabaseMigrations.MIGRATION_5_6,
                                     DatabaseMigrations.MIGRATION_6_7,
-                                    DatabaseMigrations.MIGRATION_7_8
+                                    DatabaseMigrations.MIGRATION_7_8,
+                                    DatabaseMigrations.MIGRATION_8_9
                             )
                             .allowMainThreadQueries()
                             .build();

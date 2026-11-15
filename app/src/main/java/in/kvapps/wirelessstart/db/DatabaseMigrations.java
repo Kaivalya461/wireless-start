@@ -73,4 +73,17 @@ public class DatabaseMigrations {
             database.execSQL("ALTER TABLE vehicle_settings ADD COLUMN disconnect_rssi_threshold INTEGER NOT NULL DEFAULT -85");
         }
     };
+
+    public static final Migration MIGRATION_8_9 = new Migration(8, 9) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS `command_logs` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`macAddress` TEXT, " +
+                    "`command` TEXT, " +
+                    "`result` TEXT, " +
+                    "`timestamp` INTEGER NOT NULL, " +
+                    "`timeTaken` INTEGER NOT NULL)");
+        }
+    };
 }

@@ -10,6 +10,7 @@ import in.kvapps.wirelessstart.ble.BleManager;
 import in.kvapps.wirelessstart.ble.VehicleDistanceManager;
 import in.kvapps.wirelessstart.ble.BackgroundVehicleEventManager;
 import in.kvapps.wirelessstart.data.PreferenceManager;
+import in.kvapps.wirelessstart.repository.CommandLogsRepository;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 
 public class MyApplication extends android.app.Application {
@@ -20,6 +21,7 @@ public class MyApplication extends android.app.Application {
     private WearSyncManager wearSyncManager;
     private BackgroundVehicleEventManager backgroundVehicleEventManager;
     private BleCommandManager bleCommandManager;
+    private CommandLogsRepository commandLogsRepository;
 
     @Override
     public void onCreate() {
@@ -43,6 +45,8 @@ public class MyApplication extends android.app.Application {
         wearSyncManager = WearSyncManager.getInstance(this);
 
         VehicleDistanceManager.getInstance(this);
+
+        commandLogsRepository = CommandLogsRepository.getInstance(this);
 
         // Observe when the app comes to the foreground
         ProcessLifecycleOwner.get().getLifecycle().addObserver(new DefaultLifecycleObserver() {
@@ -82,5 +86,9 @@ public class MyApplication extends android.app.Application {
     }
     public BleCommandManager getBleCommandManager() {
         return bleCommandManager;
+    }
+
+    public CommandLogsRepository getCommandLogsRepository() {
+        return commandLogsRepository;
     }
 }

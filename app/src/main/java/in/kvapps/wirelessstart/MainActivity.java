@@ -238,6 +238,14 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
             public void onPowerClick(Vehicle vehicle, boolean isChecked, int position) {
                 handlePowerSwitchAction(vehicle, isChecked);
             }
+
+            @Override
+            public void onCommandLogsClick(Vehicle vehicle, int position) {
+                // Launch Command Logs Activity for this vehicle MAC
+                Intent intent = new Intent(MainActivity.this, VehicleCommandLogActivity.class);
+                intent.putExtra(VehicleCommandLogActivity.EXTRA_MAC_ADDRESS, vehicle.getMacAddress());
+                startActivity(intent);
+            }
         });
 
         recyclerVehicles.setLayoutManager(new LinearLayoutManager(this));

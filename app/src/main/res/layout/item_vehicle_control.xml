@@ -125,6 +125,17 @@
                     app:tint="#CCCCCC"
                     android:contentDescription="Reconnect to BLE" />
 
+                <!-- Command History Button -->
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_command_logs"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_command_logs_history"
+                    app:tint="#CCCCCC"
+                    android:contentDescription="View Command Logs"
+                    android:layout_marginEnd="4dp" />
+
             </LinearLayout>
 
             <!-- Divider Line Separating Header and Actions -->

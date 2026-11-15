@@ -49,6 +49,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
         void onReconnectClick(Vehicle vehicle, int position);
         void onVoltageClick(Vehicle vehicle, int position);
         void onPowerClick(Vehicle vehicle, boolean isChecked, int position);
+        void onCommandLogsClick(Vehicle vehicle, int position);
     }
 
     public VehicleAdapter(VehicleActionListener listener) {
@@ -180,7 +181,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
         private final TextView txtVehicleName, txtStatus, txtVoltageValue, txtActiveBadge;
         private final View statusIndicator, viewStatusBar;
         private final ViewGroup statusBarParent;
-        private final ImageButton btnReconnect;
+        private final ImageButton btnReconnect, btnCommandLogs;
         private final Button btnStart, btnStop;
         private final View panelVoltage, panelPower;
         public SwitchCompat btnPower;
@@ -198,6 +199,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
             btnStart = itemView.findViewById(R.id.btn_start);
             btnStop = itemView.findViewById(R.id.btn_stop);
             btnPower = itemView.findViewById(R.id.btn_power);
+            btnCommandLogs = itemView.findViewById(R.id.btn_command_logs);
             panelPower = itemView.findViewById(R.id.panel_power);
             panelVoltage = itemView.findViewById(R.id.panel_voltage);
             txtVoltageValue = itemView.findViewById(R.id.txt_voltage_value);
@@ -296,6 +298,7 @@ public class VehicleAdapter extends ListAdapter<VehicleWithSettings, VehicleAdap
             btnStop.setOnClickListener(v -> { if (listener != null) listener.onStopClick(vehicle, position); });
             btnReconnect.setOnClickListener(v -> { if (listener != null) listener.onReconnectClick(vehicle, position); });
             panelVoltage.setOnClickListener(v -> { if (listener != null) listener.onVoltageClick(vehicle, position); });
+            btnCommandLogs.setOnClickListener(v -> { if (listener != null) listener.onCommandLogsClick(vehicle, position); });
         }
 
         private CharSequence getStatusText(String statusText, ConnectionStateRepository.DeviceConnectionState state,

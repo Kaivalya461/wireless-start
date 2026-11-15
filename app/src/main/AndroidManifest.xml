@@ -64,6 +64,11 @@
             android:exported="false"
             android:theme="@style/Theme.WirelessStart" />
 
+        <activity
+            android:name=".VehicleCommandLogActivity"
+            android:exported="false"
+            android:theme="@style/Theme.WirelessStart" />
+
         <!-- Background service to catch Watch commands even if phone screen is locked -->
         <service android:name=".WearMessageListenerService" android:exported="true">
             <intent-filter>

@@ -8,6 +8,7 @@ import java.util.List;
 import in.kvapps.wirelessstart.dao.CommandLogDao;
 import in.kvapps.wirelessstart.db.AppDatabase;
 import in.kvapps.wirelessstart.model.CommandLogEntity;
+import in.kvapps.wirelessstart.shared.Constants;
 
 public class CommandLogsRepository {
     private static volatile CommandLogsRepository instance;
@@ -50,5 +51,9 @@ public class CommandLogsRepository {
         // Since allowMainThreadQueries() is enabled in your AppDatabase,
         // this can be safely called directly.
         commandLogDao.deleteLogsOlderThan(cutoffTimestamp);
+    }
+
+    public CommandLogEntity getLatestSuccessfulLog(String macAddress) {
+        return commandLogDao.getLatestSuccessfulLog(macAddress, Constants.COMMAND_SUCCESS);
     }
 }

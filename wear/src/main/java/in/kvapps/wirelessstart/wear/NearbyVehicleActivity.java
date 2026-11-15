@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.MotionEvent;
 
 import in.kvapps.wirelessstart.wear.pubsub.NearbyVehicleEventBus;
 import in.kvapps.wirelessstart.wear.util.PulsingGlowView;
@@ -50,6 +51,16 @@ public class NearbyVehicleActivity extends Activity {
         super.onPause();
         // DO NOT Clear the listener when leaving as this animation could be overlapped with another causing missed events in this animation.
 //        NearbyVehicleEventBus.setListener(null);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        // Fade away and finish immediately if the user touches anywhere on the screen
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            handleEventCompletion(false);
+            return true;
+        }
+        return super.onTouchEvent(event);
     }
 
     @Override

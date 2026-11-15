@@ -42,6 +42,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Isolated Invisible Shortcut Trigger -->
+        <activity
+            android:name=".ShortcutFlipFlopActivity"
+            android:label="Shortcut: Flip Engine states (START/STOP)"
+            android:icon="@mipmap/ic_shortcut_flip_flop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Proximity Start Activity -->
         <activity
             android:name=".NearbyVehicleActivity"

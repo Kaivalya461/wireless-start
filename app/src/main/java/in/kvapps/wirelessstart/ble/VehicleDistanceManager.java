@@ -43,6 +43,11 @@ public class VehicleDistanceManager {
     private static final int HYSTERESIS_DBM = 5; // New vehicle must be 5dBm stronger to take crown
     private static final int NEARBY_RSSI_THRESHOLD = SignalState.SUPER_STRONG.getRssiLimit();
 
+    // Debouncing counters for Proximity to prevent flutter while riding
+    private final Map<String, Integer> consecutiveNearbyCountMap = new ConcurrentHashMap<>();
+    private final Map<String, Integer> consecutiveFarCountMap = new ConcurrentHashMap<>();
+    private static final int REQUIRED_PROXIMITY_READINGS = 3; // Must sustain for 3 consecutive polls (800ms x 3poll = ~2.4s)
+
     private VehicleDistanceManager(Context context) {
         this.context = context.getApplicationContext(); // Always use Application Context to prevent memory leaks
         MyApplication app = (MyApplication) this.context;
@@ -112,23 +117,47 @@ public class VehicleDistanceManager {
     }
 
     private void checkNearbyProximity(String macAddress, boolean isConnected, int rssi) {
-        if (rssi >= NEARBY_RSSI_THRESHOLD) {
-            // Check if we haven't already sent it for this connection session
-            if (!nearbySentVehicles.contains(macAddress)) {
-                nearbySentVehicles.add(macAddress);
+        int exitThreshold = NEARBY_RSSI_THRESHOLD - 11; // Hysteresis buffer band
 
-                var enteredNearbyData = new VehicleEventData(macAddress, isConnected, rssi, ENTERED_NEARBY);
-                VehicleEventRepository.getInstance()
-                        .emitEvent(macAddress, ENTERED_NEARBY, enteredNearbyData);
+        if (rssi >= NEARBY_RSSI_THRESHOLD) {
+            // Reset far counter since we are seeing strong RSSI
+            consecutiveFarCountMap.remove(macAddress);
+
+            // Increment consecutive strong readings
+            int strongCount = consecutiveNearbyCountMap.getOrDefault(macAddress, 0) + 1;
+            consecutiveNearbyCountMap.put(macAddress, strongCount);
+
+            if (strongCount >= REQUIRED_PROXIMITY_READINGS) {
+                // Check if we haven't already sent it for this connection session
+                if (!nearbySentVehicles.contains(macAddress)) {
+                    nearbySentVehicles.add(macAddress);
+
+                    var enteredNearbyData = new VehicleEventData(macAddress, isConnected, rssi, ENTERED_NEARBY);
+                    VehicleEventRepository.getInstance()
+                            .emitEvent(macAddress, ENTERED_NEARBY, enteredNearbyData);
+                }
             }
         } else {
-            // If the user backs away below threshold (eg: -57), allow it to trigger again if they come back close
-            if (rssi < (NEARBY_RSSI_THRESHOLD - 16)) { // Adding a small buffer to prevent rapid flipping
-                nearbySentVehicles.remove(macAddress);
+            // Reset near counter since RSSI dropped below the enter threshold
+            consecutiveNearbyCountMap.remove(macAddress);
 
-                var exitedNearbyData = new VehicleEventData(macAddress, isConnected, rssi, EXITED_NEARBY);
-                VehicleEventRepository.getInstance()
-                        .emitEvent(macAddress, EXITED_NEARBY, exitedNearbyData);
+            // Only trigger exit if RSSI drops significantly below the buffer band consistently
+            if (rssi < exitThreshold) {
+                int farCount = consecutiveFarCountMap.getOrDefault(macAddress, 0) + 1;
+                consecutiveFarCountMap.put(macAddress, farCount);
+
+                if (farCount >= REQUIRED_PROXIMITY_READINGS) {
+                    consecutiveFarCountMap.remove(macAddress);
+                    nearbySentVehicles.remove(macAddress);
+
+                    var exitedNearbyData = new VehicleEventData(macAddress, isConnected, rssi, EXITED_NEARBY);
+                    VehicleEventRepository.getInstance()
+                            .emitEvent(macAddress, EXITED_NEARBY, exitedNearbyData);
+                }
+            } else {
+                // If we are in the buffer zone (between exitThreshold and NEARBY_RSSI_THRESHOLD),
+                // don't count it as a full exit to prevent rapid state flapping.
+                consecutiveFarCountMap.remove(macAddress);
             }
         }
     }
@@ -144,6 +173,8 @@ public class VehicleDistanceManager {
         nearbySentVehicles.remove(macAddress);
         consecutiveLowRssiMap.remove(macAddress);
         disconnectThresholdCache.remove(macAddress);
+        consecutiveNearbyCountMap.remove(macAddress);
+        consecutiveFarCountMap.remove(macAddress);
 
         if (Objects.equals(closestVehicleMac, macAddress)) {
             closestVehicleMac = null;

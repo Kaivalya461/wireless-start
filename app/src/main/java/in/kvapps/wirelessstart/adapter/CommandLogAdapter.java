@@ -39,8 +39,10 @@ public class CommandLogAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
 
         long now = System.currentTimeMillis();
+        long fiveMinutesAgo = now - (5 * 60 * 1000L);
         long twoHoursAgo = now - (2 * 60 * 60 * 1000L);
 
+        List<CommandLogEntity> recentList = new ArrayList<>();
         List<CommandLogEntity> last2HoursList = new ArrayList<>();
         List<CommandLogEntity> earlierTodayList = new ArrayList<>();
         Map<String, List<CommandLogEntity>> olderDaysMap = new LinkedHashMap<>();
@@ -60,7 +62,9 @@ public class CommandLogAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             long timestamp = log.getTimestamp();
             logCalendar.setTimeInMillis(timestamp);
 
-            if (timestamp >= twoHoursAgo) {
+            if (timestamp >= fiveMinutesAgo) {
+                recentList.add(log);
+            } else if (timestamp >= twoHoursAgo) {
                 last2HoursList.add(log);
             } else if (logCalendar.get(Calendar.DAY_OF_YEAR) == todayDayOfYear && logCalendar.get(Calendar.YEAR) == todayYear) {
                 earlierTodayList.add(log);
@@ -80,7 +84,11 @@ public class CommandLogAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             }
         }
 
-        // Build flattened display items list with headers
+        // Build flattened display items list with headers in chronological hierarchy
+        if (!recentList.isEmpty()) {
+            displayItems.add("Recent");
+            displayItems.addAll(recentList);
+        }
         if (!last2HoursList.isEmpty()) {
             displayItems.add("Last 2 Hours");
             displayItems.addAll(last2HoursList);

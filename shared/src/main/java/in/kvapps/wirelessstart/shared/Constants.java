@@ -4,6 +4,7 @@ public class Constants {
     // Data Layer Paths
     public static final String START_PATH = "/dio/engine_start";
     public static final String STOP_PATH = "/dio/engine_stop";
+    public static final String FLIP_FLOP_PATH = "/dio/flip_flop_action";
     public static final String VIBRATE_PATH = "/dio/trigger_vibrate"; // Phone and ESP32 connection completion
     public static final String START_COMMAND_RESULT_PATH = "/dio/start_command_result";
     public static final String TARGET_DEVICE_CONNECTION_STATUS = "/dio/target_device_connection_status";

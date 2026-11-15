@@ -1,14 +1,14 @@
 package in.kvapps.wirelessstart.ble;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import in.kvapps.wirelessstart.MyApplication;
-import in.kvapps.wirelessstart.db.AppDatabase;
 import in.kvapps.wirelessstart.dto.CmdExecResultData;
 import in.kvapps.wirelessstart.dto.VehicleEventData;
 import in.kvapps.wirelessstart.enums.CommandActionType;
 import in.kvapps.wirelessstart.enums.VehicleEventType;
-import in.kvapps.wirelessstart.model.CommandLogEntity;
 import in.kvapps.wirelessstart.model.VehicleSettings;
 import in.kvapps.wirelessstart.repository.CommandLogsRepository;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
@@ -28,6 +28,18 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
     private String pendingMacAddress;
     private long commandStartTime = 0;
     private CommandCallback activeCallback;
+
+    // Handler and Timeout Runnable for offline/out-of-range connection attempts
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable connectionTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (pendingCommand != null && pendingMacAddress != null) {
+                AppLogger.logToDatabaseAndLogcat(context, TAG, "[COMMAND] Connection timeout waiting for device: " + pendingMacAddress);
+                handleResult(pendingCommand, Constants.COMMAND_SYSTEM_FAILURE);
+            }
+        }
+    };
 
     public interface CommandCallback {
         void onCommandFinished(CmdExecResultData cmdExecResultData);
@@ -77,6 +89,9 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
             return;
         }
 
+        // Cancel any previous pending timeout
+        handler.removeCallbacks(connectionTimeoutRunnable);
+
         this.pendingMacAddress = macAddress;
         this.pendingCommand = resolvedCommand;
         this.commandStartTime = System.currentTimeMillis();
@@ -87,6 +102,9 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
         } else {
             AppLogger.logToDatabaseAndLogcat(context, TAG, "[COMMAND] Device not connected. Initiating connection for: " + resolvedCommand);
             bleManager.connect(macAddress, false);
+
+            // Start connection timeout (7 seconds) in case device is powered off or out of range
+            handler.postDelayed(connectionTimeoutRunnable, 7000);
         }
     }
 
@@ -114,6 +132,8 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
         // When connection succeeds, check if we have a pending command waiting for this specific MAC
         if (vehicleEventType == VehicleEventType.READY_FOR_CONTROL) {
             if (pendingCommand != null && pendingMacAddress != null && pendingMacAddress.equalsIgnoreCase(macAddress)) {
+                // Cancel timeout since connection succeeded
+                handler.removeCallbacks(connectionTimeoutRunnable);
                 flushAndExecutePendingCommand();
             }
         }
@@ -130,8 +150,6 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
             var vehicleSettings = vehicleRepository.getSettingsForVehicle(vehicleRepository.getVehicleByMac(mac).getId());
             String formattedCommand = VehicleUtils.getFormattedCommand(commandToSend, vehicleSettings);
 
-//            AppLogger.logToDatabaseAndLogcat(context, TAG, "[COMMAND] Transmitting command: " + formattedCommand);
-
             // Use sendTextCommand to safely map string commands into the session
             session.sendTextCommand(formattedCommand,
                     () -> handleResult(formattedCommand, Constants.COMMAND_SUCCESS),
@@ -144,11 +162,14 @@ public class BleCommandManager implements VehicleEventRepository.VehicleEventLis
     }
 
     private void handleResult(String executedCommand, String result) {
+        // Ensure timeout runnable is removed so it doesn't trigger twice
+        handler.removeCallbacks(connectionTimeoutRunnable);
+
         long timeTaken = System.currentTimeMillis() - commandStartTime;
         long timestamp = System.currentTimeMillis();
 
         if (pendingMacAddress != null) {
-            // Log using your repository
+            // Log to database repository (success and even when failed / timed out)
             CommandLogsRepository.getInstance(context).insertLog(
                     pendingMacAddress,
                     executedCommand,

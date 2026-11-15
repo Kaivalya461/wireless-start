@@ -19,4 +19,8 @@ public interface CommandLogDao {
 
     @Query("DELETE FROM command_logs WHERE macAddress = :macAddress")
     void clearLogsForVehicle(String macAddress);
+
+    // Delete logs older than a specific timestamp (e.g., 30 days ago)
+    @Query("DELETE FROM command_logs WHERE timestamp < :cutoffTimestamp")
+    void deleteLogsOlderThan(long cutoffTimestamp);
 }

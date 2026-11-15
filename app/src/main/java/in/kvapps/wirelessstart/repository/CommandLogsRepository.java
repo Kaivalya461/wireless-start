@@ -39,4 +39,16 @@ public class CommandLogsRepository {
     public void clearLogsForVehicle(String macAddress) {
         commandLogDao.clearLogsForVehicle(macAddress);
     }
+
+    /**
+     * Automatically prunes/deletes command logs older than 30 days.
+     */
+    public void pruneOldLogs() {
+        long thirtyDaysInMillis = 30L * 24 * 60 * 60 * 1000L;
+        long cutoffTimestamp = System.currentTimeMillis() - thirtyDaysInMillis;
+
+        // Since allowMainThreadQueries() is enabled in your AppDatabase,
+        // this can be safely called directly.
+        commandLogDao.deleteLogsOlderThan(cutoffTimestamp);
+    }
 }

@@ -41,6 +41,7 @@ import in.kvapps.wirelessstart.enums.CommandActionType;
 import in.kvapps.wirelessstart.enums.ConnectionState;
 import in.kvapps.wirelessstart.model.Vehicle;
 import in.kvapps.wirelessstart.model.VehicleWithSettings;
+import in.kvapps.wirelessstart.repository.CommandLogsRepository;
 import in.kvapps.wirelessstart.repository.VehicleRepository;
 import in.kvapps.wirelessstart.shared.Constants;
 import in.kvapps.wirelessstart.util.AppLogger;
@@ -494,6 +495,8 @@ public class MainActivity extends AppCompatActivity implements BleManager.BleLis
                 });
             }, 20000);
         }
+
+        CommandLogsRepository.getInstance(this).pruneOldLogs();
     }
 
     private void showPopupMenu(View v) {
